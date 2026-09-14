@@ -58,6 +58,41 @@ describe('ToolTrace', () => {
     expect(screen.getByText(/Read section: “11.2.114”/)).toBeInTheDocument()
   })
 
+  it('given a graph walk, when rendered, then it names the section walked from', () => {
+    // Given the third tool, which reads edges rather than prose
+    render(<ToolTrace tools={[call({ name: 'explore_srd_graph',
+                                     args: { section_id: '11.2.114' } })]} />)
+
+    // When the trace is read
+    // Then it is distinguishable from a search of the same section
+    expect(screen.getByText(/Explored the graph: “11.2.114”/))
+      .toBeInTheDocument()
+  })
+
+  it('given a graph query, when rendered, then the cypher is flattened to one line', () => {
+    // Given a multi-line Cypher query, as the model writes it
+    render(<ToolTrace tools={[call({ name: 'query_srd_graph', args: {
+      cypher_query: 'MATCH (c:Creature)\n  -[:HAS_ABILITY]->(a)\nRETURN c.id',
+    } })]} />)
+
+    // When the trace is read
+    // Then it is one line, not the height of the query
+    expect(screen.getByText(
+      /Queried the graph: “MATCH \(c:Creature\) -\[:HAS_ABILITY\]->\(a\) RETURN c.id”/,
+    )).toBeInTheDocument()
+  })
+
+  it('given a long query, when rendered, then it is cut rather than wrapped', () => {
+    // Given a query longer than the trace has room for
+    render(<ToolTrace tools={[call({ name: 'query_srd_graph', args: {
+      cypher_query: `MATCH (n:Section) WHERE n.id = '${'x'.repeat(200)}' RETURN n`,
+    } })]} />)
+
+    // When the trace is read
+    // Then it ends in an ellipsis
+    expect(screen.getByText(/…”$/)).toBeInTheDocument()
+  })
+
   it('given a call still running, when rendered, then it is marked as running', () => {
     // Given a search that has started but not finished
     render(<ToolTrace tools={[call({ done: false })]} />)

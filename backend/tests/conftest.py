@@ -224,6 +224,20 @@ def vectors():
     return embeddings.read(path)
 
 
+@pytest.fixture
+def embedding_key():
+    """
+    A live key, which the dense arm of the search needs and no file supplies.
+
+    ``srd_embeddings.idx`` covers every section of the book, so a loaded graph
+    needs no key — but a query nobody has asked yet has to be embedded when it
+    is asked, so these tests skip rather than searching lexically and calling
+    it hybrid.
+    """
+    if get_settings().embedding.google_api_key is None:
+        pytest.skip("no GOOGLE_API_KEY; a query cannot be embedded")
+
+
 @pytest.fixture(scope="module")
 def graph(graph_session):
     """A *loaded* graph: skips with Neo4j, and again when nothing is in it."""

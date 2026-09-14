@@ -53,8 +53,11 @@ backend/src/dnd_graph_rag/
     cli.py           srd-graph-load, srd-embed
     routes.py        /graph/health, /graph/load
   chat/              stage 3 — graph → answers
-    retrieval.py     the graph, read.  Two ways in: search, or one section
-    tools.py         the subset of that the agent may call
+    retrieval.py     the graph, read.  Lexical search, dense search, the
+                     two fused by rank, and one section by id
+    cypher.py        the agent's own Cypher: the guard, the read-only
+                     transaction, the derived schema, the rows rendered
+    tools.py         the four of those the agent may call
     agent.py         LangGraph tool-calling loop on Gemini
     service.py       one turn → a flat stream of typed events
     source.py        a citation → its characters, and its page rectangles
@@ -242,11 +245,139 @@ the code behind it.
 ## Stage 3 — the chat
 
 A LangGraph tool-calling agent (`langchain.agents.create_agent`) on Gemini,
-with two tools: `search_srd` over the `srd_text` full-text index, and
-`get_srd_section` by dotted id. `service.stream_turn` flattens LangGraph's
-stream into small typed events — `token`, `tool_start`, `tool_end`,
-`citations`, `error`, `done` — which `api.py` encodes as SSE and a test
-iterates directly.
+with four tools: `search_srd`, a hybrid search over both indexes;
+`get_srd_section` by dotted id; `explore_srd_graph`, the edges around one
+section; and `query_srd_graph`, read-only Cypher. `service.stream_turn` flattens LangGraph's stream into small typed
+events — `token`, `tool_start`, `tool_end`, `citations`, `error`, `done` —
+which `api.py` encodes as SSE and a test iterates directly.
+
+**The search has two arms, because they fail differently.** `srd_text` is
+Lucene, so its ranking *is* BM25, and it cannot match a question that shares
+no words with the book: "a creature lying on the ground can only crawl"
+returns the Ring of Mind Shielding. `srd_vector` over the embeddings finds
+Prone from that sentence, and cannot be trusted on an exact term, since Fire
+damage and Cold damage sit next to each other in the space. Each arm is asked
+for `CHAT_SEARCH_LIMIT` candidates; the fusion cuts the union to `CHAT_TOP_K`,
+which is what the model reads.
+
+**Fused by rank, not by score.** A BM25 score is unbounded and
+corpus-relative, a cosine similarity lives in [-1, 1]; normalising them
+against each other would be a fiction that ranks whichever arm happens to have
+the wider spread. Reciprocal rank fusion asks each arm only what it can
+actually answer — which of these did you like better. `fuse` is pure, so the
+arithmetic is tested without a database, and `Passage.found_by` names the arms
+a result came from, which is what makes a ranking inspectable rather than
+something to take on faith.
+
+**A query cannot come out of a file.** `srd_embeddings.idx` covers every
+section of the book, so a *load* needs no key — but a question nobody has
+asked yet has to be embedded when it is asked, under `RETRIEVAL_QUERY` rather
+than the documents' `RETRIEVAL_DOCUMENT`. So `embed_query` returns `None`
+without a key and the search is the lexical arm alone: narrower, and still
+working. That is the one degradation in stage 3. Anything else that goes
+wrong — a rejected key, a spent quota — is raised and reaches the reader as an
+error, like the model's own failures. The vector is cached on the query text,
+since a follow-up turn routinely repeats it.
+
+**A dense index always has a nearest neighbour**, so "nothing matched" is no
+longer something the search can say: with both arms live, a nonsense query
+returns three irrelevant passages rather than a refusal. Judging whether they
+are about the question is the model's job, and the prompt says so in as many
+words. The no-match sentence survives for the case that can still reach it —
+both arms empty, which is a checkout with no key.
+
+**The graph tool is the other half of a citation.** `explore_srd_graph` runs
+`neighbourhood` — the same bounded walk the Graph tab draws — and renders it
+as prose. Two things make it usable rather than misleading. `truncated` is
+spelled out, so a group reads "20 in the graph, 8 shown" instead of
+presenting eight neighbours as the whole answer — and `fan` is an argument so a
+reader of a sample can ask for more of it. The node budget rises with the
+fan, because it is spent in discovery order and a fan raised against a fixed
+limit widens the first group and starves the rest: an ask for more that
+returns less. For a list that must be complete the docstring sends the model
+to `query_srd_graph` rather than promising that a wide enough fan will do. And every neighbour
+carries an id to cite.
+
+**That last part is most of what makes the tool cheap.** The prompt asks for
+an id after every claim and a `:CreatureAbility` has none, so a walk that only
+*names* them is a list of things the model may mention and may not cite — and
+it answers that by searching for each one by name, a call apiece. One extra
+query resolves where each derived node was printed (`HAS_ABILITY` from the
+stat block, `DEFINED_IN` to the defining passage) and the line reads `Roar
+(3/Day) (CreatureAbility; printed in [15.146.3] Sphinx of Valor — cite that)`.
+What is genuinely printed nowhere — a damage type, a weapon row — still says
+*do not cite*, and an ability the query cannot place keeps its owner in the
+name, because the book prints a dozen Swallows.
+
+**The agent writes its own Cypher, because the exhaustive question has no
+other answer.** A search returns passages and a walk returns a sample, and
+the model treats both as leads to verify: "which creatures can make someone
+Frightened" cost sixty-odd tool calls and was still a list assembled by
+guesswork. It is one query, and `query_srd_graph` runs it.
+
+**The boundary is the transaction, not a word list.** The session is opened
+`READ_ACCESS` and the query runs in an explicit transaction, so Neo4j refuses
+a write itself with `Neo.ClientError.Statement.AccessMode` before anything
+happens. That is what makes the tool safe, and it is also why the obvious
+denylist is not merely redundant but wrong: the SRD contains a spell called
+*Create Undead*, so refusing any query containing `CREATE` would refuse
+`WHERE s.name = 'Create Undead'`. What read access does *not* cover is
+procedures — `CALL dbms.listConfig()` is a read, runs happily, and returns
+the server's configuration — so those are allow-listed, with `LOAD CSV`
+refused beside them. The guard cuts string literals out before it reads
+anything, so a rule about Cypher never becomes a rule about the book. Two
+bounds finish it: a row cap, which is what the model reads, and a
+transaction timeout, which is what the row cap cannot do, since a cartesian
+product costs its time server-side before it sends a single row.
+
+**The schema is derived, and it is in the prompt.** `shapes()` reads which
+labels each relationship actually joins off the data — one pass over 11442
+relationships, 0.14s, cached for the process — because a schema written down
+in a prompt drifts from `mapping.py` the first time anyone edits it and
+nothing fails: the model simply writes Cypher against a graph that no longer
+exists. `db.schema.visualization` would be the obvious source and is not, since
+it reads the token store and on a multi-label graph reports combinations no
+node has. Beside it sit the ten or so facts no introspection can state —
+nodes are multi-label, the dotted `id` is the only citable identifier, a
+creature *is* its section and an ability is not. It goes in the system prompt
+rather than behind a tool because the model has to know the labels at the
+moment it composes a query; a schema tool costs a round trip on every turn
+that touches the graph and two on every turn that guesses wrong. A graph that
+cannot be reached costs the schema, not the turn.
+
+**Two lines of the orientation block are worth more than the tool was.**
+Measured on "which creatures can make someone Frightened", five runs an arm:
+the schema as first written gave a median of 29 tool calls, and adding the
+*idiom* — that an effect reaches its target through an intermediate node, so
+a creature imposes a condition both through its ability and through a spell
+that ability casts — took it to 12. The labels were never the problem. The
+model had them and used them correctly from the first query; what it lacked
+was which *chains* answer which kind of question, and that is a fact about
+how this graph models the book rather than anything introspection can report.
+
+**And the rest of the calls were a cell cap.** With the paths named, what
+remained was twenty `get_srd_section` calls a run, one per row: the answer
+needs "DC 13 Wisdom saving throw, Frightened until the start of its next
+turn", `CELL_CHARS` was 200, and 22% of ability descriptions are longer than
+that — the *interesting* 22%, since a trait with a saving throw and a
+duration is longer than a trait without. The model was reading truncated
+mechanics and going to fetch the rest of a column it had already been given.
+At 600, which cuts 18 of 1314, the median is 8 calls and most runs never open
+a section at all. A `TOTAL_CHARS` budget bounds what the cell cap no longer
+does, dropping whole rows rather than squeezing cells, because a
+half-populated row reads as a fact about the book.
+
+**An error is a result, not a failure.** A bad label or a backwards
+relationship comes back as the message plus a pointer to the schema, and the
+model fixes it and runs again — the loop working. Only `AccessMode` is
+reworded, because Neo4j's own text for it is "Unexpected error has occurred.
+See debug log", which tells the model nothing it can act on.
+
+**Filled is printed, hollow is derived — and that costs a hop.** A citation
+names the *section* defining Prone; the `:GlossaryTerm` that 58 things
+`IMPOSES_CONDITION` is one hop further out. So depth 1 from a citation often
+shows only structure, and the tool's own docstring tells the model to walk it
+again at depth 2 when it does.
 
 **The model is required, and a failure is the reply.** There used to be a
 `fallback.py` here that answered from graph search alone when the model could
@@ -535,7 +666,7 @@ node's `char_start`/`char_end` resolves to real text.
 | classes | 12 | core traits, 20-level progression, 232 features, subclasses |
 | species / backgrounds / feats | 9 / 4 / 17 | |
 | glossary | 172 | 15 conditions, 13 damage types, 12 actions, 4 poison types, … |
-| references | 5132 | typed edges between all of the above |
+| references | 5255 | typed edges between all of the above |
 
 Every section node carries an `entity_type`, and where a section *is* an
 entity the metadata is attached to it rather than to a copy beside it:
@@ -557,7 +688,7 @@ and armour have no `section_id`, because they are only ever table rows.
 
 ## The graph
 
-`srd-graph-load` reads the artifact and writes 4260 nodes and 11319
+`srd-graph-load` reads the artifact and writes 4260 nodes and 11442
 relationships. The load is idempotent — everything MERGEs on a stable key —
 but a full reset is the default, because the artifact is the whole truth and
 merging alone would leave behind nodes a re-parse has since dropped.
@@ -618,16 +749,16 @@ stay separate nodes joined by `DEFINED_IN`.
 **Abilities are nodes because references point at them.** A creature-sourced
 reference names the entry it came from in `part` (`actions/Bite`), so
 `:CreatureAbility` is keyed `Goblin|actions/Bite` — the same string. Without
-that, all 1542 of those edges would smear across the whole stat block and
+that, all 1582 of those edges would smear across the whole stat block and
 "which creatures can Frighten, and *how*" would lose the second half.
 
 **Targets are matched, never merged.** A reference target carries a name and a
 type but no id. Merging on a name that fails to resolve would invent an empty
 node and hide exactly the drift this stage exists to catch, so unresolved
-targets are counted and reported instead. All 5132 currently resolve.
+targets are counted and reported instead. All 5255 currently resolve.
 
 **A closed vocabulary becomes nodes; a bare classification does not.** The
-thirteen damage types earn `:DamageType` nodes because 1627 edges point at
+thirteen damage types earn `:DamageType` nodes because 1987 edges point at
 them from all over the book. Poison delivery types earn `:PoisonType` nodes
 for the opposite reason: *nothing* refers to them, so without the
 `HAS_POISON_TYPE` edge from each poison, the paragraph defining what
@@ -715,6 +846,18 @@ headers ("Traits", "Actions") are *plain* GillSans 12, which is what
 separates them from real headings. Small-caps sidebar headings extract as
 mixed case ("rEstinG") and are recased.
 
+**A list of names is one mention each.** The book routinely names several
+things at once — "the Deafened and Frightened conditions", "Bludgeoning,
+Piercing, and Slashing damage" — and the phrase matcher was built for a
+single name before a singular noun, so it read none of them: 43 such phrases
+went unlinked and the Tarrasque's Thunderous Bellow referenced no condition
+at all. Lists are read generously here, *or* included, because these are
+mentions and the text does name every one of them. Whether a condition is
+*inflicted* is the stricter question below, and it reads only *and*: "a
+creature that has the Grappled, Incapacitated, or Restrained condition" is
+target eligibility, and guessing between the two readings would put the false
+positives in the graph, which is what this stage exists to prevent.
+
 **Edges come from the book's own markup.** Spells and magic items are
 italicised, creatures bolded. A span becomes an edge only when it resolves to
 an entity we actually extracted — italic is also emphasis and book titles.
@@ -723,7 +866,9 @@ required phrasing (`Prone condition`, `Utilize action`, `Fire damage`), which
 keeps `Cover`, `Attack` and `Force` from firing as bare nouns.
 
 **`imposes_condition` vs `references_condition`.** Typography only says two
-things are mentioned together. Direction comes from `mechanics.py`, which
+things are mentioned together, and a stat block routinely imposes a pair at
+once ("the target has the Deafened and Frightened conditions"), which a
+pattern reading one name before a singular noun misses entirely. Direction comes from `mechanics.py`, which
 scopes negation to the clause after the last comma, semicolon or full stop:
 *"While Charmed, the target has the Incapacitated condition"* imposes it,
 *"while the vampire has the Incapacitated condition"* does not, and *"one
@@ -769,7 +914,7 @@ Two rules that cost real debugging time:
 Same idea one stage on: `meta.counts` is an independent statement of what
 should be in the database. `verify.py` runs 67 checks — a count per label, a
 count per `entity_type`, the creature↔section join at 336/336, one parent per
-section outside the 16 roots, all 5132 reference edges present with zero
+section outside the 16 roots, all 5255 reference edges present with zero
 unresolved endpoints, 1314 abilities each attached to a creature, every
 section still carrying its page and char offsets, and every section with
 prose carrying a vector of the right width under an index that came online. A non-zero failure count
@@ -808,22 +953,35 @@ rules-correct value is used and the printed one kept in `printed_score`.
   source; a proper `grants_spell` relation with class and level is the
   obvious next step. `ON_SPELL_LIST` (from each spell's own subtitle) is the
   closest thing in the graph today.
-- The embeddings exist but nothing queries them. Every section with prose
-  carries one and `srd_vector` indexes them, which is the *document* half of
-  a hybrid retriever; `chat/retrieval.py` is still purely lexical. The
-  missing half is a `vector_search` beside `search`, fusing the two rankings
-  into the same `Passage` list, and it is a separate step because a *query*
-  needs one live embedding call per turn, which the shared `.idx` cannot
-  cover and which therefore has to degrade to lexical without a key.
+- The fusion weights both arms equally, which is reciprocal rank fusion's
+  known weakness with an uninformative one. Asked "how much damage does a
+  longsword do", the lexical arm has nothing and returns "One Thing at a
+  Time" at rank 1, where RRF credits it exactly as it credits the dense arm's
+  correct rank 1. A per-arm weight, or a floor on the Lucene score below
+  which the arm is dropped, is the obvious next iteration; `found_by` is
+  already there to measure it by.
+- Nothing reranks. The fused top three is handed to the model as it comes,
+  and a cross-encoder over the eight candidates is the standard next step.
 - Spell mechanics are lighter than creature mechanics (spells use prose, not
   the stat block's labels): ability and damage yes, target shapes no.
-- The agent has only lexical retrieval. The graph traversal that the whole
-  of stage 2 exists to enable — "which creatures Frighten, and how" across
-  `HAS_ABILITY`/`IMPOSES_CONDITION` — is not yet a *tool*, so those questions
-  are answered from whatever full-text search happens to surface. The reader
-  can now walk those edges by hand in the Graph tab; the model still cannot.
-  Typed traversal tools, and a guarded read-only Cypher tool, are the next
-  step, and `chat/neighbourhood.py` is most of the query they would need.
+- There are no typed traversals. `query_srd_graph` covers the long tail and
+  `explore_srd_graph` covers exploration, but the two or three question
+  shapes that actually recur (`creatures_imposing(condition)`) would be
+  cheaper and more reliable as tools of their own than as Cypher the model
+  composes each time.
+- `fan` widens every group at once, so it is a blunt way to ask for one.
+  The node budget now rises with it, which stops a wider ask returning less,
+  but the right answer to "all of them" is `query_srd_graph`, and the walk's
+  docstring says so rather than pretending otherwise.
+- **An exhaustive question still fans out.** "Which creatures can make
+  someone Frightened" is answered correctly, and in sixty-odd tool calls: the
+  agent walks the graph, gets its list, and then verifies every creature on
+  it with a search and a section read, plus a long tail of guesses at names
+  the graph never mentioned. Neither the citability of the walk nor a wider
+  fan moved that number. The graph gives the model a *list* and the model
+  does not treat a list as an answer, which is a prompt problem and a tool
+  problem at once: one typed traversal returning the creature, the ability
+  and the save in a single result is what would end it.
 - The graph explorer opens only on a citation. With nothing cited it says
   so rather than offering a way in — searching for a node to start from, the
   way the Page tab's page-number box is a way into the book, is the missing

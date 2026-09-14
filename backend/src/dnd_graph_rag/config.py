@@ -49,11 +49,25 @@ class ChatSettings(BaseSettings):
     # behaviour on release without a commit.
     model: str = "gemini-3.8-flash"
     temperature: float = 0.2
+    # Candidates *per arm* of the hybrid search, not results: the lexical and
+    # the dense index are each asked for this many, and the fusion cuts the
+    # union down to ``top_k``.  Wider than the answer on purpose — a passage
+    # the other arm ranks highly is worth having in the pool.
     search_limit: int = 8
+    # What the model actually reads.  Three, because a fused top of three is
+    # about as much of the book as an answer leans on, and everything past it
+    # is context the model has to ignore.
+    top_k: int = 3
     # Bounds silence, not the answer: reset by every token and every tool
     # result, so it fires only on a stalled call, which neither yields nor
     # raises and so is otherwise indistinguishable from a slow one.
     timeout_seconds: float = 60
+    # The agent's own Cypher, bounded two ways.  The row cap is what the
+    # model reads; the transaction timeout is what the row cap cannot do,
+    # since a cartesian product costs its time server-side before it sends a
+    # single row.
+    cypher_timeout_seconds: float = 10
+    cypher_max_rows: int = 50
     # Run the scripted model in ``chat.stub`` instead of Gemini.  For the
     # suites only — the backend's route tests and e2e, which want a
     # deterministic answer and no quota.  Nothing turns it on in response to

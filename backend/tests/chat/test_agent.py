@@ -113,6 +113,47 @@ class TestSystemPrompt:
         assert "does not include that" in agent.SYSTEM_PROMPT
 
 
+class TestSystemPromptSchema:
+    """The prompt, plus the schema the Cypher tool is written against."""
+
+    def test_given_a_loaded_graph_when_built_then_the_schema_is_appended(
+            self, graph):
+        """
+        In the prompt rather than behind a tool: the model has to know the
+        labels at the moment it composes a query.
+        """
+        # Given a loaded graph
+        from dnd_graph_rag.chat import cypher
+        cypher.shapes.cache_clear()
+
+        # When the prompt is built
+        built = agent.system_prompt()
+
+        # Then it carries what the model needs to write Cypher against
+        assert agent.SYSTEM_PROMPT in built
+        assert "-[:IMPOSES_CONDITION]->" in built
+        cypher.shapes.cache_clear()
+
+    def test_given_an_unreachable_graph_when_built_then_it_costs_the_schema_not_the_turn(
+            self, monkeypatch):
+        """
+        The tools fail with their own message, which is the honest thing for
+        a chat whose database is down to say — and much better than a 503 on
+        a question the model could have answered.
+        """
+        # Given a graph that cannot be reached
+        from dnd_graph_rag.chat import cypher
+
+        def unreachable() -> str:
+            raise OSError("connection refused")
+
+        monkeypatch.setattr(cypher, "schema", unreachable)
+
+        # When the prompt is built
+        # Then it is the prompt, without the schema, rather than a failure
+        assert agent.system_prompt() == agent.SYSTEM_PROMPT
+
+
 class TestBuildAgent:
     """The compiled agent, cached per checkpointer."""
 

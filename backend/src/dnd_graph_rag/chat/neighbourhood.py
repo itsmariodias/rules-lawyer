@@ -207,6 +207,21 @@ def _pair_resources(properties: dict) -> dict:
     return paired
 
 
+def _owner(pairs: list[list] | None) -> str | None:
+    """
+    The creature an ability belongs to, which is the only thing that tells
+    two of them apart.
+
+    ``:CreatureAbility`` is named for the entry — "Swallow", "Bite" — and the
+    book prints a dozen of each.  The name alone is not an answer to "which
+    creatures can do this"; the name with its owner is.
+    """
+    for pair in pairs or []:
+        if len(pair) == 2 and pair[0] == "creature":
+            return str(pair[1])
+    return None
+
+
 def _node(row: dict, depth: int) -> dict:
     """One node as the UI draws it: a name, what it is, and how big it is."""
     labels = [l for l in row["labels"] or [] if l not in _UNINFORMATIVE]
@@ -221,6 +236,10 @@ def _node(row: dict, depth: int) -> dict:
         # creature has forty properties and never needs them.
         "summary": summary,
         "facts": [] if summary else _facts(row.get("facts")),
+        # Named separately from the facts, which a node with prose does not
+        # carry: without it two abilities called "Swallow" are the same line
+        # twice.
+        "owner": _owner(row.get("facts")),
         # Present only on nodes that *are* a section, which is what decides
         # whether the Page tab can open on this node at all.
         "section_id": row["section_id"],

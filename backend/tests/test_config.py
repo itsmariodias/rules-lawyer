@@ -147,6 +147,22 @@ class TestChatSettings:
         # Then a turn goes to the provider
         assert chat.stub is False
 
+    def test_given_no_overrides_when_read_then_the_search_is_wider_than_the_answer(
+            self):
+        """
+        Two limits, not one: each arm of the hybrid search is asked for
+        ``search_limit`` candidates, and the fusion cuts the union to
+        ``top_k``.  A passage the other arm ranks highly is worth having in
+        the pool even when it is not in the answer.
+        """
+        # Given no CHAT_ overrides in the environment
+        chat = ChatSettings()
+
+        # When the retrieval limits are read
+        # Then the pool is wider than what the model is handed
+        assert chat.top_k == 3
+        assert chat.search_limit > chat.top_k
+
     def test_given_a_blank_key_when_read_then_it_counts_as_no_key_at_all(self):
         """
         ``GOOGLE_API_KEY=`` is how someone turns the key off without deleting

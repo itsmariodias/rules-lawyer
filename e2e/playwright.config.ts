@@ -99,6 +99,13 @@ export default defineConfig({
       env: {
         DND_GRAPH_RAG_DATA: data,
         CHAT_STUB: '1',
+        // Blanked rather than left to the root .env, which this inherits.
+        // The scripted model needs no key, but the search's dense arm embeds
+        // every query live, and a suite is not a place to spend quota — and
+        // an environment variable beats an .env that sets one, which a
+        // missing variable would not.  So e2e runs the lexical arm alone,
+        // which is also the path a checkout without a key takes.
+        GOOGLE_API_KEY: '',
         NEO4J_URI, NEO4J_PASSWORD,
       },
       reuseExistingServer: false,

@@ -129,6 +129,11 @@ class NameIndex:
 # Reference scanning
 # ---------------------------------------------------------------------------
 
+# The separators a list of names is written with.  The longest first, so
+# ", and " is one boundary rather than a comma and a stray "and".
+_NAME_SPLIT_RE = re.compile(r",\s+(?:and|or)\s+|,\s+|\s+and\s+|\s+or\s+")
+
+
 class ReferenceScanner:
     """Finds every resolvable cross-reference in a piece of SRD text."""
 
@@ -148,10 +153,27 @@ class ReferenceScanner:
 
     @staticmethod
     def _phrase_re(names: list[str], noun: str) -> re.Pattern | None:
+        """
+        The phrasing the rules always use, for one name or for a list of them.
+
+        The book routinely names several at once — "the Deafened and
+        Frightened conditions", "Bludgeoning, Piercing, and Slashing damage"
+        — and a pattern built for a single name before a singular noun reads
+        none of them: 43 such phrases across conditions, actions and damage
+        types went unlinked, which is how the Tarrasque came to reference no
+        condition at all.
+
+        A list is read generously here, *or* included, because these are
+        mentions: the text does name every one of them.  Whether a condition
+        is inflicted rather than mentioned is a separate and stricter
+        question, answered by ``mechanics.conditions_imposed``.
+        """
         if not names:
             return None
         alternatives = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
-        return re.compile(rf"\b({alternatives})\s+{noun}\b")
+        one = f"(?:{alternatives})"
+        return re.compile(
+            rf"\b({one}(?:(?:,|\s+and|\s+or)\s+{one})*)\s+{noun}s?\b")
 
     def scan(self, text: str) -> list[tuple[str, str]]:
         """Return (target_type, name) pairs, deduplicated, in a stable order."""
@@ -172,12 +194,12 @@ class ReferenceScanner:
             if name:
                 found.append(("creature", name))
 
-        if self._condition_re:
-            found += [("condition", m.group(1)) for m in self._condition_re.finditer(text)]
-        if self._action_re:
-            found += [("action", m.group(1)) for m in self._action_re.finditer(text)]
-        if self._damage_re:
-            found += [("damage_type", m.group(1)) for m in self._damage_re.finditer(text)]
+        for kind, pattern in (("condition", self._condition_re),
+                              ("action", self._action_re),
+                              ("damage_type", self._damage_re)):
+            if pattern:
+                found += [(kind, name) for m in pattern.finditer(text)
+                          for name in _NAME_SPLIT_RE.split(m.group(1))]
         found += [("area_of_effect", m.group(1)) for m in _AREA_RE.finditer(text)]
 
         return list(dict.fromkeys(found))

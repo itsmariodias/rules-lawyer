@@ -11,11 +11,26 @@ import type { ToolCall } from '../api'
 const LABELS: Record<string, string> = {
   search_srd: 'Searched the SRD',
   get_srd_section: 'Read section',
+  explore_srd_graph: 'Explored the graph',
+  query_srd_graph: 'Queried the graph',
+}
+
+// Cypher arrives as several indented lines, which would push the trace to
+// the height of the answer.  It is collapsed to one line and cut: the trace
+// says what was looked up, and the rows it returned are the model's to read.
+const CYPHER_CHARS = 80
+
+function oneLine(cypher: string): string {
+  const flat = cypher.replace(/\s+/g, ' ').trim()
+  return flat.length > CYPHER_CHARS ? `${flat.slice(0, CYPHER_CHARS)}…` : flat
 }
 
 function summarise(call: ToolCall): string {
-  const args = call.args as { query?: string; section_id?: string; entity_type?: string }
-  const subject = args.query ?? args.section_id ?? ''
+  const args = call.args as {
+    query?: string; section_id?: string; entity_type?: string; cypher_query?: string
+  }
+  const subject = args.query ?? args.section_id
+    ?? (args.cypher_query ? oneLine(args.cypher_query) : '')
   const filter = args.entity_type ? ` · ${args.entity_type}` : ''
   return `${LABELS[call.name] ?? call.name}${subject ? `: “${subject}”` : ''}${filter}`
 }

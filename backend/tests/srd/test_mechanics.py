@@ -144,6 +144,60 @@ class TestConditionsImposed:
     the clause the phrase sits in.
     """
 
+    def test_given_a_pair_joined_by_and_when_scanned_then_both_are_imposed(self):
+        """
+        One effect routinely imposes several at once.  Reading only the
+        singular form left the Tarrasque's Thunderous Bellow and the
+        Rakshasa's Baleful Command imposing nothing at all.
+        """
+        # Given an outcome inflicting two conditions at once
+        text = ("_Failure:_ 78 (12d12) Thunder damage, and the target has "
+                "the Deafened and Frightened conditions until the end of "
+                "its next turn.")
+
+        # When it is scanned
+        # Then both are imposed, not neither
+        assert mechanics.conditions_imposed(text) == ["Deafened", "Frightened"]
+
+    def test_given_a_list_of_three_when_scanned_then_every_one_is_imposed(self):
+        # Given an outcome inflicting three conditions
+        text = "the target has the Blinded, Deafened, and Poisoned conditions."
+
+        # When it is scanned
+        # Then the serial comma does not cost the middle one
+        assert mechanics.conditions_imposed(text) == ["Blinded", "Deafened",
+                                                      "Poisoned"]
+
+    def test_given_a_page_marker_inside_a_pair_when_scanned_then_it_is_ignored(
+            self):
+        """
+        A page marker lands wherever the page broke, which for the Remorhaz's
+        swallowed creature is between the two conditions it gets.
+        """
+        # Given a pair split by the marker the markdown carries
+        text = ("A swallowed creature has the Blinded\n\n<!-- PAGE:320 -->"
+                "\n\nand Restrained conditions.")
+
+        # When it is scanned
+        # Then the break in the page is not a break in the sentence
+        assert mechanics.conditions_imposed(text) == ["Blinded", "Restrained"]
+
+    def test_given_conditions_joined_by_or_when_scanned_then_none_is_imposed(
+            self):
+        """
+        Two different sentences wearing the same shape: this one is target
+        eligibility, and guessing would put false positives in the graph,
+        which is the one thing this stage exists to prevent.
+        """
+        # Given a list of conditions describing which targets are eligible
+        text = ("you can wrap a Chain around an unwilling creature within 5 "
+                "feet of yourself that has the Grappled, Incapacitated, or "
+                "Restrained condition")
+
+        # When it is scanned
+        # Then nothing is imposed
+        assert mechanics.conditions_imposed(text) == []
+
     def test_given_an_outcome_when_scanned_then_the_condition_is_imposed(self):
         # Given a stat block stating an outcome
         text = "the target has the Prone condition"

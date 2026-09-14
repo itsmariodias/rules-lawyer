@@ -1,9 +1,11 @@
 """
-The graph, read: full-text search and one section by id.
+The graph, read: search — lexical, dense, and the two fused — and one section
+by id.
 
-The escaping is pure; the two queries need a loaded graph and skip without
-one.  Both return a ``Passage``, which is what carries a citation back to the
-markdown and to the printed page.
+The escaping and the fusion are pure; the queries need a loaded graph and skip
+without one, and the dense arm needs a key on top of that.  Everything returns
+a ``Passage``, which is what carries a citation back to the markdown and to
+the printed page.
 """
 
 from __future__ import annotations
@@ -158,6 +160,221 @@ class TestSearch:
 
         # Then no more than that many passages come back
         assert len(passages) <= 3
+
+
+class TestEmbedQuery:
+    """One query, embedded in the space the book was embedded in."""
+
+    def test_given_no_key_when_a_query_is_embedded_then_it_is_absent_not_an_error(
+            self, settings_env):
+        """
+        The one degradation this module makes: the shared ``.idx`` covers the
+        book but cannot cover a question nobody has asked yet.
+        """
+        # Given a checkout whose key has been blanked out
+        settings_env(GOOGLE_API_KEY="")
+        retrieval.embed_query.cache_clear()
+
+        # When a query is embedded
+        # Then there is no vector, and no failure either
+        assert retrieval.embed_query("prone") is None
+        retrieval.embed_query.cache_clear()
+
+    def test_given_a_key_when_a_query_is_embedded_then_it_is_sent_as_a_query(
+            self, settings_env, monkeypatch):
+        """
+        The document side embeds under ``RETRIEVAL_DOCUMENT``; a question is
+        not a document, and the model places the two differently.
+        """
+        # Given a key, and an embedder that records how it was asked
+        settings_env(GOOGLE_API_KEY="not-a-real-key")
+        retrieval.embed_query.cache_clear()
+        seen = {}
+
+        def record(batch, settings, report=None):
+            seen["texts"] = batch
+            seen["task_type"] = settings.task_type
+            return [[0.0, 1.0]]
+
+        monkeypatch.setattr(retrieval.embeddings, "embed", record)
+
+        # When a query is embedded
+        vector = retrieval.embed_query("prone")
+
+        # Then it went as a query, and came back hashable
+        assert seen == {"texts": ["prone"], "task_type": "RETRIEVAL_QUERY"}
+        assert vector == (0.0, 1.0)
+        retrieval.embed_query.cache_clear()
+
+    def test_given_a_repeated_query_when_embedded_then_it_is_not_asked_twice(
+            self, settings_env, monkeypatch):
+        """A follow-up turn routinely repeats a query, and each one costs."""
+        # Given a key and an embedder that counts its calls
+        settings_env(GOOGLE_API_KEY="not-a-real-key")
+        retrieval.embed_query.cache_clear()
+        calls = []
+        monkeypatch.setattr(retrieval.embeddings, "embed",
+                            lambda batch, settings, report=None:
+                            calls.append(batch) or [[1.0]])
+
+        # When the same query is embedded twice
+        retrieval.embed_query("prone")
+        retrieval.embed_query("prone")
+
+        # Then the second one never reached the network
+        assert len(calls) == 1
+        retrieval.embed_query.cache_clear()
+
+
+class TestVectorSearch:
+    """Nearest neighbours of the question, over the loaded vectors."""
+
+    def test_given_an_empty_query_when_searched_then_nothing_is_embedded(self):
+        # Given a question of nothing but whitespace
+        # When it is searched
+        # Then it is answered without embedding it or reaching the index
+        assert retrieval.vector_search("   ") == []
+
+    def test_given_no_key_when_searched_then_the_arm_is_empty_not_broken(
+            self, settings_env):
+        # Given a checkout with no key
+        settings_env(GOOGLE_API_KEY="")
+        retrieval.embed_query.cache_clear()
+
+        # When the dense arm is searched
+        # Then it contributes nothing rather than failing the turn
+        assert retrieval.vector_search("prone") == []
+        retrieval.embed_query.cache_clear()
+
+    def test_given_a_paraphrase_when_searched_then_the_book_is_still_found(
+            self, graph, embedding_key):
+        """The arm exists for the query that shares no words with the book."""
+        # Given a loaded graph with vectors on it
+        # When a question is asked in words the SRD does not use
+        passages = retrieval.vector_search(
+            "what happens when a creature is knocked down", limit=10)
+
+        # Then it still lands in the book, citably
+        assert passages
+        assert all(p.section_id for p in passages)
+
+    def test_given_a_type_filter_when_searched_then_only_that_type_comes_back(
+            self, graph, embedding_key):
+        # Given a loaded graph with vectors on it
+        # When the dense arm is filtered to spells
+        passages = retrieval.vector_search("a ball of fire", limit=5,
+                                           types=["spell"])
+
+        # Then nothing else came back
+        assert passages
+        assert {p.entity_type for p in passages} == {"spell"}
+
+
+class TestFuse:
+    """Several rankings of the same book, folded into one."""
+
+    @staticmethod
+    def _passage(section_id: str) -> retrieval.Passage:
+        return retrieval.Passage(section_id=section_id, heading=section_id,
+                                 entity_type="rule", content="…")
+
+    def test_given_a_passage_both_arms_like_when_fused_then_it_leads(self):
+        """
+        Ranked second by each arm and first by neither, it still wins: that
+        is the whole point of fusing by rank rather than by score.
+        """
+        # Given two rankings that agree on their second choice
+        a, b, shared = (self._passage("1"), self._passage("2"),
+                        self._passage("3"))
+        rankings = {"lexical": [a, shared], "semantic": [b, shared]}
+
+        # When they are fused
+        fused = retrieval.fuse(rankings, limit=3)
+
+        # Then the passage both arms returned is first
+        assert fused[0].section_id == "3"
+
+    def test_given_a_fused_ranking_when_read_then_it_says_which_arms_found_it(
+            self):
+        # Given a passage one arm found and a passage both did
+        only, both = self._passage("1"), self._passage("2")
+        rankings = {"lexical": [only, both], "semantic": [both]}
+
+        # When they are fused
+        fused = {p.section_id: p for p in retrieval.fuse(rankings, limit=5)}
+
+        # Then the ranking can be inspected rather than taken on faith
+        assert fused["2"].found_by == ["lexical", "semantic"]
+        assert fused["1"].found_by == ["lexical"]
+
+    def test_given_a_fused_ranking_when_read_then_the_score_is_the_fused_one(
+            self):
+        """A BM25 score and a cosine similarity are not on the same scale."""
+        # Given one arm's ranking, whose passage carries the index's own score
+        passage = self._passage("1")
+        passage.score = 8.4
+
+        # When it is fused
+        fused = retrieval.fuse({"lexical": [passage]}, limit=1)
+
+        # Then the score is the reciprocal rank, not what Lucene said
+        assert fused[0].score == 1 / (retrieval.RRF_K + 1)
+
+    def test_given_more_results_than_asked_for_when_fused_then_it_is_cut(self):
+        # Given two arms returning five passages between them
+        rankings = {"lexical": [self._passage(str(i)) for i in range(3)],
+                    "semantic": [self._passage(str(i)) for i in range(3, 5)]}
+
+        # When they are fused to three
+        fused = retrieval.fuse(rankings, limit=3)
+
+        # Then only three come back
+        assert len(fused) == 3
+
+    def test_given_no_results_at_all_when_fused_then_it_is_empty(self):
+        # Given two arms that found nothing
+        # When they are fused
+        # Then the absence survives the fusion
+        assert retrieval.fuse({"lexical": [], "semantic": []}, limit=3) == []
+
+
+class TestHybridSearch:
+    """The search the agent actually calls: keywords and meaning at once."""
+
+    def test_given_no_key_when_searched_then_it_is_the_lexical_arm_alone(
+            self, graph, settings_env):
+        """Lexical alone is a narrower search and still a working one."""
+        # Given a loaded graph and no key
+        settings_env(GOOGLE_API_KEY="")
+        retrieval.embed_query.cache_clear()
+
+        # When the hybrid search runs
+        passages = retrieval.hybrid_search("Prone condition", limit=3)
+
+        # Then it answered, and every passage came from the one live arm
+        assert passages
+        assert all(p.found_by == ["lexical"] for p in passages)
+        retrieval.embed_query.cache_clear()
+
+    def test_given_a_question_when_searched_then_it_is_cut_to_the_limit(
+            self, graph):
+        # Given a loaded graph
+        # When a broad question is searched
+        passages = retrieval.hybrid_search("damage", limit=3, candidates=8)
+
+        # Then the model reads three passages, not sixteen
+        assert len(passages) <= 3
+
+    def test_given_both_arms_when_searched_then_the_fusion_names_them(
+            self, graph, embedding_key):
+        # Given a loaded graph with vectors on it
+        # When a question both arms can answer is searched
+        passages = retrieval.hybrid_search("Prone condition", limit=5)
+
+        # Then the result is drawn from both, not from one with a spare step
+        assert passages
+        assert {arm for p in passages for arm in p.found_by} == {"lexical",
+                                                                 "semantic"}
 
 
 class TestGetSection:

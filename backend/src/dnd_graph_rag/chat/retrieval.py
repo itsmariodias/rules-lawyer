@@ -1,8 +1,13 @@
 """
-Read queries against the graph: full-text search, and one section by id.
+Read queries against the graph: search, and one section by id.
 
-Both return a :class:`Passage`, which carries the section id and character
-range that resolve a citation back to ``srd_hierarchy.md``.
+Search has two arms.  ``search`` is the full-text index, which is Lucene, so
+its ranking *is* BM25; ``vector_search`` is the ``srd_vector`` index over the
+embeddings stage 2 writes.  ``hybrid_search`` runs both and fuses them, and is
+what the agent's ``search_srd`` tool calls.
+
+Everything here returns a :class:`Passage`, which carries the section id and
+character range that resolve a citation back to ``srd_hierarchy.md``.
 """
 
 from __future__ import annotations
@@ -15,7 +20,8 @@ from typing import Any
 from neo4j import Driver, GraphDatabase
 
 from ..config import get_settings
-from ..graph.schema import FULLTEXT_NAME
+from ..graph import embeddings
+from ..graph.schema import FULLTEXT_NAME, VECTOR_NAME
 
 # Lucene reads these as syntax.  A rules question is natural language —
 # "the target's AC (+2)" — so every one of them is escaped rather than
@@ -68,6 +74,11 @@ class Passage:
     char_end: int | None = None
     labels: list[str] = field(default_factory=list)
     score: float | None = None
+    # Which arms of the hybrid search returned this passage.  Not shown to
+    # the model — it is retrieval plumbing — but it is the difference
+    # between a fused ranking one can inspect and one that must be taken
+    # on faith.
+    found_by: list[str] = field(default_factory=list)
 
     @classmethod
     def from_row(cls, row: dict) -> "Passage":
@@ -142,6 +153,146 @@ def search(text: str, limit: int = 8, types: list[str] | None = None) -> list[Pa
     else:
         rows = query(_SEARCH, {"query": escaped, "limit": limit})
     return [Passage.from_row(row) for row in rows]
+
+
+# --------------------------------------------------------------------------
+# The dense arm
+
+
+# The document side embeds under ``RETRIEVAL_DOCUMENT``; a query is not a
+# document, and the model is trained to place the two differently.  It is a
+# constant rather than a setting because, unlike everything on
+# ``EmbeddingSettings``, it is not baked into the ``.idx`` header: nothing
+# about it can drift out of step with a file on disk.
+QUERY_TASK_TYPE = "RETRIEVAL_QUERY"
+
+
+@lru_cache(maxsize=256)
+def embed_query(text: str) -> tuple[float, ...] | None:
+    """
+    One query, embedded in the space the book was embedded in.
+
+    ``None`` without a key, which is the one degradation this module makes:
+    the shared ``srd_embeddings.idx`` covers every section of the book but
+    cannot cover a question nobody has asked yet, so a checkout with no key
+    searches lexically and says nothing about it.  Anything else that goes
+    wrong — a rejected key, a spent quota — is raised, and reaches the reader
+    through ``service._explain`` like any other failure.
+
+    Cached on the text: a follow-up turn routinely repeats a query, and the
+    tuple is what makes the result hashable to begin with.
+    """
+    settings = get_settings().embedding
+    if settings.google_api_key is None:
+        return None
+    asked = settings.model_copy(update={"task_type": QUERY_TASK_TYPE})
+    return tuple(embeddings.embed([text], asked)[0])
+
+
+_VECTOR = f"""
+CALL db.index.vector.queryNodes('{VECTOR_NAME}', $limit, $vector)
+YIELD node, score
+RETURN node.id AS id, node.heading AS heading, node.entity_type AS entity_type,
+       node.content AS content, node.page_start AS page_start,
+       node.char_start AS char_start, node.char_end AS char_end,
+       labels(node) AS labels, score
+"""
+
+_VECTOR_TYPED = _VECTOR.replace(
+    "YIELD node, score",
+    "YIELD node, score\nWITH node, score WHERE node.entity_type IN $types",
+)
+
+
+def vector_search(text: str, limit: int = 8,
+                  types: list[str] | None = None) -> list[Passage]:
+    """
+    Nearest neighbours of the question, over the vectors stage 2 loaded.
+
+    Empty without a key rather than an error: ``hybrid_search`` is then the
+    lexical arm alone, which is a narrower search and still a working one.
+
+    Filtering happens after the index for the reason it does in ``search``:
+    only the index ranks, so the limit is raised and the surplus discarded.
+    """
+    asked = text.strip()
+    if not asked:
+        return []
+    vector = embed_query(asked)
+    if vector is None:
+        return []
+    values = list(vector)
+    if types:
+        rows = query(_VECTOR_TYPED,
+                     {"vector": values, "limit": limit * 5, "types": types})
+        rows = rows[:limit]
+    else:
+        rows = query(_VECTOR, {"vector": values, "limit": limit})
+    return [Passage.from_row(row) for row in rows]
+
+
+# --------------------------------------------------------------------------
+# The fusion
+
+# Reciprocal rank fusion's damping constant, at the value the paper uses.  It
+# is a constant rather than a setting because nothing here is tuning it.
+RRF_K = 60
+
+
+def fuse(rankings: dict[str, list[Passage]], limit: int) -> list[Passage]:
+    """
+    Several rankings of the same book, folded into one.
+
+    By *rank*, not by score.  A Lucene BM25 score and a cosine similarity are
+    not on the same scale — one is unbounded and corpus-relative, the other
+    lives in [-1, 1] — so normalising them against each other would be a
+    fiction that ranks whichever arm happens to have the wider spread.  A
+    reciprocal rank sum asks each arm only what it can actually answer: which
+    of these did you like better.
+
+    Pure, so the arithmetic is tested without a database, the way
+    ``neighbourhood.assemble`` is.  ``found_by`` names the arms that returned
+    each passage, in the order they were given.
+    """
+    scores: dict[str, float] = {}
+    found: dict[str, list[str]] = {}
+    passages: dict[str, Passage] = {}
+
+    for arm, ranking in rankings.items():
+        for rank, passage in enumerate(ranking, start=1):
+            key = passage.section_id
+            scores[key] = scores.get(key, 0.0) + 1.0 / (RRF_K + rank)
+            found.setdefault(key, []).append(arm)
+            # The first arm to return a passage owns the copy: they differ
+            # only in the score the index gave it, which the fused score
+            # replaces anyway.
+            passages.setdefault(key, passage)
+
+    ordered = sorted(scores, key=lambda key: (-scores[key], key))
+    fused = []
+    for key in ordered[:limit]:
+        passage = passages[key]
+        passage.score = scores[key]
+        passage.found_by = found[key]
+        fused.append(passage)
+    return fused
+
+
+def hybrid_search(text: str, limit: int = 3, types: list[str] | None = None,
+                  candidates: int = 8) -> list[Passage]:
+    """
+    The search the agent actually calls: keywords and meaning at once.
+
+    The two arms fail differently, which is the whole argument for running
+    both.  Lucene cannot match a question that shares no words with the book —
+    "knocked down" finds nothing about Prone — and the vector index cannot be
+    trusted on an exact term, since "Fire damage" and "Cold damage" sit next
+    to each other in the space.  Each arm is asked for *candidates*; the
+    fusion cuts the union to *limit*.
+    """
+    return fuse({"lexical": search(text, limit=candidates, types=types),
+                 "semantic": vector_search(text, limit=candidates, types=types)},
+                limit)
 
 
 _SECTION = """
