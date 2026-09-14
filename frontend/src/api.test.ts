@@ -10,8 +10,8 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import {
-  deleteThread, listThreads, loadNeighbourhood, loadSource, loadThread,
-  pinThread, streamChat, type ChatEvent,
+  deleteThread, graphStatus, listThreads, loadNeighbourhood, loadSource,
+  loadThread, pinThread, streamChat, type ChatEvent,
 } from './api'
 
 /** A `fetch` answering one JSON body. */
@@ -44,6 +44,41 @@ function streaming(chunks: string[]) {
 }
 
 const frame = (event: object) => `data: ${JSON.stringify(event)}\n\n`
+
+describe('graphStatus', () => {
+  it('given a loaded database, when asked, then it is connected', async () => {
+    // Given a graph with the book in it
+    answering({ status: 'ok', nodes: { Section: 2368, Spell: 343 } })
+
+    // When the status is read
+    // Then the footer has something true to say
+    expect(await graphStatus()).toBe('connected')
+  })
+
+  it('given a database with nothing in it, when asked, then it is empty', async () => {
+    /**
+     * Reachable and useless is its own state: every question comes back
+     * with nothing, and "connected" would be true and misleading.
+     */
+    // Given a database nothing has been loaded into
+    answering({ status: 'ok', nodes: {} })
+
+    // When the status is read
+    // Then the emptiness is the answer
+    expect(await graphStatus()).toBe('empty')
+  })
+
+  it('given no database at all, when asked, then it is a status not a throw', async () => {
+    /** The caller is a caption in a footer; there is nothing for it to
+        catch, and a rejected promise there would be an unhandled one. */
+    // Given Neo4j down, which the API reports as a 503
+    answering(null, false, 503)
+
+    // When the status is read
+    // Then it resolves, carrying the bad news
+    expect(await graphStatus()).toBe('unreachable')
+  })
+})
 
 describe('listThreads', () => {
   it('given stored conversations, when listed, then the array is unwrapped', async () => {

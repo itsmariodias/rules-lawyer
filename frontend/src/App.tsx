@@ -13,6 +13,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useChat } from './useChat'
+import { useGraphStatus } from './useGraphStatus'
 import { useStored, useTheme, type Theme } from './useStored'
 import { clampWidth, defaultPanel, Resizer } from './components/Resizer'
 import { Markdown } from './components/Markdown'
@@ -32,6 +33,7 @@ const EXAMPLES = [
 export default function App() {
   const { messages, threads, threadId, streaming, send,
           stop, open, reset, forget, pin } = useChat()
+  const graph = useGraphStatus()
   const [draft, setDraft] = useState('')
   const [theme, setTheme] = useTheme()
   // The section the panel is showing, and whether it is showing at all —
@@ -164,8 +166,19 @@ export default function App() {
               setArming(menu.id)
             }} />
         )}
+        {/* Whether the graph is up, said where a caption used to name two
+            technologies. A dead or unloaded database is otherwise only
+            discoverable by asking a question and being told nothing came
+            back. The dot carries the colour and the word carries the
+            meaning, so it reads without seeing the difference between
+            them, and nothing is claimed until the first answer arrives. */}
         <footer className="sidebar-foot">
-          <span>SRD 5.2.1 · graph RAG</span>
+          <span className={`graph-status ${graph}`}>
+            {graph !== 'checking' && (<>
+              <i className="dot" aria-hidden="true" />
+              <span>graph {graph}</span>
+            </>)}
+          </span>
           <ThemeSwitch theme={theme} onPick={setTheme} />
         </footer>
       </nav>

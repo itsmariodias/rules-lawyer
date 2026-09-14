@@ -40,6 +40,7 @@
   --on-accent: light-dark(#ffffff, #1a1211);
   --highlight: light-dark(#fdf0c9, #3d3520);
   --danger: light-dark(#a52020, #f08585);
+  --ok: light-dark(#2f7d4f, #62b884);
   --thumb: light-dark(#d1d2d4, #3a2f2d);
   --thumb-hover: light-dark(#b4b5b8, #55463f);
 
@@ -524,6 +525,20 @@ code { font-family: var(--mono); font-size: 0.87em; }
   min-width: 0;
 }
 .sidebar-foot > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.graph-status { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.graph-status .dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+}
+/* An empty database is as unusable as an absent one: every question comes
+   back with nothing either way, so both read as the same kind of trouble. */
+.graph-status.empty .dot, .graph-status.unreachable .dot {
+  background: var(--danger);
+}
 
 .theme-switch { display: flex; flex: none; }
 

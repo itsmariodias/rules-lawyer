@@ -1,0 +1,36 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Backend",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": ["dnd_graph_rag.api:app", "--port", "8000", "--reload"],
+      "subProcess": true,
+      "cwd": "${workspaceFolder}/backend",
+      "python": "${workspaceFolder}/backend/.venv/bin/python",
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      // Launched directly rather than through `node-terminal`, which runs
+      // the command in a shell: the Python extension's venv activation goes
+      // first there and interrupts the launch. Output lands in the Debug
+      // Console, which is also what `serverReadyAction` reads.
+      "name": "Frontend",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "${workspaceFolder}/frontend",
+      "serverReadyAction": {
+        // Matched on the bare address: Vite puts colour escapes between the
+        // "Local:" label and it.
+        "pattern": "(https?://localhost:[0-9]+)",
+        "uriFormat": "%s",
+        "action": "openExternally"
+      }
+    }
+  ]
+}

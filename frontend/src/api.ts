@@ -130,6 +130,29 @@ async function getJSON<T>(path: string): Promise<T> {
   return response.json() as Promise<T>
 }
 
+/**
+ * Whether the graph can answer anything, as three states rather than two.
+ *
+ * A reachable but empty database is its own failure: every question comes
+ * back with nothing, and "connected" would be a true sentence that misleads.
+ * `/graph/health` counts what is in Neo4j rather than remembering a load, so
+ * both answers come from the one request. It never throws: an unreachable
+ * database is a status, not an error the caller has to catch.
+ */
+export type GraphStatus = 'checking' | 'connected' | 'empty' | 'unreachable'
+
+export async function graphStatus(): Promise<GraphStatus> {
+  try {
+    const health = await getJSON<{ nodes: Record<string, number> }>(
+      '/graph/health')
+    const nodes = Object.values(health.nodes ?? {})
+      .reduce((total, count) => total + count, 0)
+    return nodes > 0 ? 'connected' : 'empty'
+  } catch {
+    return 'unreachable'
+  }
+}
+
 export const listThreads = () =>
   getJSON<{ threads: Thread[] }>('/chat/threads').then((r) => r.threads)
 

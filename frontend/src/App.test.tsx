@@ -27,6 +27,9 @@ const chat = {
 }
 
 vi.mock('./useChat', () => ({ useChat: () => chat }))
+// Tested on its own; here it would be one fetch the shell's tests do not
+// care about. Connected is the ordinary case the rest of these assume.
+vi.mock('./useGraphStatus', () => ({ useGraphStatus: () => 'connected' }))
 vi.mock('./components/SidePanel', () => ({
   SidePanel: ({ sectionId, tab }: { sectionId: string | null; tab: string }) =>
     <div data-testid="panel">{`${tab}:${sectionId ?? 'none'}`}</div>,
