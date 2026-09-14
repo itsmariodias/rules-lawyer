@@ -247,7 +247,16 @@ report = build_graph()    # report["validation"]["ok"] is True on a clean load
 
 ## Licence
 
+The code is [MIT](LICENSE.md).
+
 The SRD 5.2.1 is published by Wizards of the Coast under
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Anything derived
 from it, including the generated JSON, carries that licence and its
-attribution requirement.
+attribution requirement. [NOTICE.md](NOTICE.md) carries the attribution
+statement the SRD requires, and names what it applies to.
+
+This work includes material from the System Reference Document 5.2.1
+(“SRD 5.2.1”) by Wizards of the Coast LLC, available at
+<https://www.dndbeyond.com/srd>. The SRD 5.2.1 is licensed under the Creative
+Commons Attribution 4.0 International License, available at
+<https://creativecommons.org/licenses/by/4.0/legalcode>.

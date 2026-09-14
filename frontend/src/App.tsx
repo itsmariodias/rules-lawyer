@@ -283,6 +283,26 @@ export default function App() {
             ))}
           </ul>
         )}
+
+        {/* The SRD is CC BY 4.0, and its licence requires this statement
+            word for word in any work carrying its material. Every answer
+            here quotes the book, so it belongs in the application and not
+            only in the repository, and it stays on screen rather than
+            behind a link nobody opens. The same licence asks that no other
+            attribution to Wizards of the Coast appear anywhere, which is
+            why this is the only mention of them in the UI. */}
+        <footer className="attribution">
+          This work includes material from the System Reference Document
+          5.2.1 (“SRD 5.2.1”) by Wizards of the Coast LLC, available at{' '}
+          <a href="https://www.dndbeyond.com/srd"
+             target="_blank" rel="noreferrer">https://www.dndbeyond.com/srd</a>.
+          The SRD 5.2.1 is licensed under the Creative Commons Attribution
+          4.0 International License, available at{' '}
+          <a href="https://creativecommons.org/licenses/by/4.0/legalcode"
+             target="_blank" rel="noreferrer">
+            https://creativecommons.org/licenses/by/4.0/legalcode
+          </a>.
+        </footer>
       </main>
 
       {panelOpen && <Resizer edge="panel" width={panel} other={sidebarRoom}

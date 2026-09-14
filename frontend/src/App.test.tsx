@@ -152,6 +152,29 @@ describe('the conversation', () => {
                               { name: /SRD search instead/ })).toBeNull()
   })
 
+  it('given any screen, when rendered, then the SRD attribution is on it', () => {
+    /**
+     * CC BY 4.0 requires the statement word for word wherever the material
+     * appears, and every answer here quotes the book. It is not conditional
+     * on there being a conversation, so it is asserted on the empty screen.
+     */
+    // Given nothing asked yet
+    chat.messages = []
+
+    // When the app is rendered
+    render(<App />)
+
+    // Then the licence's own wording is present, and it is the whole of it
+    expect(screen.getByText(/This work includes material from the System/))
+      .toBeInTheDocument()
+    expect(screen.getByRole('link',
+                            { name: 'https://www.dndbeyond.com/srd' }))
+      .toBeInTheDocument()
+    expect(screen.getByRole(
+      'link', { name: 'https://creativecommons.org/licenses/by/4.0/legalcode' },
+    )).toBeInTheDocument()
+  })
+
   it('given an answer with no content yet, when rendered, then it says it is thinking', () => {
     // Given a turn that has started but said nothing
     chat.messages = [{ role: 'user', content: 'Prone?' },

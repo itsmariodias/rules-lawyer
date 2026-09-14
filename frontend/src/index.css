@@ -780,6 +780,27 @@ code { font-family: var(--mono); font-size: 0.87em; }
 }
 .examples button:hover { border-color: var(--accent); color: var(--accent); }
 
+/* The SRD's required attribution, kept at the floor of the conversation.
+   Quiet enough not to compete with the answer above it and permanent
+   enough to be part of the application rather than a page someone has to
+   go and find. It is the last thing in the column in both states, so the
+   empty screen's auto margins pin it to the bottom the same way. */
+.attribution {
+  max-width: 44rem;
+  width: 100%;
+  margin: 0 auto;
+  padding: 0 24px 12px;
+  font-size: 10.5px;
+  line-height: 1.55;
+  text-align: center;
+  color: var(--text-muted);
+  text-wrap: pretty;
+}
+/* The URLs are part of the statement, so they read as its text rather than
+   as links offered to be followed. */
+.attribution a { color: inherit; text-decoration: underline; }
+.attribution a:hover { color: var(--text); }
+
 /* ── composer ──────────────────────────────────────────────────────── */
 
 /* Send sits inside the box, at its bottom-right.
