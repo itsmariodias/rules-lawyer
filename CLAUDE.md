@@ -587,6 +587,18 @@ the correct name a heading's span overlaps the box drawn for it by 97%,
 which is the check worth keeping: the *selectable* text under a highlight
 must be the text that was cited.
 
+**A highlight tints the paper; it must not lift the ink.** The boxes are
+painted over the canvas the page was rendered into, so a translucent fill
+composites with the glyphs underneath and pulls black towards the fill's own
+colour: at 62% a marked word came out barely more than a third as dark as the
+words either side of it, and marking a passage made it harder to read than
+leaving it alone. `mix-blend-mode: multiply` is what makes it a highlighter
+rather than a veil, since white paper takes the tint and black ink stays
+black. The fill can then be fully opaque, so the colour no longer depends on
+what it is sitting on, and `.pdf-stack` sets `isolation: isolate` to keep the
+blending confined to the page rather than reaching whatever the panel sits
+on.
+
 **Fitting must actually fit.** At Fit the canvas is exactly the container's
 width, so two things that would each add a pixel are removed: the rendered
 size is floored rather than rounded, and `.pdf-stack`'s outline is a

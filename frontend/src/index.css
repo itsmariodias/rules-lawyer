@@ -1207,6 +1207,10 @@ body.resizing { user-select: none; cursor: col-resize; }
    one coordinate space; the stack is what keeps them registered. */
 .pdf-stack {
   position: relative;
+  /* Confines the highlights' blending to the page they mark. Without it the
+     nearest stacking context is further up and they would multiply against
+     whatever the panel is sitting on. */
+  isolation: isolate;
   /* Sized to the canvas, not to the panel: above fit-to-width the page is
      wider than the panel, and a stack that took the container's width would
      clip the overflow instead of letting .pdf-page scroll it. */
@@ -1230,12 +1234,23 @@ body.resizing { user-select: none; cursor: col-resize; }
 /* Literal, like `.pdf-stack`'s white and for the same reason: these are
    drawn over the printed page, which never inverts, so they cannot take a
    token that does. The rule is the book's own heading red, so the box
-   round a cited passage matches everything else pointing at it. */
+   round a cited passage matches everything else pointing at it.
+
+   `multiply` is what makes it a highlighter rather than a veil. The boxes
+   are painted over the canvas the page was rendered into, so a translucent
+   fill composites with the glyphs underneath and lifts black ink towards
+   the fill's own colour: at 62% a word came out barely more than a third
+   as dark as the words either side of it, so marking a passage made it
+   harder to read than leaving it alone. Multiplied, white paper takes the
+   tint and black ink stays black, which is how a real highlighter behaves.
+   The fill can be fully opaque for the same reason, and is, so the tint no
+   longer depends on what it happens to be sitting on. */
 .pdf-boxes span {
   position: absolute;
-  background: rgb(253 240 201 / 62%);
+  background: rgb(253 240 201);
   box-shadow: inset 0 0 0 1px rgb(140 34 32 / 55%);
   border-radius: 2px;
+  mix-blend-mode: multiply;
 }
 
 /* The text layer, transcribed from pdf.js's own rules and scoped to the

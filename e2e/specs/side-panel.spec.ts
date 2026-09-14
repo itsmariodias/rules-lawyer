@@ -84,6 +84,27 @@ test.describe('the page panel', () => {
     expect(box!.height).toBeLessThan(page_!.height / 8)
   })
 
+  test('given a box, when drawn, then it tints the paper without lifting the ink',
+       async ({ app }) => {
+    /**
+     * A highlight is painted over the canvas the page was rendered into, so
+     * a translucent fill composites with the glyphs underneath and lifts
+     * black ink towards its own colour: marking a passage made it harder to
+     * read than leaving it alone. Multiplied, the paper takes the tint and
+     * the ink stays ink.
+     */
+    // Given a marked passage
+    await citation(app)
+    await rendered(app)
+    const box = app.locator('.pdf-boxes span').first()
+
+    // When the fill is read
+    // Then it multiplies rather than veiling, and is confined to the page
+    await expect(box).toHaveCSS('mix-blend-mode', 'multiply')
+    await expect(app.locator('.pdf-stack').first())
+      .toHaveCSS('isolation', 'isolate')
+  })
+
   test('given the text layer, when it renders, then the page is selectable',
        async ({ app }) => {
     /**
