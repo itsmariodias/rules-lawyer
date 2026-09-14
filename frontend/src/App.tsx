@@ -272,7 +272,9 @@ export default function App() {
                              threadId={threadId}
                              replayed={message.replayed} />
                   {message.content
-                    ? <Markdown text={message.content} onCite={cite} />
+                    ? <Markdown text={message.content}
+                                citations={message.citations}
+                                onCite={cite} />
                     : !message.error && (
                       <p className="thinking">
                         Thinking<Dots />
@@ -568,10 +570,17 @@ function Citations({ citations, onCite }: {
   if (citations.length === 0) return null
   return (
     <div className="citations">
-      {citations.map((citation) => (
+      {/*
+        * The legend for the numbers in the prose, so it is ordered by them
+        * and labelled by them. The section id is not on it: it is how the
+        * app finds the passage, not something a reader knows or wants, and
+        * it is still one hover away.
+        */}
+      {citations.map((citation, index) => (
         <button key={citation.section_id} className="chip"
+                title={`SRD section ${citation.section_id}`}
                 onClick={() => onCite(citation.section_id)}>
-          <span className="chip-id">{citation.section_id}</span>
+          <span className="chip-id">{index + 1}</span>
           {citation.heading}
         </button>
       ))}

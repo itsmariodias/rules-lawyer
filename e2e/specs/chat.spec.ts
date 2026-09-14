@@ -84,10 +84,15 @@ test.describe('asking a question', () => {
     // When the citations are read
     const chips = app.locator('.citations .chip')
 
-    // Then each is a dotted section id with the heading it names
+    /**
+     * Then each is a number and the heading it names. The list is the legend
+     * for the numbers in the prose, and the section id is how the app finds
+     * the passage rather than something a reader wants to read.
+     */
     await expect(chips.first()).toBeVisible()
-    for (const chip of await chips.all()) {
-      await expect(chip.locator('.chip-id')).toHaveText(/^\d+(\.\d+)+$/)
+    for (const [index, chip] of (await chips.all()).entries()) {
+      await expect(chip.locator('.chip-id')).toHaveText(String(index + 1))
+      await expect(chip).toHaveAttribute('title', /^SRD section \d+(\.\d+)+$/)
     }
   })
 
@@ -96,14 +101,19 @@ test.describe('asking a question', () => {
     // Given an answer carrying citations
     await ask(app, 'What does the Prone condition do?')
     const chip = app.locator('.citations .chip').first()
-    const id = await chip.locator('.chip-id').innerText()
+
+    // The chip shows a number and the heading, so the id it opens comes off
+    // the title rather than the label.
+    const id = (await chip.getAttribute('title'))
+      ?.replace('SRD section ', '')
+    expect(id).toBeTruthy()
 
     // When the chip is pressed
     await chip.click()
 
     // Then the panel opens on exactly that section
     await expect(app.locator('aside.panel')).toBeVisible()
-    await expect(app.locator('aside.panel .meta code')).toHaveText(id)
+    await expect(app.locator('aside.panel .meta code')).toHaveText(id!)
   })
 
   test('given a citation in the prose, when pressed, then it opens the same way',
@@ -116,12 +126,20 @@ test.describe('asking a question', () => {
     await ask(app, 'What does the Prone condition do?')
     const cite = app.locator('.prose button.cite').first()
 
+    // It reads as a number: a dotted id means nothing to a reader, and one
+    // section cited five times was five identical chips of it.
+    await expect(cite).toHaveText(/^\d+$/)
+
+    // The id it opens is still there, one hover away
+    const title = await cite.getAttribute('title')
+    const id = title?.match(/\(([\d.]+)\)$/)?.[1]
+    expect(id).toBeTruthy()
+
     // When it is pressed
-    const id = await cite.innerText()
     await cite.click()
 
-    // Then the panel opens on it
-    await expect(app.locator('aside.panel .meta code')).toHaveText(id)
+    // Then the panel opens on exactly that section
+    await expect(app.locator('aside.panel .meta code')).toHaveText(id!)
   })
 
   test('given a first question, when a second is asked, then both turns remain',

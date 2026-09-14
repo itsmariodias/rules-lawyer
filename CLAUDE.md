@@ -491,6 +491,31 @@ when it was read. The *duration* is the browser's, measured from pressing
 send to the stream ending, because that is the wait somebody actually sat
 through rather than the span between two server writes.
 
+**The id is what the model writes and a number is what a reader sees.**
+Those are two decisions and the renderer used to make one of them. The
+section id has to be what appears in the text: the model copies it out of a
+tool result, where every result leads with it, and an invented one resolves
+to nothing and is dropped. Ask the model to number its own sources and it
+renumbers them halfway through a list, and a wrong `[2]` is indistinguishable
+from a right one, because the number says nothing about what it points at.
+But `11.2.114` means nothing to a reader and appeared five times in a
+four-line answer, so `Markdown` numbers them in the prose and the citation
+list becomes the legend: `[1]`, with `1 Prone [Condition]` underneath. The id
+is how the app finds the passage rather than something anyone reads, so it
+lives in the `title` and nowhere else on screen.
+
+The numbers come from the resolved citations once they arrive, since those
+are the ones checked against the book and `resolve_citations` already
+deduplicates them in order of first appearance, so the prose and the list
+cannot disagree. While the answer is still streaming there is no list yet and
+the text is numbered in the same order, which keeps it readable rather than
+showing dotted ids until the turn ends. That also closes a hole: the rewrite
+used to turn *any* `[n.n.n]` into a live chip, so an id the resolver had
+rejected still drew as a link that opened nothing. Now only a resolved
+citation is numbered, and an unresolved one is left as the model wrote it,
+unlinked, which shows that it cited something the book does not have rather
+than hiding it.
+
 **Citations are driven by the answer, not by the search.** The system prompt
 asks for `[11.2.114]` after each claim; `resolve_citations` parses those ids
 out of the finished text and looks each one up. So the citation list is what

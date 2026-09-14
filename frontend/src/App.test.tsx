@@ -256,8 +256,9 @@ describe('the conversation', () => {
     ]
     render(<App />)
 
-    // When the citation in the prose is pressed
-    await userEvent.click(screen.getByRole('button', { name: '11.2.114' }))
+    // When the citation in the prose is pressed, which reads as a number
+    // even though the id is what it opens
+    await userEvent.click(screen.getByRole('button', { name: '1' }))
 
     // Then the panel opens on it
     expect(screen.getByTestId('panel')).toHaveTextContent('page:11.2.114')
@@ -314,7 +315,7 @@ describe('the toolbar', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Graph' }))
 
     // When a citation is pressed
-    await userEvent.click(screen.getByRole('button', { name: '11.2.114' }))
+    await userEvent.click(screen.getByRole('button', { name: '1' }))
 
     // Then the reader keeps their tab, on the new passage
     expect(screen.getByTestId('panel')).toHaveTextContent('graph:11.2.114')
