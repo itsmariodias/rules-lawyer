@@ -1,0 +1,38 @@
+<!-- The app's mark, and the only copy of it: App.tsx inlines this file and
+     index.html points the favicon at it. Why it is drawn the way it is, and
+     why it colours itself the way it does, is in App.tsx's LogoIcon. -->
+<svg xmlns="http://www.w3.org/2000/svg" class="rl-mark" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-linecap="round" stroke-linejoin="round">
+  <!-- The colour, for both the page that inlines this and the browser tab
+       that loads it alone. The app's accent property wins wherever there is
+       one; the literals are only the fallback, and a media query picks
+       between them rather than `light-dark()` so that nothing here has to
+       set `color-scheme`. Setting it would be the bug: the app switches
+       themes *by* `color-scheme` on the root, so a value declared here pins
+       the mark to the machine's preference and leaves it deaf to the
+       reader's choice. The class keeps these two rules off everything else
+       in the page they are injected into.
+
+       Nothing in a comment here may contain a double hyphen: that is a hard
+       XML parse error, and a favicon that fails to parse simply never
+       appears. Name the accent property in prose, not in code. -->
+  <style>
+    .rl-mark { color: var(--accent, #8c2220); }
+    @media (prefers-color-scheme: dark) { .rl-mark { color: var(--accent, #d9736f); } }
+  </style>
+  <g stroke-width="1.2">
+    <path d="M12.87 2.7 19.62 6.6M20.49 8.1v7.8M19.62 17.4 12.87 21.3M11.13 21.3 4.38 17.4M3.51 15.9V8.1M4.38 6.6 11.13 2.7"/>
+    <circle cx="12" cy="2.2" r="1"/>
+    <circle cx="20.49" cy="7.1" r="1"/>
+    <circle cx="20.49" cy="16.9" r="1"/>
+    <circle cx="12" cy="21.8" r="1"/>
+    <circle cx="3.51" cy="16.9" r="1"/>
+    <circle cx="3.51" cy="7.1" r="1"/>
+  </g>
+  <g stroke-width="1.7">
+    <path d="M12 9.5C10.9 8.35 9.4 7.75 7.2 7.75v6.9c2.2 0 3.7.6 4.8 1.75"/>
+    <path d="M12 9.5c1.1-1.15 2.6-1.75 4.8-1.75v6.9c-2.2 0-3.7.6-4.8 1.75"/>
+    <path d="M12 9.5v6.9"/>
+  </g>
+</svg>

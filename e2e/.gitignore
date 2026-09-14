@@ -1,0 +1,6 @@
+node_modules/
+# Built by prepare-data.mjs on every run.
+.data/
+# Written only when something fails.
+playwright-report/
+test-results/

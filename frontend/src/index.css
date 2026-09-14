@@ -1,0 +1,1426 @@
+/*
+ * One palette, defined once as tokens, so nothing below this block names a
+ * literal colour.
+ *
+ * Each token carries *both* its values and lets `light-dark()` choose,
+ * which means the two themes are one list rather than a block and a copy
+ * of it that has to be kept in step. What picks between them is
+ * `color-scheme`, so the reader's choice is a single property: `light dark`
+ * follows the OS, and the two rules below pin it when App writes
+ * `data-theme` onto <html>. Setting `color-scheme` rather than swapping
+ * colours ourselves is also what makes the browser's own furniture — form
+ * controls, the canvas behind the page — follow the choice.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  /* The book's own ink, measured out of the PDF rather than picked by eye:
+     headings #8c2220, small-caps labels #540000, body #231f20, the
+     stat-block panel #e6e7e8 and the hairline between rows #d1d2d4. The
+     page itself is white — the SRD carries no parchment tint. */
+  /* The second value in each pair is the same book by candlelight:
+     #8c2220 on a dark ground is unreadable, so the reds lift while keeping
+     their hue, and the ground is warm rather than the blue-black a neutral
+     dark theme would use. */
+  --bg: light-dark(#f4f4f5, #18100f);
+  --bg-raised: light-dark(#ffffff, #1f1918);
+  --bg-sunken: light-dark(#e6e7e8, #14100f);
+  --border: light-dark(#d1d2d4, #3a2f2d);
+  --text: light-dark(#231f20, #ece6e2);
+  --text-muted: light-dark(#636466, #a49a94);
+  --text-faint: light-dark(#8e9093, #7d736e);
+  --accent: light-dark(#8c2220, #d9736f);
+  --accent-deep: light-dark(#540000, #e8a29e);
+  /* A wash of the heading red, not a hint of one: at 7% it was lighter
+     than the sidebar it tints, so a selected conversation read as a pale
+     patch rather than a red one. ~20% of #8c2220 on white, which still
+     takes both the body ink and the accent as text. */
+  --accent-soft: light-dark(#e9d4d3, #2f1c1b);
+  --on-accent: light-dark(#ffffff, #1a1211);
+  --highlight: light-dark(#fdf0c9, #3d3520);
+  --danger: light-dark(#a52020, #f08585);
+  --thumb: light-dark(#d1d2d4, #3a2f2d);
+  --thumb-hover: light-dark(#b4b5b8, #55463f);
+
+  --radius: 10px;
+  --sidebar: 260px;
+  /* The collapsed sidebar: one icon wide, plus its padding. */
+  --rail: 62px;
+  /* A starting value only: App overrides it from the stored width. */
+  --panel: 660px;
+
+  /* The book sets three faces we cannot ship — Gill Sans for headings,
+     Cambria for body, Optima for the stat blocks — so each has a free
+     stand-in bundled from @fontsource: Cabin, Caladea (metrically
+     compatible with Cambria) and Alegreya Sans. Each stack falls back to
+     the real face first, for anyone who has it. */
+  --display: "Cabin", "Gill Sans", "Gill Sans MT", Optima, sans-serif;
+  --serif: "Caladea", Cambria, Georgia, "Iowan Old Style", serif;
+  --ui: "Alegreya Sans", Optima, "Segoe UI", system-ui, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+}
+
+/* The reader's override of the OS, written by App from stored state. There
+   is no third block of colours here: pinning the scheme is the whole
+   change, and every `light-dark()` above follows it. */
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+
+* { box-sizing: border-box; }
+
+/*
+ * Scrollbars.
+ *
+ * Four panes scroll and each was drawing the platform's own bar: a
+ * full-height track running edge to edge, ending flat against the header
+ * above it and the composer below. These are the same bar everywhere —
+ * thin, no track, a rounded thumb held off the ends and the side by a
+ * transparent border, so it reads as part of the pane rather than as the
+ * window's furniture.
+ *
+ * Firefox gets `scrollbar-width`/`-color`, which is all it supports;
+ * WebKit and Chromium get the inset thumb.
+ */
+.messages, .threads, .panel-body, .pdf-page {
+  scrollbar-width: thin;
+  scrollbar-color: var(--thumb) transparent;
+}
+
+/* Reserved whether or not it is scrolling: a bar that appears when the
+   answer grows past the pane would otherwise shift the text under it. */
+.messages, .threads, .panel-body { scrollbar-gutter: stable; }
+
+:is(.messages, .threads, .panel-body, .pdf-page)::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+:is(.messages, .threads, .panel-body, .pdf-page)::-webkit-scrollbar-track {
+  background: transparent;
+  /* The track is shortened at both ends, so the thumb stops short of the
+     header above and the composer below rather than running flat into
+     them. */
+  margin: 8px 0;
+}
+.pdf-page::-webkit-scrollbar-track:horizontal { margin: 0 8px; }
+:is(.messages, .threads, .panel-body, .pdf-page)::-webkit-scrollbar-thumb {
+  background: var(--thumb);
+  /* Padding by another name: the border is transparent and the background
+     stops at its inside edge, which is what rounds the thumb away from the
+     pane's edges instead of butting it against them. */
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+  min-height: 40px;
+}
+:is(.messages, .threads, .panel-body, .pdf-page)::-webkit-scrollbar-thumb:hover {
+  background: var(--thumb-hover);
+  background-clip: padding-box;
+}
+/* The little square where a vertical and a horizontal bar meet, which
+   defaults to a grey block over the page facsimile. */
+:is(.messages, .threads, .panel-body, .pdf-page)::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.6 var(--ui);
+  /*
+   * Sized by its x-height, not by its em.
+   *
+   * A px size is a promise about the em box, and faces spend wildly
+   * different fractions of it on the lowercase that people actually read:
+   * Alegreya Sans puts 46% of the em into its x-height where the system
+   * face puts 51%, so swapping to it made every number in this file read
+   * ~10% smaller without one of them changing. This restates the target as
+   * the thing the eye measures — x-height at 50.8% of the font size, the
+   * system face's own ratio — so each family is scaled to meet it and the
+   * sizes below mean the same thing in all three of them. It also holds
+   * the apparent size still while a webfont is still loading and a
+   * fallback is on screen.
+   */
+  font-size-adjust: ex-height 0.508;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+}
+
+code { font-family: var(--mono); font-size: 0.87em; }
+
+/* ── shell ─────────────────────────────────────────────────────────── */
+
+/* Sidebar, its handle, the conversation, then the panel's handle and the
+   panel. The handles are `auto` columns that overlap the pane beside them
+   with a negative margin, so they read as a divider rather than a gap. */
+.app {
+  display: grid;
+  grid-template-columns: var(--sidebar) auto minmax(0, 1fr);
+  height: 100vh;
+  /* Nothing scrolls the shell itself. Each pane owns its own scroller, and
+     a grid item's `min-height: auto` would otherwise let a 364-page panel
+     stretch the row past the viewport — at which point the *window*
+     scrolls, and the thread list and the conversation ride along with the
+     book. */
+  overflow: hidden;
+}
+
+.app.with-panel {
+  grid-template-columns: var(--sidebar) auto minmax(0, 1fr) auto var(--panel);
+}
+
+/* Collapsed, the pane becomes a rail of its own controls and the drag
+   handle goes: a rail is the width of two icons, and there is nothing in
+   it to make wider. */
+.app.no-sidebar { grid-template-columns: var(--rail) minmax(0, 1fr); }
+.app.no-sidebar.with-panel {
+  grid-template-columns: var(--rail) minmax(0, 1fr) auto var(--panel);
+}
+
+/* Below this the panel would leave the conversation unreadably narrow, so
+   the sidebar goes first and the panel becomes a full-width overlay. */
+@media (max-width: 1100px) {
+  .app, .app.with-panel,
+  .app.no-sidebar, .app.no-sidebar.with-panel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .sidebar, .rail, .resizer { display: none; }
+  .app.with-panel .panel {
+    position: fixed;
+    inset: 0 0 0 auto;
+    width: min(var(--panel), 100vw);
+    z-index: 10;
+  }
+}
+
+/* ── sidebar ───────────────────────────────────────────────────────── */
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--bg-sunken);
+  border-right: 1px solid var(--border);
+  padding: 14px 10px;
+  overflow: hidden;
+}
+
+/* The wordmark. It sits inside the sidebar rather than above the whole
+   shell, so it collapses with it and costs the conversation no height. */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* The left inset is the New conversation card's own, not this row's, so
+     the mark and the plus below it stand in one column — which is the
+     column the collapsed rail is. */
+  padding: 2px 4px 14px 10px;
+  color: var(--accent);
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 16.5px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.brand .logo { flex: none; }
+
+/* The mark is inlined markup rather than an element of its own, so the
+   span around it is what carries the size. The file's own width and height
+   are for the favicon, which needs an SVG to say how big it is; a rule
+   beats a presentation attribute, so these win wherever the mark is
+   inlined. */
+.logo { display: inline-flex; }
+.logo svg { width: var(--logo-size); height: var(--logo-size); }
+
+/* Hides the pane it sits in, so it lives at the far edge of the row that
+   names it. The rail it collapses to carries the one that brings it back. */
+/* One size in both states. The control does not change when the pane it
+   toggles does, so it stays where the eye left it and reads as the same
+   button rather than a different one. */
+.collapse {
+  display: flex;
+  padding: 11px;
+  border-radius: 9px;
+  color: var(--text-faint);
+}
+.collapse:hover { color: var(--text); background: color-mix(in srgb, var(--text) 8%, transparent); }
+.brand .collapse { margin-left: auto; }
+
+/* ── the sidebar, collapsed ─────────────────────────────────────────── */
+
+/* Same ground and same edge as the pane it stands in for, so collapsing
+   narrows the sidebar rather than replacing it with something else. */
+.rail {
+  display: flex;
+  flex-direction: column;
+  /* Not centred: every number here is the open pane's, so that collapsing
+     moves the pane and leaves its contents where they were. The left inset
+     is the sidebar's own padding, which puts both glyphs on x=20 exactly
+     as the pane does; the top pad puts the mark on the wordmark's mark;
+     and the gap is the only figure that is not its own — it answers to the
+     height of the two rows above it, so the plus lands on the plus. */
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px 0 12px 10px;
+  background: var(--bg-sunken);
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+}
+
+/* The mark stands where it stood in the open pane, and becomes the control
+   that brings the pane back only on hover or focus. Both icons sit in one
+   grid cell, centred, so the swap costs no layout however they differ in
+   size — and each keeps the size it has in the open pane rather than being
+   trimmed to the other. What the padding is for is holding the button at
+   the 42px the rest of the rail is: the mark is wider than the toggle, so
+   this is the one control here whose padding is not `.collapse`'s, and the
+   number is what keeps the button square and the plus below it still.
+
+   The fade is the one the row menus use, for the same reason: the control
+   appears under a pointer that is already there, and arriving instantly
+   reads as a flicker rather than as an answer. */
+.rail-mark { display: grid; place-items: center; padding: 10px; }
+.rail-mark > * { grid-area: 1 / 1; transition: opacity 120ms ease; }
+.rail-mark > svg { opacity: 0; }
+.rail-mark:hover > svg,
+.rail-mark:focus-visible > svg { opacity: 1; }
+.rail-mark:hover .logo,
+.rail-mark:focus-visible .logo { opacity: 0; }
+
+/* The plus keeps the wash it has in the open pane: the same control, drawn
+   at the width there is room for — and drawn to the card's measurements
+   rather than to `.collapse`'s, so it is the card's left end exactly. Its
+   padding, its height and its corner are the card's; only its width is
+   this pane's. */
+.rail-new {
+  padding: 10px;
+  border-radius: 8px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.rail-new:hover { color: var(--accent); background: color-mix(in srgb, var(--accent) 24%, transparent); }
+
+/* The first card in the list, not a box above it.
+   It takes the rows' shape exactly — their corner, their padding, their
+   hover — so the sidebar is one column of cards rather than a control and
+   then a list. What separates it from a conversation is what it says: the
+   accent, and a plus for the thing it makes. */
+.new {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  /* A wash of the accent rather than the row treatment: it should read as
+     the one thing in this column that makes something, and a tint carried
+     at all times says that where a hover cannot. Mixed with `transparent`
+     rather than named outright, so it composites over whichever ground it
+     lands on and needs no second value for dark. */
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+  text-align: left;
+}
+.new svg { flex: none; }
+.new:hover { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+
+.threads {
+  flex: 1;
+  margin: 2px 0 0;
+  overflow-y: auto;
+  /* Reaching the end of one pane must not start scrolling another. */
+  overscroll-behavior: contain;
+}
+
+.thread-list { list-style: none; margin: 0; padding: 0; }
+
+.thread-group {
+  margin: 16px 10px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-faint);
+}
+/* The first heading still needs air under the button above it — the same
+   air the second heading gets from the section it follows. */
+.thread-group:first-child { margin-top: 14px; }
+
+/*
+ * The row is the box, not the title inside it.
+ *
+ * A button cannot contain a button, so the title and the ⋯ have to be two
+ * elements; they must not read as two. The row carries the shape — the
+ * padding, the corners, the hover, the selected tint — and the two controls
+ * inside it paint nothing of their own, so what the eye gets is one
+ * conversation with a menu tucked into its right-hand edge.
+ */
+.thread {
+  display: flex;
+  align-items: center;
+  padding-right: 4px;
+  border-radius: 8px;
+  color: var(--text-muted);
+}
+/* Darker than the pane, not lighter. `--bg-raised` is white, and white on
+   the sidebar's grey reads as a hole punched in it rather than as the row
+   under the pointer. A tint of the ink instead, which darkens here and
+   lightens on a dark ground, so one value serves both themes. */
+.thread:hover { background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--text); }
+.thread.on { background: var(--accent-soft); color: var(--accent); }
+
+.thread-open {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 4px 8px 10px;
+  /* Inherited, so the row decides the colour for everything in it. */
+  color: inherit;
+  text-align: left;
+  font-size: 13.5px;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A pinned thread wears its pin beside the title. */
+.thread-open .pin {
+  flex: none;
+  margin-right: 5px;
+  vertical-align: -2px;
+  opacity: 0.75;
+}
+
+/*
+ * Hidden until the row is hovered or something in it is focused — and while
+ * its own menu is open, or it would vanish under the menu it opened.
+ * Reading a conversation is what you do to one of these far more often than
+ * pinning or deleting it, and a column of ⋯ reads like a list of things to
+ * act on rather than a list of conversations. It keeps its width either
+ * way, so the title truncates at the same place whether the icon is showing
+ * or not and nothing shifts under the pointer as it fades in.
+ */
+.more {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  color: inherit;
+  opacity: 0;
+  transition: opacity 120ms ease, background 120ms ease;
+}
+.thread:hover .more,
+.thread.menu-open .more,
+.more:focus-visible { opacity: 1; }
+/* Its own hover sits *inside* the row's, so it reads as a target within the
+   row rather than as a second row. */
+.more:hover, .thread.menu-open .more {
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+
+/* Fixed rather than absolute: the thread list scrolls and clips, so a menu
+   nested in a row would be cut off by the pane it lives in. */
+.thread-menu {
+  position: fixed;
+  z-index: 20;
+  transform: translateX(-100%);
+  min-width: 132px;
+  padding: 4px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+}
+.thread-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 9px;
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+}
+.thread-menu button:hover { background: var(--bg-sunken); }
+.thread-menu .danger { color: var(--danger); }
+.thread-menu .danger:hover { background: var(--accent-soft); }
+
+/* Fixed rather than absolute: the thread list scrolls and clips, so a menu
+   nested in a row would be cut off by the pane it lives in. */
+.thread-menu {
+  position: fixed;
+  z-index: 20;
+  transform: translateX(-100%);
+  min-width: 132px;
+  padding: 4px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+}
+.thread-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 9px;
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+}
+.thread-menu button:hover { background: var(--bg-sunken); }
+.thread-menu .danger { color: var(--danger); }
+.thread-menu .danger:hover { background: var(--accent-soft); }
+
+/* Armed. There is no undo — the checkpointer is the whole store — and the
+   target was an icon that appeared under the pointer a moment ago, which is
+   the shape of an accidental click. */
+.thread.armed {
+  gap: 4px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: var(--bg-raised);
+  box-shadow: inset 0 0 0 1px var(--border);
+  font-size: 12px;
+}
+.thread.armed .asking { flex: 1; min-width: 0; color: var(--text-muted); }
+.thread.armed button {
+  flex: none;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+.thread.armed .yes { color: var(--danger); }
+.thread.armed .yes:hover { background: var(--accent-soft); }
+.thread.armed .no { color: var(--text-muted); }
+.thread.armed .no:hover { background: var(--bg-sunken); color: var(--text); }
+
+.sidebar-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0 0;
+  border-top: 1px solid var(--border);
+  color: var(--text-faint);
+  font-variant: small-caps;
+  letter-spacing: 0.04em;
+  font-size: 12.5px;
+  /* The line is a caption, not a control; it must not stop the theme
+     buttons beside it from being reachable when the sidebar is narrow. */
+  min-width: 0;
+}
+.sidebar-foot > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.theme-switch { display: flex; flex: none; }
+
+.theme-switch button {
+  display: flex;
+  padding: 4px 5px;
+  border-radius: 6px;
+  color: var(--text-faint);
+}
+/* A tint of `currentColor` rather than a colour of its own, so the hover
+   sits inside the footer's rather than competing with it. */
+.theme-switch button:hover { color: var(--text); background: color-mix(in srgb, currentColor 10%, transparent); }
+.theme-switch button.on { color: var(--accent); background: var(--accent-soft); }
+
+/* ── chat ──────────────────────────────────────────────────────────── */
+
+.chat {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  /* See `.app`: without this the messages list sizes to its content rather
+     than to the row, and scrolls the window instead of itself. */
+  min-height: 0;
+}
+
+/* The panel's controls, kept with the conversation rather than inside the
+   panel: they have to be reachable while it is closed. */
+.chat-head {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 10px 14px 0;
+}
+
+.panel-toggle {
+  display: flex;
+  align-items: center;
+  padding: 7px;
+  border-radius: 8px;
+  color: var(--text-muted);
+}
+.panel-toggle:hover { background: var(--bg-raised); color: var(--text); }
+.panel-toggle.on { background: var(--accent-soft); color: var(--accent); }
+
+.messages {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 18px 24px 8px;
+}
+
+.message {
+  max-width: 44rem;
+  margin: 0 auto 26px;
+}
+
+.message.user p {
+  margin: 0 0 0 auto;
+  padding: 10px 14px;
+  width: fit-content;
+  max-width: 85%;
+  border-radius: var(--radius) var(--radius) 2px var(--radius);
+  background: var(--accent-soft);
+  font-family: var(--ui);
+  white-space: pre-wrap;
+}
+
+.thinking { color: var(--text-muted); font-style: italic; }
+
+.error { color: var(--danger); }
+.muted { color: var(--text-muted); }
+
+/* ── the answer ────────────────────────────────────────────────────── */
+
+/* The answer is the part of this app that is read rather than operated, so
+   it is set in the book's body face while the chrome around it stays in
+   the book's sans. */
+.prose {
+  font-family: var(--serif);
+  font-size: 16px;
+}
+.prose > :first-child { margin-top: 0; }
+.prose > :last-child { margin-bottom: 0; }
+.prose p, .prose li { line-height: 1.68; }
+/* The book sets its headings in Gill Sans red above Cambria body, and the
+   answer repeats spells and creatures verbatim from it. */
+.prose h1, .prose h2, .prose h3 {
+  font-family: var(--display);
+  font-weight: 600;
+  color: var(--accent);
+  font-size: 1.08em;
+  letter-spacing: 0.01em;
+  margin: 1.4em 0 0.4em;
+}
+.prose h2 { border-bottom: 1px solid var(--border); padding-bottom: 3px; }
+
+/* `**_Restricted Movement._**` — the SRD's run-in labels are set in the
+   deeper red, and the model reproduces them. */
+.prose strong { color: var(--accent-deep); }
+
+.prose table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1em 0;
+  font-size: 0.93em;
+}
+.prose th, .prose td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  text-align: left;
+}
+.prose th { background: var(--bg-sunken); }
+
+.prose blockquote {
+  margin: 1em 0;
+  padding: 10px 14px;
+  border-left: 3px solid var(--accent);
+  background: var(--bg-sunken);
+  color: var(--text-muted);
+  font-family: var(--serif);
+}
+
+/* An inline citation: readable as a superscript reference, not a link. */
+.cite {
+  padding: 0 4px;
+  margin: 0 1px;
+  border-radius: 5px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 0.72em;
+  vertical-align: 0.35em;
+  line-height: 1.7;
+}
+.cite:hover { background: var(--accent); color: var(--bg-raised); }
+
+.citations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-raised);
+  font-size: 12.5px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chip:hover { border-color: var(--accent); color: var(--text); }
+.chip-id { font-family: var(--mono); font-size: 11px; color: var(--accent-deep); }
+
+/* ── retrieval trace ───────────────────────────────────────────────── */
+
+.trace { margin-bottom: 12px; font-size: 13px; }
+
+.trace-toggle { color: var(--text-muted); padding: 0; }
+.trace-toggle:hover { color: var(--text); }
+
+.trace ul { list-style: none; margin: 6px 0 0; padding: 0 0 0 4px; }
+
+.trace li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  color: var(--text-muted);
+}
+
+.trace .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex: none;
+}
+.trace .running .dot { background: var(--accent); animation: pulse 1.1s infinite; }
+
+@keyframes pulse { 50% { opacity: 0.25; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .trace .running .dot { animation: none; }
+}
+
+/* ── welcome ───────────────────────────────────────────────────────── */
+
+/*
+ * A conversation that has not started is centred, not pinned to the floor.
+ *
+ * With nothing above it, a composer at the bottom of a tall window leaves a
+ * screenful of empty grey over it and reads as something that failed to
+ * load. The two auto margins split that free space between them, which
+ * centres the welcome and the composer *as a pair* while leaving the
+ * header where it is — and the moment there is a message the class goes
+ * and the composer is back on the floor where a chat keeps it.
+ */
+/* Nothing scrolls here, and a reserved gutter would push the heading half
+   its width off the centre the composer below is using. */
+.chat.empty .messages { flex: 0 0 auto; margin-top: auto; scrollbar-gutter: auto; }
+.chat.empty .examples { margin-bottom: auto; }
+.chat.empty .welcome { margin-top: 0; }
+
+/* The composer's own box: same width, same inset, so the title starts on
+   the same vertical as the edge of the thing it is introducing. */
+.welcome { max-width: 44rem; padding: 0 24px; margin: 12vh auto 0; }
+.welcome h1 {
+  font-family: var(--display);
+  font-size: 32px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--accent);
+  margin: 0 0 6px;
+  /* The mark reads as part of the name rather than as an image above it,
+     so it sits on the same line. Its own box is square and the letters
+     sit inside theirs, so aligning the two boxes leaves the book low;
+     the baseline nudge is what puts the boards on the letters' feet. */
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.welcome h1 .logo { flex: none; transform: translateY(1px); }
+
+/* Narrower than the box they feed, and centred under it: they are things
+   you could type, so they read as sitting inside its width rather than
+   competing with it. */
+.examples {
+  list-style: none;
+  max-width: 34rem;
+  width: 100%;
+  margin: 4px auto 0;
+  padding: 0 24px;
+  display: grid;
+  gap: 8px;
+}
+
+.examples button {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  text-align: left;
+}
+.examples button:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── composer ──────────────────────────────────────────────────────── */
+
+/* Send sits inside the box, at its bottom-right.
+   The box is the object; a button beside it made the pair asymmetric —
+   nothing else on the page could line up with both edges — and gave the
+   composer two outlines where it means to be one. Bottom-anchored rather
+   than centred, so it stays put as the textarea grows with what is being
+   typed. */
+.composer {
+  position: relative;
+  max-width: 44rem;
+  width: 100%;
+  margin: 0 auto;
+  padding: 12px 24px 22px;
+}
+
+.composer textarea {
+  resize: none;
+  max-height: 40vh;
+  field-sizing: content;
+  display: block;
+  width: 100%;
+  /* Room for the button; the text must never run under it. */
+  padding: 13px 96px 13px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  color: inherit;
+  font: inherit;
+  font-size: 16px;
+  /* Whole pixels, not a ratio — and after the `font` shorthand, which
+     resets line-height and would otherwise put this back to 1.6. 1.6 of
+     16px is 25.6, which left the box 53.59 tall and the 36px button 1.6px
+     nearer the floor than the ceiling. 24 + 26 + 2 is exactly 52, sixteen
+     more than the button, so the same 8px sits on all three sides. */
+  line-height: 24px;
+  /* The one thing on the page you are meant to use. Everything else here
+     is drawn flat into its ground, so lifting only this reads as the page
+     having a subject — a close shadow for the edge and a wide, faint one
+     for the lift. */
+  box-shadow: 0 1px 2px rgb(0 0 0 / 5%), 0 14px 34px rgb(0 0 0 / 11%);
+}
+.composer textarea:focus { outline: 2px solid var(--accent); border-color: transparent; }
+
+.composer button {
+  position: absolute;
+  right: 32px;
+  bottom: 30px;
+  /* Height stated rather than derived, so the border on `.stop` cannot
+     make it a different size from Send. */
+  display: flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 15px;
+  border-radius: 7px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+  font-size: 14px;
+}
+.composer button:disabled { opacity: 0.4; cursor: default; }
+.composer .stop { background: var(--bg-sunken); color: var(--text); border: 1px solid var(--border); }
+
+/* ── side panel ────────────────────────────────────────────────────── */
+
+/* A real column of its own, not a negative-margin overlay: an `auto` track
+   holding an item with a negative margin resolves to 0px while the item
+   still paints 13px wide, which over-constrains the row and squeezes the
+   pane beside it. */
+.resizer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  z-index: 5;
+  cursor: col-resize;
+  background: var(--bg);
+}
+.resizer:focus-visible { outline: none; }
+
+.grip {
+  width: 4px;
+  height: 40px;
+  border-radius: 2px;
+  background: var(--border);
+  transition: background 120ms, height 120ms;
+}
+.resizer:hover .grip,
+.resizer:focus-visible .grip,
+body.resizing .grip {
+  background: var(--accent);
+  height: 72px;
+}
+
+/* While dragging, the pointer sweeps across the conversation; without this
+   it selects the text it crosses. */
+body.resizing { user-select: none; cursor: col-resize; }
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-raised);
+  border-left: 1px solid var(--border);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tabs { display: flex; gap: 4px; }
+
+.tabs button {
+  font-family: var(--display);
+  font-weight: 500;
+  padding: 5px 12px;
+  border-radius: 7px;
+  color: var(--text-muted);
+  font-size: 13.5px;
+}
+.tabs button.on { background: var(--accent-soft); color: var(--accent); }
+
+.close { font-size: 20px; line-height: 1; padding: 0 6px; color: var(--text-muted); }
+.close:hover { color: var(--text); }
+
+.panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 18px 20px 40px;
+}
+.panel-body.empty { display: flex; flex-direction: column; justify-content: center; text-align: center; }
+.panel-body h2 {
+  font-family: var(--display);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--accent);
+  font-size: 21px;
+  margin: 0 0 4px;
+}
+.panel-body .meta { margin: 0 0 10px; font-size: 12.5px; color: var(--text-muted); }
+
+.zooms { display: flex; gap: 2px; margin-left: auto; margin-right: 8px; }
+/* Two auto margins would split the slack between them; the jump keeps its
+   place beside the zooms. */
+.page-jump + .zooms { margin-left: 10px; }
+.zooms button { padding: 4px 8px; border-radius: 6px; font-size: 12px; color: var(--text-muted); }
+.zooms button.on { background: var(--accent-soft); color: var(--accent); }
+
+/* ── the page facsimile ────────────────────────────────────────────── */
+
+.pdf { margin-top: 14px; display: grid; gap: 18px; }
+
+/* 364 pages is more than anyone scrolls, and the book's own contents and
+   index are printed in page numbers. */
+.page-jump {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 12.5px;
+}
+.page-jump label { color: var(--text-muted); }
+/* The jump only shows on the Page tab with nothing cited, so it must not be
+   what sets the header's height — a taller control here than the tabs makes
+   the whole panel shift by a pixel on every tab switch. The tabs are the one
+   thing present in every state, so they are the row's height and everything
+   else stays inside it. */
+.page-jump input {
+  width: 4.5em;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-raised);
+  color: inherit;
+  font: inherit;
+}
+.page-jump button {
+  padding: 4px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+.page-jump button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.page-jump button:disabled { opacity: 0.5; }
+
+/* Above fit-to-width the page is wider than the panel, so it scrolls in its
+   own box rather than pushing the panel's own layout sideways. */
+/* `-x` only: the page scrolls sideways in its own box, but a wheel over it
+   is meant to scroll the *book*, which is the panel body above it. */
+.pdf-page { overflow: auto; overscroll-behavior-x: contain; }
+
+.pdf-page { margin: 0; }
+
+.pdf-page figcaption {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* Canvas, selectable text, and highlight rectangles are three layers in
+   one coordinate space; the stack is what keeps them registered. */
+.pdf-stack {
+  position: relative;
+  /* Sized to the canvas, not to the panel: above fit-to-width the page is
+     wider than the panel, and a stack that took the container's width would
+     clip the overflow instead of letting .pdf-page scroll it. */
+  width: max-content;
+  overflow: hidden;
+  /* A shadow, not a border: the stack is sized by `max-content`, so a
+     border would add 2px to a canvas already exactly as wide as its
+     container and put a scrollbar under every fitted page. Shadows do not
+     contribute to scroll width. */
+  box-shadow: 0 0 0 1px var(--border);
+  border-radius: 6px;
+  /* The page is printed on white; a dark theme must not invert it, or the
+     facsimile stops being a facsimile. */
+  background: #fff;
+}
+
+.pdf-stack canvas { display: block; }
+
+.pdf-boxes { position: absolute; inset: 0; pointer-events: none; }
+
+/* Literal, like `.pdf-stack`'s white and for the same reason: these are
+   drawn over the printed page, which never inverts, so they cannot take a
+   token that does. The rule is the book's own heading red, so the box
+   round a cited passage matches everything else pointing at it. */
+.pdf-boxes span {
+  position: absolute;
+  background: rgb(253 240 201 / 62%);
+  box-shadow: inset 0 0 0 1px rgb(140 34 32 / 55%);
+  border-radius: 2px;
+}
+
+/* The text layer, transcribed from pdf.js's own rules and scoped to the
+   page we render.
+   The library ships these in `web/pdf_viewer.css`, but that file is the
+   entire viewer: it defines its own `.sidebar`, `.resizer` and `.error`,
+   and 376 custom properties on `:root` — one of which is `--bg`. Importing
+   it silently restyled this app the first time a citation was opened. We
+   use only `TextLayer`, so we carry only what `TextLayer` needs.
+   pdf.js positions each span itself; these rules make it transparent,
+   correctly scaled, and selectable. */
+.pdf-stack .textLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1;
+  text-align: initial;
+  letter-spacing: normal;
+  word-spacing: normal;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  caret-color: CanvasText;
+  /* Set per render by PdfPage; the fallback keeps a partly-rendered layer
+     from collapsing to font-size 0. */
+  /* The one place the em box is the point: pdf.js sizes every span from
+     the glyph metrics it measured and corrects the remainder with a
+     per-span `scaleX`, so normalising x-heights here would slide the
+     selectable text out from under the ink it belongs to. */
+  font-size-adjust: none;
+  --total-scale-factor: 1;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+
+.pdf-stack .textLayer :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  user-select: text;
+}
+
+.pdf-stack .textLayer > :not(.markedContent),
+.pdf-stack .textLayer .markedContent span:not(.markedContent) {
+  z-index: 1;
+  --font-height: 0;
+  --scale-x: 1;
+  --rotate: 0deg;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x))
+             scale(var(--min-font-size-inv));
+}
+
+.pdf-stack .textLayer .markedContent { display: contents; }
+
+.pdf-stack .textLayer span[role="img"] { user-select: none; cursor: default; }
+
+.link { padding: 0; color: var(--accent); text-decoration: underline; text-align: left; }
+
+.children { margin-top: 22px; }
+.children h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin: 0 0 6px; }
+.children ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13.5px; }
+
+/* ── the graph explorer ────────────────────────────────────────────── */
+
+/*
+ * A colour per kind of node, paired light and dark the same way the rest
+ * of the palette is, so the theme switch reaches them too. Nodes are
+ * multi-label by design, so the kind is a priority — `kindOf` in
+ * GraphView — and this is only where each one is painted.
+ */
+:root {
+  --n-section: light-dark(#8e9093, #a49a94);
+  --n-creature: light-dark(#8a5a2c, #d9915d);
+  --n-ability: light-dark(#a8792f, #d9b071);
+  --n-spell: light-dark(#4a5a8c, #93a2df);
+  --n-item: light-dark(#46745f, #7fc0a5);
+  --n-glossary: light-dark(#7a3f60, #cd8fb6);
+  --n-class: light-dark(#54758a, #94b7cb);
+  --n-rule: light-dark(#8c2220, #d9736f);
+  --edge: light-dark(#d1d2d4, #3a2f2d);
+}
+
+/* The graph fills the panel and is panned rather than scrolled: two ways to
+   move the same picture, one of them with no scrollbar to fight. */
+.panel-body.graph-pane { padding: 0; overflow: hidden; }
+
+.graph { position: relative; height: 100%; display: flex; }
+
+.graph-canvas {
+  /* The layout's padding for a label (`LABEL` in GraphView) is a measured
+     constant in graph units; scaling the labels out from under it would
+     make the fit optimistic by exactly as much. */
+  font-size-adjust: none;
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  cursor: grab;
+  touch-action: none;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 1px 1px, var(--border) 1px, transparent 0)
+    0 0 / 22px 22px;
+}
+.graph-canvas:active { cursor: grabbing; }
+
+.graph-note {
+  position: absolute;
+  top: 12px;
+  left: 14px;
+  margin: 0;
+  font-size: 12.5px;
+}
+.graph-note.busy {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 8px;
+  color: var(--text-muted);
+}
+
+.graph-empty {
+  margin: auto;
+  padding: 0 32px;
+  max-width: 42ch;
+  text-align: center;
+}
+
+.link line { stroke: var(--edge); stroke-width: 1.2px; }
+.link.on line { stroke: var(--accent); stroke-width: 1.8px; }
+.link-label {
+  fill: var(--accent);
+  font-size: 9px;
+  font-family: var(--mono);
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 3.5px;
+  pointer-events: none;
+}
+path.edge { fill: var(--edge); }
+path.edge-on { fill: var(--accent); }
+
+.dot { cursor: pointer; color: var(--n-section); }
+.dot circle {
+  fill: currentColor;
+  stroke: var(--bg-raised);
+  stroke-width: 1.5px;
+}
+
+/* Filled is a passage the book printed; hollow is a node stage 2 derived
+   from one — a glossary term beside its glossary section, an ability beside
+   its stat block. Two identical circles there read as a duplicate. */
+.dot[data-node='derived'] circle {
+  fill: var(--bg-raised);
+  stroke: currentColor;
+  stroke-width: 2.5px;
+}
+/* The seed keeps a ring of its own, so it stays findable in a picture that
+   has grown three expansions past it — see the rules at the end of this
+   block, which come after the per-kind colours so they win. */
+
+/* A node with edges the server sampled rather than sent: a dashed halo,
+   which reads as "there is more here" without needing a number. */
+.dot circle.more {
+  fill: none;
+  stroke: var(--text-muted);
+  stroke-width: 1px;
+  stroke-dasharray: 2 3;
+  opacity: 0.7;
+}
+
+.dot text {
+  fill: var(--text);
+  font-size: 10.5px;
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 3px;
+  pointer-events: none;
+}
+
+.dot[data-kind='creature'] { color: var(--n-creature); }
+.dot[data-kind='ability'] { color: var(--n-ability); }
+.dot[data-kind='spell'] { color: var(--n-spell); }
+.dot[data-kind='item'] { color: var(--n-item); }
+.dot[data-kind='glossary'] { color: var(--n-glossary); }
+.dot[data-kind='class'] { color: var(--n-class); }
+.dot[data-kind='rule'] { color: var(--n-rule); }
+/* The halo and the rings are drawn over the fill, so they come last. */
+.dot circle.more { fill: none; }
+.dot.on circle { stroke: var(--accent); stroke-width: 2.5px; }
+.dot.root circle { stroke: var(--text); stroke-width: 2.5px; }
+
+.swatch {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--n-section);
+  margin-right: 6px;
+  vertical-align: baseline;
+}
+.swatch[data-kind='creature'] { background: var(--n-creature); }
+.swatch[data-kind='ability'] { background: var(--n-ability); }
+.swatch[data-kind='spell'] { background: var(--n-spell); }
+.swatch[data-kind='item'] { background: var(--n-item); }
+.swatch[data-kind='glossary'] { background: var(--n-glossary); }
+.swatch[data-kind='class'] { background: var(--n-class); }
+.swatch[data-kind='rule'] { background: var(--n-rule); }
+.swatch[data-node='derived'] {
+  background: var(--bg-raised);
+  box-shadow: inset 0 0 0 2px var(--text-muted);
+}
+.graph-legend .note { margin-top: 3px; }
+
+/* Both overlays float over the picture rather than taking width from it:
+   the panel is already the narrow half of the window. */
+.graph-details {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  padding: 10px 12px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 12%);
+}
+.graph-details h3 {
+  margin: 0 0 4px;
+  font-family: var(--display);
+  font-size: 15.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--accent);
+}
+.graph-details .meta {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+.graph-details code { font-family: var(--mono); font-size: 11px; }
+
+.graph-actions { display: flex; gap: 6px; margin-top: 8px; }
+.graph-actions button {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text);
+}
+.graph-actions button:hover:not(:disabled) { background: var(--bg-sunken); }
+.graph-actions button:disabled { color: var(--text-muted); cursor: default; }
+
+.graph-legend {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  margin: 0;
+  padding: 6px 9px;
+  list-style: none;
+  background: color-mix(in srgb, var(--bg-raised) 88%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+/* One row per kind of connection, which is how a hub stays readable: the
+   picture can honestly show 8 of Poison's 121 references, but only a count
+   can say that it is 121. */
+.graph-edges {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 132px;
+  overflow-y: auto;
+  font-size: 11.5px;
+}
+.graph-edges li {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 1px 0;
+}
+.graph-edges .arrow { color: var(--accent); width: 10px; }
+.graph-edges code {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text);
+}
+.graph-edges .count { margin-left: auto; color: var(--text-muted); }
+
+/* A way back to the fitted framing. The picture is the reader's once they
+   pan or drag it, so this is how they hand it back rather than reloading. */
+.graph-refit {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  z-index: 1;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-raised) 88%, transparent);
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+.graph-refit:hover { color: var(--text); background: var(--bg-raised); }
+
+/* What the selected node says. Three lines: enough to recognise the passage
+   by, and the Page tab is where it is read as the book set it. */
+.graph-summary {
+  margin: 6px 0 8px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* A weapon has no prose anywhere in the book, so its row of the table is
+   what it has to say for itself. */
+.graph-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 1px 10px;
+  margin: 6px 0 8px;
+  font-size: 11.5px;
+}
+.graph-facts dt { color: var(--text-muted); }
+.graph-facts dd { margin: 0; color: var(--text); }
+
+/* A turn the model could not answer.  The model is required, so the error
+   is the whole of the reply rather than a note over a substitute for one. */
+.failed {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--danger);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  background: var(--bg-raised);
+}
+.failed .error { margin: 0; }
+
+/* ── the delete confirmation ───────────────────────────────────────── */
+
+/*
+ * A native `<dialog>`, so `showModal` handles the top layer, the focus
+ * trap, the inert background and Escape. The padding lives on the inner
+ * element rather than here, so that a click landing on the dialog itself is
+ * unambiguously a click on the backdrop.
+ */
+.modal {
+  margin: auto;
+  padding: 0;
+  width: min(420px, calc(100vw - 32px));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  color: var(--text);
+  box-shadow: 0 18px 48px rgb(0 0 0 / 28%);
+}
+.modal::backdrop { background: rgb(0 0 0 / 45%); }
+
+.modal-body { padding: 20px 22px 18px; }
+.modal h2 {
+  margin: 0 0 8px;
+  font-family: var(--display);
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.modal p { margin: 0 0 4px; font-size: 13.5px; line-height: 1.5; }
+.modal .error { margin-top: 10px; }
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+.modal-actions button {
+  padding: 7px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+}
+.modal-actions .no { color: var(--text); }
+.modal-actions .no:hover { background: var(--bg-sunken); }
+/* The destructive one is the one that looks destructive, and it is not the
+   one holding the focus. */
+.modal-actions .yes {
+  border-color: transparent;
+  background: var(--danger);
+  color: var(--bg-raised);
+}
+.modal-actions .yes:hover { filter: brightness(1.08); }

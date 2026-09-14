@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+*.egg-info/
+.DS_Store
+.pytest_cache/
+
+# Pipeline output (regenerate with `uv run srd-parse`)
+data/output/
+
+# Conversation state (LangGraph checkpoints)
+data/chat/
+
+frontend/node_modules/
+frontend/dist/

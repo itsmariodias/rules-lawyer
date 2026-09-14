@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- The same file App.tsx inlines: one mark, in one place. It
+         colours itself here, where there is no page to take an
+         accent from. Vite rewrites this to the hashed asset. -->
+    <link rel="icon" type="image/svg+xml" href="/src/logo.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Ask anything about the D&amp;D 5e SRD. Every rules claim links to the passage it came from." />
+    <meta name="theme-color" content="#f4f4f5" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#18100f" media="(prefers-color-scheme: dark)" />
+    <title>Rules Lawyer</title>
+    <script>
+      /*
+       * The stored theme, applied before the first paint.
+       *
+       * `useTheme` owns this attribute; it just cannot get there in time —
+       * an effect runs after the browser has already painted the body, so
+       * a reader who picked dark on a light machine would watch the light
+       * one flash first. The key and its JSON shape are `useStored`'s.
+       */
+      try {
+        var stored = JSON.parse(localStorage.getItem('theme'))
+        if (stored === 'light' || stored === 'dark') {
+          document.documentElement.dataset.theme = stored
+        }
+      } catch (e) {
+        /* Storage can throw outright; the OS preference is a fine answer. */
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
