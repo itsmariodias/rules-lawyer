@@ -184,10 +184,49 @@ describe('the conversation', () => {
                      { role: 'assistant', content: '' }]
 
     // When it is rendered
-    render(<App />)
+    const { container } = render(<App />)
 
-    // Then the reader can see the thing is alive
-    expect(screen.getByText('Thinking…')).toBeInTheDocument()
+    // Then the reader can see the thing is alive, with an ellipsis that
+    // moves: an agentic turn is quiet for a whole round trip before it says
+    // anything, and a static one reads as a hang.
+    expect(screen.getByText(/Thinking/)).toBeInTheDocument()
+    expect(container.querySelectorAll('.thinking .dots i')).toHaveLength(3)
+  })
+
+  it('given a turn in flight, when rendered, then the wait is counted up', () => {
+    /** A number that moves is the difference between waiting and wondering. */
+    // Given a turn that has been running for a few seconds
+    chat.streaming = true
+    chat.messages = [
+      { role: 'user', content: 'Prone?' },
+      { role: 'assistant', content: '',
+        at: new Date(Date.now() - 4200).toISOString() },
+    ]
+
+    // When it is rendered
+    const { container } = render(<App />)
+
+    // Then the wait so far is on screen
+    expect(container.querySelector('.elapsed')?.textContent)
+      .toMatch(/^4\.\ds$/)
+  })
+
+  it('given a finished turn, when rendered, then it is dated and timed', () => {
+    // Given an answered turn that took a while
+    chat.messages = [
+      { role: 'user', content: 'Prone?', at: '2026-09-14T08:57:45.000Z' },
+      { role: 'assistant', content: 'It does.', at: '2026-09-14T08:57:58.000Z',
+        ms: 13_500 },
+    ]
+
+    // When it is rendered
+    const { container } = render(<App />)
+
+    // Then both turns carry the time they happened, and the answer what it
+    // cost, with no counter still running under a finished answer
+    expect(container.querySelectorAll('time.stamp')).toHaveLength(2)
+    expect(container.querySelector('.took')).toHaveTextContent('14s')
+    expect(container.querySelector('.elapsed')).toBeNull()
   })
 
   it('given citations, when a chip is pressed, then the panel opens on the page', async () => {

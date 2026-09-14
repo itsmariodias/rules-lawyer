@@ -23,6 +23,32 @@ from . import cypher, neighbourhood, retrieval
 # Entity types a question tends to be *about*, offered to the model as a
 # filter.  Deliberately not the full list from the artifact: the long tail
 # ("front_matter", "creature_group") narrows nothing a reader would ask for.
+# What the trace shows beside each row.  The tools return prose because the
+# model reads them, but the UI needs to know how a call went without parsing
+# that prose, so every tool also returns an *artifact*: a status and one
+# short line.  LangChain puts it on the ToolMessage and never shows it to the
+# model, which is the same "structured half by another route" split the tool
+# results already use.
+#
+# ``status`` is one of:
+#   ok       the call did what was asked
+#   empty    it ran and matched nothing, which is an answer, not a fault
+#   refused  we would not run it (an unknown filter, a banned procedure)
+#   failed   it ran and broke (bad Cypher, a dead connection)
+# ``subject`` is what the row should say it looked *at*, for the calls whose
+# own argument is a dotted id.  Nobody knows what `11.2.70` is, and the only
+# thing that does is the graph we just read it from.
+Result = tuple[str, dict]
+
+
+def _result(content: str, status: str, summary: str,
+            subject: str | None = None) -> Result:
+    artifact = {"status": status, "summary": summary}
+    if subject:
+        artifact["subject"] = subject
+    return content, artifact
+
+
 SEARCHABLE_TYPES = [
     "spell", "creature", "magic_item", "rule", "class_feature",
     "glossary_term", "equipment", "feat", "origin", "trap",
@@ -30,7 +56,7 @@ SEARCHABLE_TYPES = [
 ]
 
 
-@tool(parse_docstring=True)
+@tool(parse_docstring=True, response_format="content_and_artifact")
 def search_srd(query: str, entity_type: str | None = None) -> str:
     """Search the D&D 5e SRD for rules text matching a query.
 
@@ -48,8 +74,9 @@ def search_srd(query: str, entity_type: str | None = None) -> str:
             question is clearly about one kind of thing.
     """
     if entity_type and entity_type not in SEARCHABLE_TYPES:
-        return (f"Unknown entity_type {entity_type!r}. "
-                f"Valid values: {', '.join(SEARCHABLE_TYPES)}.")
+        return _result(f"Unknown entity_type {entity_type!r}. "
+                       f"Valid values: {', '.join(SEARCHABLE_TYPES)}.",
+                       "refused", f"unknown type {entity_type!r}")
 
     chat = get_settings().chat
     passages = retrieval.hybrid_search(
@@ -64,12 +91,15 @@ def search_srd(query: str, entity_type: str | None = None) -> str:
     # this search can say; judging whether the best guesses answer the
     # question is the model's job, and the prompt says so.
     if not passages:
-        return (f"No SRD sections matched {query!r}. Try fewer words, or the "
-                "term the rulebook uses.")
-    return "\n\n---\n\n".join(passage.for_model() for passage in passages)
+        return _result(
+            f"No SRD sections matched {query!r}. Try fewer words, or the "
+            "term the rulebook uses.", "empty", "nothing found")
+    return _result(
+        "\n\n---\n\n".join(passage.for_model() for passage in passages),
+        "ok", f"{len(passages)} passage{'s' if len(passages) > 1 else ''}")
 
 
-@tool(parse_docstring=True)
+@tool(parse_docstring=True, response_format="content_and_artifact")
 def get_srd_section(section_id: str) -> str:
     """Fetch the full text of one SRD section by its id.
 
@@ -82,8 +112,10 @@ def get_srd_section(section_id: str) -> str:
     """
     found = retrieval.get_section(section_id.strip())
     if found is None:
-        return (f"No section with id {section_id!r}. Ids come from search "
-                "results and look like 5.3.12 or 11.2.46.1.")
+        return _result(
+            f"No section with id {section_id!r}. Ids come from search "
+            "results and look like 5.3.12 or 11.2.46.1.",
+            "empty", "no such section")
 
     passage, context = found
     parts = [passage.for_model(max_chars=8000)]
@@ -94,7 +126,10 @@ def get_srd_section(section_id: str) -> str:
         listed = ", ".join(f"[{c['id']}] {c['heading']}"
                            for c in context["children"][:25])
         parts.append(f"Subsections: {listed}")
-    return "\n\n".join(parts)
+    # The heading, not the id: a dotted id says nothing to the person reading
+    # the trace, and the UI has nowhere else to learn what it names.
+    return _result("\n\n".join(parts), "ok", passage.section_id,
+                   subject=passage.heading or "(untitled)")
 
 
 
@@ -222,7 +257,7 @@ def _render(data: dict) -> str:
 MAX_FAN = 50
 
 
-@tool(parse_docstring=True)
+@tool(parse_docstring=True, response_format="content_and_artifact")
 def explore_srd_graph(section_id: str, depth: int = 1,
                       fan: int = neighbourhood.FAN) -> str:
     """Show what one SRD section is connected to in the rules graph.
@@ -257,15 +292,21 @@ def explore_srd_graph(section_id: str, depth: int = 1,
         # It rises with the fan so that a deliberate ask is honoured.
         limit=max(neighbourhood.LIMIT, fan * 3))
     if found is None:
-        return (f"No section with id {section_id!r}. Ids come from search "
-                "results and look like 5.3.12 or 11.2.46.1.")
+        return _result(
+            f"No section with id {section_id!r}. Ids come from search "
+            "results and look like 5.3.12 or 11.2.46.1.",
+            "empty", "no such section")
+    seed = found["nodes"][0]["name"]
     if not found["edges"]:
-        return (f"{_describe(found['nodes'][0])} is in the graph but has no "
-                "relationships. Read it with get_srd_section instead.")
-    return _render(found)
+        return _result(
+            f"{_describe(found['nodes'][0])} is in the graph but has no "
+            "relationships. Read it with get_srd_section instead.",
+            "empty", "no relationships", subject=seed)
+    return _result(_render(found), "ok", f"{len(found['edges'])} edges",
+                   subject=seed)
 
 
-@tool(parse_docstring=True)
+@tool(parse_docstring=True, response_format="content_and_artifact")
 def query_srd_graph(cypher_query: str) -> str:
     """Run a read-only Cypher query against the SRD rules graph.
 
@@ -289,7 +330,7 @@ def query_srd_graph(cypher_query: str) -> str:
     try:
         cypher.guard(cypher_query)
     except cypher.Refused as refusal:
-        return str(refusal)
+        return _result(str(refusal), "refused", "refused")
 
     try:
         rows, truncated = cypher.read(cypher_query,
@@ -299,9 +340,14 @@ def query_srd_graph(cypher_query: str) -> str:
     # is a query it can fix and run again, which is the loop working rather
     # than the turn failing.
     except Exception as exc:
-        return (f"The query failed: {_reason(exc)}\n\nCheck it against the "
-                "schema in your instructions, then try again.")
-    return cypher.render(rows, truncated)
+        return _result(
+            f"The query failed: {_reason(exc)}\n\nCheck it against the "
+            "schema in your instructions, then try again.",
+            "failed", "query failed")
+    if not rows:
+        return _result(cypher.render(rows, truncated), "empty", "no rows")
+    return _result(cypher.render(rows, truncated), "ok",
+                   f"{len(rows)} rows{', more' if truncated else ''}")
 
 
 # Neo4j's errors arrive with a GQL status object and a stack of framing

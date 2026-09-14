@@ -183,6 +183,52 @@ class TestChatThread:
         assert body["thread_id"] == "kept"
         assert [m["role"] for m in body["messages"]] == ["user", "assistant"]
 
+    def test_given_a_stored_conversation_when_fetched_then_its_turns_are_dated(
+            self, client, graph):
+        """
+        Taken from the checkpoint that stored each message, which is the one
+        thing that survives a reload and a restart.
+        """
+        # Given an answered conversation
+        client.post("/chat", json={"message": "Prone condition",
+                                   "thread_id": "dated"})
+
+        # When it is reopened
+        messages = client.get("/chat/threads/dated").json()["messages"]
+
+        # Then every turn carries when it happened, in order
+        stamps = [m["at"] for m in messages]
+        assert all(stamps)
+        assert stamps == sorted(stamps)
+
+    def test_given_a_reopened_conversation_when_fetched_then_the_lookups_survive(
+            self, client, graph):
+        """
+        The retrieval used to be dropped on the way back, so a conversation
+        reopened from the list showed its answers with nothing under them and
+        the trace read as something that had never happened.
+
+        This is the test that has to go through the real checkpointer: the
+        status and summary ride on the tool result as an artifact, and an
+        artifact that does not survive being written to SQLite and read back
+        would fail here and nowhere else.
+        """
+        # Given a conversation whose answer came from a search
+        client.post("/chat", json={"message": "Prone condition",
+                                   "thread_id": "kept"})
+
+        # When it is reopened
+        body = client.get("/chat/threads/kept").json()
+        answer = body["messages"][1]
+
+        # Then the lookup is under the answer, finished, with its outcome
+        assert len(answer["tools"]) == 1
+        [lookup] = answer["tools"]
+        assert lookup["name"] == "search_srd"
+        assert lookup["args"]["query"] == "Prone condition"
+        assert lookup["done"] is True
+        assert lookup["status"] == "ok"
+        assert lookup["summary"].endswith("passages")
     def test_given_an_id_nobody_used_when_fetched_then_it_is_a_not_found(
             self, client):
         # Given an id nothing was stored under
@@ -236,6 +282,47 @@ class TestPinThread:
 
         # Then it is refused
         assert response.status_code == 404
+
+
+class TestChatLookup:
+    """What one lookup in a conversation returned."""
+
+    def test_given_a_stored_lookup_when_fetched_then_its_result_comes_back(
+            self, client, graph):
+        """
+        Its own request rather than part of the conversation: one turn of a
+        real question stores a hundred kilobytes of table, almost none of
+        which anyone opens.
+        """
+        # Given an answered conversation
+        client.post("/chat", json={"message": "Prone condition",
+                                   "thread_id": "kept"})
+        [lookup] = [c for m in client.get("/chat/threads/kept").json()["messages"]
+                    for c in m.get("tools", [])]
+
+        # When its result is fetched
+        body = client.get(f"/chat/threads/kept/lookups/{lookup['id']}").json()
+
+        # Then it is the prose the model was given, whole
+        assert body["name"] == "search_srd"
+        assert body["content"].startswith("[")
+        assert body["truncated"] is False
+
+    def test_given_an_unknown_lookup_when_fetched_then_it_is_a_404(
+            self, client, graph):
+        # Given an answered conversation
+        client.post("/chat", json={"message": "Prone condition",
+                                   "thread_id": "kept"})
+
+        # When a call that was never made is fetched
+        # Then it is absent rather than an empty panel
+        assert client.get("/chat/threads/kept/lookups/nope").status_code == 404
+
+    def test_given_an_unknown_thread_when_fetched_then_it_is_a_404(self, client):
+        # Given no such conversation
+        # When a lookup in it is fetched
+        # Then it is absent
+        assert client.get("/chat/threads/ghost/lookups/x").status_code == 404
 
 
 class TestForgetThread:

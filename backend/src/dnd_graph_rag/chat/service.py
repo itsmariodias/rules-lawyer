@@ -17,7 +17,8 @@ import asyncio
 import re
 from typing import Any, AsyncIterator
 
-from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
+from langchain_core.messages import (AIMessage, AIMessageChunk, HumanMessage,
+                                     ToolMessage)
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.store.base import BaseStore
 
@@ -185,11 +186,23 @@ def _from_update(payload: dict) -> list[dict]:
                      if isinstance(step, dict)):
         for message in messages:
             if getattr(message, "type", None) == "tool":
+                # The tools attach a status and one short line as an
+                # artifact, which LangChain carries on the message and never
+                # shows the model.  Without it the trace can only say a call
+                # finished, so a refused query and a perfect one draw the
+                # same grey dot.  A tool that raised rather than returning
+                # has no artifact at all, and LangChain marks the message.
+                artifact = getattr(message, "artifact", None) or {}
+                failed = getattr(message, "status", None) == "error"
                 events.append({
                     "type": "tool_end",
                     "id": message.tool_call_id,
                     "name": message.name,
                     "result_chars": len(str(message.content)),
+                    "status": ("failed" if failed
+                               else artifact.get("status", "ok")),
+                    "summary": artifact.get("summary"),
+                    "subject": artifact.get("subject"),
                 })
     return events
 
@@ -208,22 +221,180 @@ def _text_of(chunk: Any) -> str:
                    if isinstance(part, dict) and part.get("type") == "text")
 
 
-async def history(thread_id: str, checkpointer: BaseCheckpointSaver) -> list[dict]:
-    """The stored turns of one thread, for a UI reopening it after a reload."""
-    agent = build_agent(checkpointer)
-    state = await agent.aget_state(_thread(thread_id))
-    messages = (state.values or {}).get("messages", [])
+def _call_row(call: dict) -> dict:
+    """One tool call, in the shape ``tool_start`` sends it live."""
+    return {"id": call["id"], "name": call["name"],
+            "args": call.get("args") or {},
+            "done": False, "status": None, "summary": None,
+            "subject": None}
 
-    turns = []
+
+def _close_row(row: dict, message: ToolMessage) -> None:
+    """The same reading ``tool_end`` takes, from the stored message."""
+    artifact = getattr(message, "artifact", None) or {}
+    row["done"] = True
+    row["status"] = ("failed" if getattr(message, "status", None) == "error"
+                     else artifact.get("status", "ok"))
+    row["summary"] = artifact.get("summary")
+    row["subject"] = artifact.get("subject")
+
+
+def turns_of(messages: list, when: dict[str, str] | None = None) -> list[dict]:
+    """
+    A stored conversation, as the turns a UI draws.
+
+    ``when`` maps a message id to the moment it was written, which is the
+    checkpoint's own timestamp rather than anything the model said.  Absent,
+    every turn is simply undated: a conversation stored before this was read
+    is still a conversation.
+
+    Pure, so the part that decides which lookups belong to which turn is
+    tested without a database or a model, the way ``neighbourhood.assemble``
+    and ``retrieval.fuse`` are.
+    """
+    when = when or {}
+    turns: list[dict] = []
+    # Keyed by tool call id, which is what joins a call to its result, and
+    # ordered, which is what keeps the trace in the order they were made.
+    pending: dict[str, dict] = {}
+
     for message in messages:
         if isinstance(message, HumanMessage):
-            turns.append({"role": "user", "content": message.text})
-        elif isinstance(message, AIMessage) and not message.tool_calls:
+            turns.append({"role": "user", "content": message.text,
+                          "at": when.get(message.id)})
+            # A turn that ended in an error leaves its lookups behind. They
+            # belong to that turn, not to the next question.
+            pending = {}
+        elif isinstance(message, ToolMessage):
+            row = pending.get(message.tool_call_id)
+            if row is not None:
+                _close_row(row, message)
+        elif isinstance(message, AIMessage):
+            for call in message.tool_calls or []:
+                if call.get("id") and call.get("name"):
+                    pending[call["id"]] = _call_row(call)
             text = message.text
-            if text.strip():
+            if not message.tool_calls and text.strip():
+                # Nothing is in flight in a conversation being read back, so
+                # a call whose result is missing is finished with an unknown
+                # outcome rather than left pulsing for ever.
+                tools = [{**row, "done": True} for row in pending.values()]
                 turns.append({"role": "assistant", "content": text,
-                              "citations": resolve_citations(text)})
+                              "citations": resolve_citations(text),
+                              "tools": tools,
+                              "at": when.get(message.id)})
+                pending = {}
     return turns
+
+
+def name_missing_subjects(turns: list[dict]) -> list[dict]:
+    """
+    Name what a stored lookup looked at, where the tool did not say.
+
+    A conversation answered before the tools carried an artifact has only the
+    dotted id it was called with, and `11.2.70` names nothing to anyone
+    reading the trace.  The graph still knows, and this is the same lookup
+    ``resolve_citations`` makes for every citation the answer carries.
+
+    Only the subject is recovered.  A count of what came back cannot be, short
+    of running the search again, so those rows stay blank rather than claiming
+    a number nobody recorded.
+    """
+    named: dict[str, str | None] = {}
+    for turn in turns:
+        for call in turn.get("tools") or []:
+            section_id = (call.get("args") or {}).get("section_id")
+            if call.get("subject") or not section_id:
+                continue
+            if section_id not in named:
+                found = retrieval.get_section(section_id)
+                named[section_id] = found[0].heading if found else None
+            call["subject"] = named[section_id]
+    return turns
+
+
+# A stored result is as long as the tool made it, which for a wide query is
+# the whole rendered table.  Capped where it is read rather than where it is
+# written: the model was given the whole thing, and a reader asking to see
+# what the model saw should get the same, up to a length a browser can draw.
+RESULT_CHARS = 40_000
+
+
+def find_result(messages: list, call_id: str) -> dict | None:
+    """
+    One lookup's stored result, by the id that joins a call to its answer.
+
+    Pure, so the search is tested without a checkpointer.  ``None`` when
+    there is no such call in this conversation, which is what the route turns
+    into a 404 rather than an empty panel.
+    """
+    for message in messages:
+        if (isinstance(message, ToolMessage)
+                and message.tool_call_id == call_id):
+            content = str(message.content)
+            return {"id": call_id, "name": message.name,
+                    "content": content[:RESULT_CHARS],
+                    "truncated": len(content) > RESULT_CHARS}
+    return None
+
+
+async def lookup(thread_id: str, call_id: str,
+                 checkpointer: BaseCheckpointSaver) -> dict | None:
+    """
+    What one lookup returned, read back when a reader asks to see it.
+
+    Not sent with the conversation.  One turn of the Frightened question
+    stored twenty results and a hundred kilobytes of table, almost none of
+    which anyone opens, so the trace carries counts and this fetches the rest
+    on demand.  It works for a turn still on screen as well as a reopened
+    one: a tool result is checkpointed as soon as its step completes, which
+    is before the row it belongs to is drawn as finished.
+    """
+    agent = build_agent(checkpointer)
+    state = await agent.aget_state(_thread(thread_id))
+    return find_result((state.values or {}).get("messages", []), call_id)
+
+
+async def written_at(thread_id: str,
+                     checkpointer: BaseCheckpointSaver) -> dict[str, str]:
+    """
+    When each message in a thread was first written, by its id.
+
+    The checkpointer stamps every step it saves, and a message's own moment
+    is the *earliest* checkpoint it appears in: later ones carry it forward
+    unchanged.  ``alist`` yields newest first, so overwriting as it goes
+    leaves the oldest sighting standing, which is the one wanted.
+    """
+    when: dict[str, str] = {}
+    async for item in checkpointer.alist(_thread(thread_id)):
+        stamp = item.checkpoint.get("ts")
+        if not stamp:
+            continue
+        for message in (item.checkpoint.get("channel_values")
+                        or {}).get("messages", []):
+            message_id = getattr(message, "id", None)
+            if message_id:
+                when[message_id] = stamp
+    return when
+
+
+async def history(thread_id: str, checkpointer: BaseCheckpointSaver) -> list[dict]:
+    """
+    The stored turns of one thread, for a UI reopening it after a reload.
+
+    The lookups come back with them.  They used to be dropped here, since the
+    only messages this read were the human ones and the final answer, so a
+    conversation reopened from the list showed its answers with no retrieval
+    under them and the trace read as something that had never happened.
+    Everything needed is already in the checkpoint: the tool calls on the
+    assistant messages that made them, and the status and summary on the tool
+    results that answered them.
+    """
+    agent = build_agent(checkpointer)
+    state = await agent.aget_state(_thread(thread_id))
+    return name_missing_subjects(
+        turns_of((state.values or {}).get("messages", []),
+                 await written_at(thread_id, checkpointer)))
 
 
 # The namespace pins live under, in the store beside the checkpointer.

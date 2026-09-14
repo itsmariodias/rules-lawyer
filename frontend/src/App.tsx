@@ -18,6 +18,7 @@ import { useStored, useTheme, type Theme } from './useStored'
 import { clampWidth, defaultPanel, Resizer } from './components/Resizer'
 import { Markdown } from './components/Markdown'
 import { ToolTrace } from './components/ToolTrace'
+import { Clock, Elapsed, formatDuration } from './components/Timing'
 import { SidePanel, type Tab } from './components/SidePanel'
 import type { Citation, Thread } from './api'
 /* The mark itself, as text. See `LogoIcon`, below, for why raw. */
@@ -29,6 +30,23 @@ const EXAMPLES = [
   'Which creatures can inflict the Frightened condition, and how?',
   'What are the components and damage of Fireball?',
 ]
+
+/**
+ * The ellipsis after "Thinking", animated.
+ *
+ * Three elements rather than an animated `content` string: browsers disagree on
+ * whether `content` is animatable, and opacity on three marks is the same
+ * effect everywhere.
+ */
+function Dots() {
+  return (
+    <span className="dots" aria-hidden="true">
+      <i />
+      <i />
+      <i />
+    </span>
+  )
+}
 
 export default function App() {
   const { messages, threads, threadId, streaming, send,
@@ -235,16 +253,32 @@ export default function App() {
             </div>
           )}
 
-          {messages.map((message, index) => (
+          {messages.map((message, index) => {
+            // The one still being written is always the last, and only
+            // while the stream is open.
+            const running = streaming && index === messages.length - 1
+            const since = running && message.at
+              ? new Date(message.at).getTime() : null
+            return (
             <article key={index} className={`message ${message.role}`}>
               {message.role === 'user' ? (
-                <p>{message.content}</p>
+                <>
+                  <p>{message.content}</p>
+                  <Clock at={message.at} />
+                </>
               ) : (
                 <>
-                  <ToolTrace tools={message.tools ?? []} />
+                  <ToolTrace tools={message.tools ?? []}
+                             threadId={threadId}
+                             replayed={message.replayed} />
                   {message.content
                     ? <Markdown text={message.content} onCite={cite} />
-                    : !message.error && <p className="thinking">Thinking…</p>}
+                    : !message.error && (
+                      <p className="thinking">
+                        Thinking<Dots />
+                        {since !== null && <Elapsed since={since} />}
+                      </p>
+                    )}
                   {message.error && (
                     <div className="failed">
                       {/* The model is required, so a failure is the reply
@@ -253,10 +287,23 @@ export default function App() {
                     </div>
                   )}
                   <Citations citations={message.citations ?? []} onCite={cite} />
+                  {/* Nothing to date until there is something to read: while
+                      the turn is only thinking, the counter beside it is
+                      already saying everything a timestamp would. */}
+                  {(message.content || message.error) && (
+                  <p className="timing">
+                    <Clock at={message.at} />
+                    {message.ms !== undefined && (
+                      <span className="took">{formatDuration(message.ms)}</span>
+                    )}
+                    {since !== null && <Elapsed since={since} />}
+                  </p>
+                  )}
                 </>
               )}
             </article>
-          ))}
+            )
+          })}
           <div ref={end} />
         </div>
 

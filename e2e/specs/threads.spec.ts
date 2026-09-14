@@ -64,8 +64,26 @@ test.describe('the thread list', () => {
     await openerFor(app, question).click()
 
     // Then both turns come back, with the citations resolved again
-    await expect(app.locator('.message.user')).toHaveText([question])
+    await expect(app.locator('.message.user p')).toHaveText([question])
     await expect(app.locator('.citations .chip').first()).toBeVisible()
+
+    /**
+     * And the retrieval comes back with them. It used to be dropped on the
+     * way out of the checkpointer, so a reopened conversation showed its
+     * answer with nothing under it and the trace read as something that had
+     * never happened.
+     */
+    await expect(app.locator('.trace-toggle')).toContainText('1 lookup')
+
+    /**
+     * Folded away, though. Watching the retrieval happen is the point of it
+     * during a turn; coming back to a conversation you want the answer, with
+     * the working a click away.
+     */
+    await expect(app.locator('.trace li')).toHaveCount(0)
+    await app.locator('.trace-toggle').click()
+    await expect(app.locator('.trace li')).toHaveClass(/done/)
+    await expect(app.locator('.trace .outcome')).toContainText('passages')
   })
 
   test('given a conversation, when pinned, then it moves to its own section',

@@ -51,7 +51,10 @@ export function useChat() {
         patchLast((m) => ({
           ...m,
           tools: (m.tools ?? []).map((t) =>
-            t.id === event.id ? { ...t, done: true } : t),
+            t.id === event.id
+              ? { ...t, done: true, status: event.status,
+                  summary: event.summary, subject: event.subject }
+              : t),
         }))
         break
       case 'citations':
@@ -66,6 +69,7 @@ export function useChat() {
   /** Stream one turn into the assistant message already at the end. */
   const run = useCallback(async (text: string) => {
     const isFirst = threadId === null
+    const started = Date.now()
     setStreaming(true)
     abort.current = new AbortController()
     try {
@@ -75,6 +79,10 @@ export function useChat() {
         patchLast((m) => ({ ...m, error: String(error) }))
       }
     } finally {
+      // Measured here rather than from the timestamps, which are the
+      // server's and are written a step at a time: what a reader watched is
+      // the wait from pressing send to the stream ending.
+      patchLast((m) => ({ ...m, ms: Date.now() - started }))
       setStreaming(false)
       abort.current = null
       // The sidebar only changes when a thread is created or its preview
@@ -86,10 +94,11 @@ export function useChat() {
 
   const send = useCallback(async (text: string) => {
     if (streaming || !text.trim()) return
+    const at = new Date().toISOString()
     setMessages((current) => [
       ...current,
-      { role: 'user', content: text },
-      { role: 'assistant', content: '' },
+      { role: 'user', content: text, at },
+      { role: 'assistant', content: '', at },
     ])
     await run(text)
   }, [streaming, run])
@@ -129,7 +138,11 @@ export function useChat() {
   const open = useCallback(async (id: string) => {
     abort.current?.abort()
     setThreadId(id)
-    setMessages(await loadThread(id))
+    // Marked on the way in, because it is the one thing the server cannot
+    // say: the same turn is live when it is watched and replayed when it is
+    // reopened, and only the reader knows which.
+    setMessages((await loadThread(id)).map(
+      (message) => ({ ...message, replayed: true })))
   }, [])
 
   const reset = useCallback(() => {

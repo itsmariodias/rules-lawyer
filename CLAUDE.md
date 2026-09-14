@@ -69,7 +69,9 @@ frontend/            React + Vite chat UI
   src/api.ts         the browser half of the SSE contract
   src/useChat.ts     conversation state for one thread
   src/useStored.ts   localStorage-backed state; guarded both ways
-  src/components/    Markdown (clickable citations), ToolTrace, SidePanel,
+  src/components/    Markdown (clickable citations), ToolTrace (a marker
+                     per tool, the outcome in its own column), Timing (when
+                     a turn happened, and how long it is taking), SidePanel,
                      PdfPage (canvas + text layer + highlight boxes),
                      GraphView (force layout, expanded a node at a time)
                      over graph-layout.ts (the arithmetic, with no React in
@@ -177,6 +179,7 @@ POST /graph/load    {"input": ..., "reset": true, "skip_verify": false,
 POST /chat              {"message": ..., "thread_id": ...} → SSE
 GET  /chat/threads      stored conversations, pinned first then newest
 GET  /chat/threads/{id} one conversation's turns, for reopening it
+GET  /chat/threads/{id}/lookups/{call_id}  what one lookup returned
 PUT  /chat/threads/{id}/pin  {"pinned": true}; 404 if there was none
 DEL  /chat/threads/{id} delete one conversation; 404 if there was none
 GET  /source/{id}       the markdown behind a citation, ?context=400
@@ -419,6 +422,74 @@ is JSON with the sentence buried in it — the invalid-key one is 600
 characters carrying "API key not valid" twice. The three that actually
 happen (no key, a rejected key, a spent quota) are named, and anything else
 is capped at a length someone will still read.
+
+**The trace shows the retrieval, which means three things and not one.**
+A row per tool call, all drawn as identical muted dots, said only that a call
+had happened. It hid *which kind* of lookup it was, and a ranked fuzzy search,
+an exact query over the whole graph and a fetch of one section by id are
+different operations: drawn the same they make an agent that is reasoning look
+like one repeating itself. It hid *how it went*, so a refused procedure and a
+perfect query drew the same grey dot. And it hid *what came back*, so three
+passages and none were the same line. Each tool now carries a marker of its
+own, the outcome sits in a right-hand column where a run of them can be
+scanned without re-reading the labels, and a dotted id is replaced by the
+heading it names, because `10.3.165` tells a reader nothing.
+
+**A reopened conversation keeps its trace.** `history` used to read only the
+human messages and the final answer, skipping every assistant message that
+carried tool calls, so a conversation opened from the thread list showed its
+answers with no retrieval under them: the trace read as something that had
+never happened. Everything needed was already in the checkpoint, since the
+calls are on the assistant messages that made them and the status and summary
+ride on the tool results that answered them. `turns_of` is pure, so the part
+that decides which lookups belong to which turn is tested without a database
+or a model, and a turn that ended in an error does not lend its lookups to
+the question after it.
+
+A conversation answered *before* the tools carried an artifact has only the
+dotted id it was called with, so `name_missing_subjects` asks the graph what
+that id names, which is the same lookup `resolve_citations` makes a few lines
+above for every citation. Only the subject is recovered: a count of what came
+back cannot be, short of running the search again, so those rows stay blank
+rather than claiming a number nobody recorded.
+
+**Opening a row shows what the lookup returned, fetched on demand.** The
+results are all in the checkpoint already, since a tool result is a message
+like any other, but one turn of the Frightened question stored twenty of them
+and a hundred kilobytes of table, almost none of which anyone opens. So the
+conversation carries counts and `GET /chat/threads/{id}/lookups/{call_id}`
+carries the rest, one row at a time, cached for the life of the trace. It
+serves a turn still on screen as readily as a reopened one: a tool result is
+checkpointed as soon as its step completes, which is before the row it
+belongs to is drawn as finished. A query shows the Cypher above its rows,
+because a result only means something beside the question that produced it.
+
+**The outcome travels as an artifact, not in the result.** The tools return
+prose because the model reads it, so the status and the one-line summary go
+back as LangChain's `content_and_artifact` pair: it rides on the
+`ToolMessage`, `service` puts it on `tool_end`, and the model never sees it.
+That is the same split the tool results already use, and it is why the trace
+can distinguish `empty` from `failed` without either the model or the browser
+parsing our own prose. `empty` is its own status on purpose: a query matching
+nothing is an answer about the book, not a broken tool.
+
+**A long wait has to look like work.** An agentic turn is quiet for a whole
+round trip before it says anything and for eight of them on a hard question,
+so a static "Thinking…" is indistinguishable from a hang. The ellipsis is
+three elements whose opacity animates rather than an animated `content`
+string, which browsers disagree about; the marker on a running lookup pulses
+on the accent; and the wait counts up beside them, in tenths under ten
+seconds and whole seconds above, where a tenth is noise on a number that is
+already the headline. All of it stops under `prefers-reduced-motion`.
+
+**Every turn is dated, and the date comes from the checkpoint.** `written_at`
+reads the `ts` the checkpointer stamps on each step and maps it by message
+id: `alist` yields newest first, so overwriting as it goes leaves the oldest
+sighting of a message standing, which is the moment it was written. That is
+what makes a reopened conversation dated by when it happened rather than by
+when it was read. The *duration* is the browser's, measured from pressing
+send to the stream ending, because that is the wait somebody actually sat
+through rather than the span between two server writes.
 
 **Citations are driven by the answer, not by the search.** The system prompt
 asks for `[11.2.114]` after each claim; `resolve_citations` parses those ids

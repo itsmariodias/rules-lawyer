@@ -448,6 +448,143 @@ class TestQuerySrdGraph:
         assert "schema" in result
 
 
+class TestArtifacts:
+    """
+    The status and one short line every tool attaches for the trace.
+
+    LangChain carries it on the ToolMessage and never shows it to the model,
+    which is the same "structured half by another route" split the prose
+    results already use.
+    """
+
+    @staticmethod
+    def _artifact(tool, args: dict) -> dict:
+        message = tool.invoke({"type": "tool_call", "id": "1",
+                               "name": tool.name, "args": args})
+        return message.artifact
+
+    def test_given_a_search_when_called_then_the_count_comes_back_with_it(
+            self, graph):
+        # Given a loaded graph
+        # When the search runs
+        artifact = self._artifact(tools.search_srd, {"query": "Prone condition"})
+
+        # Then the trace can say what came back, not only that a call happened
+        assert artifact["status"] == "ok"
+        assert artifact["summary"].endswith("passages")
+
+    def test_given_a_section_when_read_then_the_heading_comes_back_with_it(
+            self, graph):
+        """A dotted id says nothing to the person reading the trace, and the
+        graph is the only thing that knows what it names."""
+        # Given a loaded graph
+        # When a section is fetched
+        artifact = self._artifact(tools.get_srd_section,
+                                  {"section_id": "11.2.114"})
+
+        # Then the trace can name what was read, and still show the id to cite
+        assert artifact == {"status": "ok", "summary": "11.2.114",
+                            "subject": "Prone [Condition]"}
+
+    def test_given_a_walk_when_made_then_the_node_is_named_not_numbered(
+            self, graph):
+        # Given a loaded graph
+        # When the graph around a section is walked
+        artifact = self._artifact(tools.explore_srd_graph,
+                                  {"section_id": "11.2.114"})
+
+        # Then the row can say what was explored rather than the id it used
+        assert artifact["subject"] == "Prone [Condition]"
+        assert artifact["summary"].endswith("edges")
+
+    def test_given_a_search_when_made_then_no_subject_is_invented_for_it(
+            self, graph):
+        """The query is already the words someone chose, so the server has
+        nothing better to say than the argument itself."""
+        # Given a loaded graph
+        # When a search runs
+        artifact = self._artifact(tools.search_srd, {"query": "Prone"})
+
+        # Then the row is left to show the query it was given
+        assert "subject" not in artifact
+
+    def test_given_a_refused_query_when_called_then_it_is_not_reported_as_ok(
+            self):
+        # Given a query calling a procedure outside the allowlist
+        # When it is refused
+        artifact = self._artifact(
+            tools.query_srd_graph,
+            {"cypher_query": "CALL dbms.listConfig() YIELD name RETURN name"})
+
+        # Then the refusal reaches the trace
+        assert artifact["status"] == "refused"
+
+    def test_given_broken_cypher_when_called_then_it_is_reported_as_failed(
+            self, graph):
+        # Given a loaded graph and a query that will not parse
+        # When it fails
+        artifact = self._artifact(tools.query_srd_graph,
+                                  {"cypher_query": "MATCH (n:Section RETURN n"})
+
+        # Then a broken query does not draw the same row as a working one
+        assert artifact["status"] == "failed"
+
+    def test_given_a_query_matching_nothing_when_called_then_it_is_empty_not_failed(
+            self, graph):
+        """Matching nothing is an answer about the book, not a broken tool."""
+        # Given a loaded graph and a query that matches nothing
+        # When it runs
+        artifact = self._artifact(
+            tools.query_srd_graph,
+            {"cypher_query": "MATCH (s:Spell {name: 'nope'}) RETURN s.id"})
+
+        # Then it is distinguished from a failure
+        assert artifact == {"status": "empty", "summary": "no rows"}
+
+    def test_given_rows_when_returned_then_the_count_is_the_summary(self, graph):
+        # Given a loaded graph
+        # When a query returns a known number of rows
+        artifact = self._artifact(
+            tools.query_srd_graph,
+            {"cypher_query": "MATCH (s:Spell) RETURN s.id LIMIT 12"})
+
+        # Then the trace can show it without reading the prose result
+        assert artifact == {"status": "ok", "summary": "12 rows"}
+
+    def test_given_every_tool_when_called_then_none_shows_the_model_its_artifact(
+            self, graph):
+        """
+        The model reads the prose and nothing else: an artifact leaking into
+        the content would be retrieval plumbing in the context window.
+        """
+        # Given a call to each tool
+        for tool, args in ((tools.search_srd, {"query": "Prone"}),
+                           (tools.get_srd_section, {"section_id": "11.2.114"}),
+                           (tools.explore_srd_graph, {"section_id": "11.2.114"}),
+                           (tools.query_srd_graph,
+                            {"cypher_query": "MATCH (s:Spell) RETURN s.id LIMIT 1"})):
+            message = tool.invoke({"type": "tool_call", "id": "1",
+                                   "name": tool.name, "args": args})
+
+            # When the content is read
+            # Then it is the prose alone
+            assert "status" not in message.content
+            assert isinstance(message.content, str)
+
+    def test_given_a_tool_when_invoked_plainly_then_it_still_returns_prose(self):
+        """
+        ``invoke`` with a bare argument dict returns the content only, which
+        is what keeps every other test in this file reading as it did.
+        """
+        # Given a call made with arguments rather than a tool call
+        result = tools.search_srd.invoke({"query": "x",
+                                          "entity_type": "wizardry"})
+
+        # Then the prose is what comes back, not the pair
+        assert isinstance(result, str)
+        assert "Unknown entity_type" in result
+
+
 class TestTools:
     """What the agent is given."""
 

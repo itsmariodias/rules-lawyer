@@ -127,6 +127,23 @@ async def chat_thread(thread_id: str, checkpointer: Conversations) -> dict:
     return {"thread_id": thread_id, "messages": messages}
 
 
+@router.get("/chat/threads/{thread_id}/lookups/{call_id}")
+async def chat_lookup(thread_id: str, call_id: str,
+                      checkpointer: Conversations) -> dict:
+    """
+    What one lookup in a conversation returned.
+
+    Its own request rather than part of the conversation: the results are
+    large, most are never opened, and the trace's counts are enough until
+    someone asks to see one.
+    """
+    found = await service.lookup(thread_id, call_id, checkpointer)
+    if found is None:
+        raise HTTPException(status_code=404,
+                            detail=f"no lookup {call_id!r} in {thread_id!r}")
+    return found
+
+
 @router.delete("/chat/threads/{thread_id}", status_code=204)
 async def forget_thread(thread_id: str, checkpointer: Conversations,
                         store: Flags) -> None:

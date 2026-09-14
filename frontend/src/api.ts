@@ -14,18 +14,31 @@ export type Citation = {
   labels: string[]
 }
 
+/** How a finished tool call went, for the trace to draw. */
+export type ToolStatus = 'ok' | 'empty' | 'refused' | 'failed'
+
 export type ToolCall = {
   id: string
   name: string
   args: Record<string, unknown>
   done: boolean
+  /** These arrive with tool_end, so all three are absent while it runs. */
+  status?: ToolStatus
+  summary?: string
+  /**
+   * What the call looked at, where only the server can say. A dotted id
+   * means nothing to a reader, and the graph is the only thing that knows
+   * `11.2.70` is Frightened.
+   */
+  subject?: string
 }
 
 export type ChatEvent =
   | { type: 'start'; thread_id: string }
   | { type: 'token'; text: string }
   | { type: 'tool_start'; id: string; name: string; args: Record<string, unknown> }
-  | { type: 'tool_end'; id: string; name: string; result_chars: number }
+  | { type: 'tool_end'; id: string; name: string; result_chars: number;
+      status?: ToolStatus; summary?: string; subject?: string }
   | { type: 'citations'; citations: Citation[] }
   /** The model could not answer, and nothing answers in its place. */
   | { type: 'error'; message: string }
@@ -34,6 +47,19 @@ export type ChatEvent =
 export type Message = {
   role: 'user' | 'assistant'
   content: string
+  /**
+   * Read back from the server rather than watched as it happened, which is
+   * what decides whether its trace opens on arrival.
+   */
+  replayed?: boolean
+  /**
+   * When the turn was written, as an ISO string. The server takes it from
+   * the checkpoint that stored the message, so a reopened conversation is
+   * dated by when it happened rather than by when it was read.
+   */
+  at?: string
+  /** How long the answer took, in milliseconds. Live turns only. */
+  ms?: number
   citations?: Citation[]
   tools?: ToolCall[]
   error?: string
@@ -152,6 +178,24 @@ export async function graphStatus(): Promise<GraphStatus> {
     return 'unreachable'
   }
 }
+
+/**
+ * What one lookup returned, fetched only when a reader opens it.
+ *
+ * Not part of the conversation: one turn can store a hundred kilobytes of
+ * table across twenty lookups, almost none of which anyone opens, so the
+ * trace carries counts and this fetches the rest on demand.
+ */
+export type Lookup = {
+  id: string
+  name: string
+  content: string
+  truncated: boolean
+}
+
+export const loadLookup = (threadId: string, callId: string) =>
+  getJSON<Lookup>(
+    `/chat/threads/${threadId}/lookups/${encodeURIComponent(callId)}`)
 
 export const listThreads = () =>
   getJSON<{ threads: Thread[] }>('/chat/threads').then((r) => r.threads)

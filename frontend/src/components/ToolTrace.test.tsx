@@ -1,22 +1,38 @@
 /**
  * What the agent looked up, shown while it looks it up.
  *
- * During a slow first token this is the only sign the thing is alive, so
- * what matters is that a call appears the moment it starts and is marked
- * finished when it ends.
+ * During a slow first token this is the only sign the thing is alive, so a
+ * call must appear the moment it starts. Past that, what the trace owes a
+ * reader is the three things one muted line could not carry: which kind of
+ * lookup it was, how it went, and what came back.
  */
 
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import * as api from '../api'
 import type { ToolCall } from '../api'
 import { ToolTrace } from './ToolTrace'
 
+vi.mock('../api', () => ({
+  loadLookup: vi.fn(() => Promise.resolve(
+    { id: 't1', name: 'search_srd', content: '[11.2.114] Prone [Condition]',
+      truncated: false })),
+}))
+
+beforeEach(() => { vi.mocked(api.loadLookup).mockClear() })
+
 const call = (overrides: Partial<ToolCall> = {}): ToolCall => ({
   id: 't1', name: 'search_srd', args: { query: 'Prone condition' },
-  done: true, ...overrides,
+  done: true, status: 'ok', summary: '3 passages', ...overrides,
 })
+
+const row = () => screen.getByRole('listitem')
+
+/** A trace in a conversation, which is what makes its rows openable. */
+const trace = (tools: ToolCall[], props = {}) =>
+  render(<ToolTrace tools={tools} threadId="t" {...props} />)
 
 describe('ToolTrace', () => {
   it('given no lookups, when rendered, then nothing is drawn', () => {
@@ -34,8 +50,22 @@ describe('ToolTrace', () => {
 
     // When the trace is read
     // Then the query is quoted back, under a readable label
-    expect(screen.getByText(/Searched the SRD: “Prone condition”/))
-      .toBeInTheDocument()
+    expect(within(row()).getByText('Searched the SRD')).toBeInTheDocument()
+    expect(within(row()).getByText('“Prone condition”')).toBeInTheDocument()
+  })
+
+  it('given a finished call, when rendered, then what came back is shown', () => {
+    /**
+     * The trace used to stop at "a call happened". Three passages and none
+     * drew the same line, which is the difference between seeing the
+     * retrieval and being told that it occurred.
+     */
+    // Given a search that found three passages
+    render(<ToolTrace tools={[call()]} />)
+
+    // When the row is read
+    // Then the result is on it
+    expect(within(row()).getByText('3 passages')).toBeInTheDocument()
   })
 
   it('given a filtered search, when rendered, then the filter is shown too', () => {
@@ -45,61 +75,289 @@ describe('ToolTrace', () => {
 
     // When the trace is read
     // Then the narrowing is visible, since it changes what was found
-    expect(screen.getByText(/“fire” · spell/)).toBeInTheDocument()
+    expect(row()).toHaveTextContent('· spell')
   })
 
-  it('given a section read, when rendered, then it names the section', () => {
-    // Given the other tool the agent may call
+  it('given a section read, when rendered, then the heading is what is shown', () => {
+    /**
+     * A dotted id says nothing to a reader, and the id alone was all the row
+     * used to carry. Only the graph knows what `10.3.165` names, so the
+     * server sends it; the id stays on the right, since it is what a
+     * citation uses.
+     */
+    // Given the tool that fetches one section
     render(<ToolTrace tools={[call({ name: 'get_srd_section',
-                                     args: { section_id: '11.2.114' } })]} />)
+                                     args: { section_id: '10.3.165' },
+                                     subject: 'Countercharm',
+                                     summary: '10.3.165' })]} />)
 
     // When the trace is read
-    // Then it reads as what it did, not as a function name
-    expect(screen.getByText(/Read section: “11.2.114”/)).toBeInTheDocument()
+    // Then the section is named, and its id is the outcome
+    expect(within(row()).getByText('Read section')).toBeInTheDocument()
+    expect(row().querySelector('.asked')).toHaveTextContent('Countercharm')
+    expect(row().querySelector('.outcome')).toHaveTextContent('10.3.165')
   })
 
-  it('given a graph walk, when rendered, then it names the section walked from', () => {
-    // Given the third tool, which reads edges rather than prose
+  it('given a graph walk, when rendered, then the node is named rather than numbered', () => {
+    // Given a walk reached by a dotted id
     render(<ToolTrace tools={[call({ name: 'explore_srd_graph',
-                                     args: { section_id: '11.2.114' } })]} />)
+                                     args: { section_id: '11.2.70' },
+                                     subject: 'Frightened [Condition]',
+                                     summary: '24 edges' })]} />)
 
-    // When the trace is read
-    // Then it is distinguishable from a search of the same section
-    expect(screen.getByText(/Explored the graph: “11.2.114”/))
-      .toBeInTheDocument()
+    // When the row is read
+    // Then it says what was explored, not the number it was reached by
+    expect(row().querySelector('.asked'))
+      .toHaveTextContent('Frightened [Condition]')
+    expect(row().querySelector('.outcome')).toHaveTextContent('24 edges')
   })
 
-  it('given a graph query, when rendered, then the cypher is flattened to one line', () => {
+  it('given a section read still running, when rendered, then the id stands in', () => {
+    // Given a fetch whose heading has not arrived yet
+    render(<ToolTrace tools={[call({ name: 'get_srd_section', done: false,
+                                     args: { section_id: '10.3.165' },
+                                     status: undefined, summary: undefined,
+                                     subject: undefined })]} />)
+
+    // When the row is read
+    // Then the id is shown rather than an empty line
+    expect(row().querySelector('.asked')).toHaveTextContent('10.3.165')
+    expect(row().querySelector('.outcome')).toHaveTextContent('')
+  })
+
+  it('given a replayed turn, when rendered, then the trace starts folded away', async () => {
+    /**
+     * Watching the retrieval happen is the point of it during a turn.
+     * Coming back to a conversation you want the answer, with the working
+     * still a click away.
+     */
+    // Given a conversation read back rather than watched
+    trace([call()], { replayed: true })
+
+    // When it is first drawn
+    // Then the rows are away, and the count says what is behind the toggle
+    expect(screen.queryByRole('listitem')).toBeNull()
+    expect(screen.getByRole('button')).toHaveTextContent('1 lookup')
+
+    // And it opens on being asked
+    await userEvent.click(screen.getByRole('button'))
+    expect(screen.getByRole('listitem')).toBeInTheDocument()
+  })
+
+  it('given a live turn, when rendered, then the trace is open', () => {
+    // Given a turn as it happens
+    render(<ToolTrace tools={[call()]} />)
+
+    // When it is first drawn
+    // Then the retrieval is on show, which is the whole point during a turn
+    expect(screen.getByRole('listitem')).toBeInTheDocument()
+  })
+
+  it('given a graph query, when rendered, then the cypher is flat and unquoted', () => {
+    /**
+     * Quotes imply prose. Cypher is not prose, and a multi-line query would
+     * otherwise make the trace as tall as the answer.
+     */
     // Given a multi-line Cypher query, as the model writes it
     render(<ToolTrace tools={[call({ name: 'query_srd_graph', args: {
       cypher_query: 'MATCH (c:Creature)\n  -[:HAS_ABILITY]->(a)\nRETURN c.id',
-    } })]} />)
+    }, summary: '12 rows' })]} />)
 
     // When the trace is read
-    // Then it is one line, not the height of the query
-    expect(screen.getByText(
-      /Queried the graph: “MATCH \(c:Creature\) -\[:HAS_ABILITY\]->\(a\) RETURN c.id”/,
-    )).toBeInTheDocument()
+    // Then it is one line, unquoted, beside its row count
+    expect(row().querySelector('.asked')).toHaveTextContent(
+      'MATCH (c:Creature) -[:HAS_ABILITY]->(a) RETURN c.id')
+    expect(row().querySelector('.outcome')).toHaveTextContent('12 rows')
   })
 
-  it('given a long query, when rendered, then it is cut rather than wrapped', () => {
-    // Given a query longer than the trace has room for
-    render(<ToolTrace tools={[call({ name: 'query_srd_graph', args: {
-      cypher_query: `MATCH (n:Section) WHERE n.id = '${'x'.repeat(200)}' RETURN n`,
-    } })]} />)
+  it('given a query row, when clicked, then the whole query is shown as written', async () => {
+    /**
+     * The one argument too long to read inline and the one most worth
+     * reading in full. The snippet is cut by the width available, so the
+     * only place the whole of it exists is here.
+     */
+    // Given a query whose inline form is only as much as fits
+    const cypher = 'MATCH (c:Creature)\n  -[:HAS_ABILITY]->(a)\nRETURN c.id'
+    trace([call({ name: 'query_srd_graph', args: { cypher_query: cypher } })])
 
-    // When the trace is read
-    // Then it ends in an ellipsis
-    expect(screen.getByText(/…”$/)).toBeInTheDocument()
+    // When the row is opened
+    const line = within(row()).getByRole('button')
+    expect(line).toHaveAttribute('aria-expanded', 'false')
+    await userEvent.click(line)
+
+    // Then the query is there with its own line breaks kept
+    expect(line).toHaveAttribute('aria-expanded', 'true')
+    const shown = row().querySelector('.detail pre')
+    expect(shown).toHaveTextContent('-[:HAS_ABILITY]->(a)')
+    expect(shown?.textContent).toContain('\n')
+  })
+
+  it('given an open row, when clicked again, then it closes', async () => {
+    // Given an opened row
+    trace([call({ name: 'query_srd_graph',
+                  args: { cypher_query: 'MATCH (n) RETURN n' } })])
+    const line = within(row()).getByRole('button')
+    await userEvent.click(line)
+
+    // When it is clicked again
+    await userEvent.click(line)
+
+    // Then it is put away rather than left open under the answer
+    expect(row().querySelector('.detail')).toBeNull()
+  })
+
+  it('given a finished row, when clicked, then it shows what came back', async () => {
+    /**
+     * The retrieval inspector the whole project implies: the counts say a
+     * search found three passages, and this says which three.
+     */
+    // Given a finished search in a conversation
+    trace([call()])
+
+    // When its row is opened
+    await userEvent.click(within(row()).getByRole('button'))
+
+    // Then the result is fetched and shown under it
+    await waitFor(() => expect(row().querySelector('.detail'))
+      .toHaveTextContent('[11.2.114] Prone [Condition]'))
+    expect(api.loadLookup).toHaveBeenCalledWith('t', 't1')
+  })
+
+  it('given a query row, when opened, then the query leads and the result follows', async () => {
+    /** A result only means something beside the question that produced it. */
+    // Given a finished query
+    trace([call({ name: 'query_srd_graph',
+                  args: { cypher_query: 'MATCH (n)\nRETURN n' } })])
+
+    // When its row is opened
+    await userEvent.click(within(row()).getByRole('button'))
+
+    // Then both halves are labelled, in that order
+    const labels = [...row().querySelectorAll('.detail-label')]
+      .map((node) => node.textContent)
+    expect(labels).toEqual(['query', 'result'])
+  })
+
+  it('given a row opened twice, when reopened, then it is not fetched again', async () => {
+    // Given a row that has been opened and closed
+    trace([call()])
+    const line = within(row()).getByRole('button')
+    await userEvent.click(line)
+    await waitFor(() => expect(api.loadLookup).toHaveBeenCalledTimes(1))
+    await userEvent.click(line)
+
+    // When it is opened again
+    await userEvent.click(line)
+
+    // Then the result it already has is shown rather than re-requested
+    await waitFor(() => expect(row().querySelector('.detail'))
+      .toHaveTextContent('Prone'))
+    expect(api.loadLookup).toHaveBeenCalledTimes(1)
+  })
+
+  it('given a result that cannot be read back, when opened, then it says so', async () => {
+    /**
+     * The lookup happened; only reading it back failed. An empty panel would
+     * read as "it returned nothing", which is a different claim.
+     */
+    // Given a server that will not return the result
+    vi.mocked(api.loadLookup).mockRejectedValueOnce(new Error('404'))
+    trace([call()])
+
+    // When the row is opened
+    await userEvent.click(within(row()).getByRole('button'))
+
+    // Then the failure is named rather than drawn as an empty result
+    await waitFor(() => expect(row().querySelector('.detail'))
+      .toHaveTextContent('could not be read back'))
+  })
+
+  it('given a running call, when rendered, then there is nothing to open yet', () => {
+    // Given a call still in flight
+    trace([call({ done: false, status: undefined, summary: undefined })])
+
+    // When the row is read
+    // Then it is not a control, since it has returned nothing to show
+    expect(within(row()).queryByRole('button')).toBeNull()
+  })
+
+  it('given no conversation yet, when rendered, then rows do not offer to open', () => {
+    /** There is nowhere to fetch a result from until a thread exists. */
+    // Given a trace with no thread behind it
+    render(<ToolTrace tools={[call()]} />)
+
+    // When the row is read
+    // Then it promises nothing it cannot deliver
+    expect(within(row()).queryByRole('button')).toBeNull()
+  })
+
+  it('given the four tools, when rendered, then each carries its own marker', () => {
+    /**
+     * A ranked fuzzy search, an exact query over the whole graph and a fetch
+     * of one section are different operations. Drawn identically they hide
+     * that the agent is reasoning rather than repeating itself.
+     */
+    // Given one call to each tool
+    render(<ToolTrace tools={[
+      call({ id: 'a', name: 'search_srd' }),
+      call({ id: 'b', name: 'get_srd_section', args: { section_id: '1.1' } }),
+      call({ id: 'c', name: 'explore_srd_graph', args: { section_id: '1.1' } }),
+      call({ id: 'd', name: 'query_srd_graph', args: { cypher_query: 'MATCH (n)' } }),
+    ]} />)
+
+    // When the markers are read
+    const marks = screen.getAllByRole('listitem')
+      .map((item) => item.querySelector('.mark')?.textContent)
+
+    // Then no two operations look the same
+    expect(new Set(marks).size).toBe(4)
+  })
+
+  it('given a refused call, when rendered, then it does not read as success', () => {
+    /** A banned procedure and a perfect query drew the same grey dot. */
+    // Given a query the guard refused
+    render(<ToolTrace tools={[call({ name: 'query_srd_graph',
+                                     args: { cypher_query: 'CALL dbms.listConfig()' },
+                                     status: 'refused', summary: 'refused' })]} />)
+
+    // When the row is read
+    // Then it is marked as refused, and says so
+    expect(row()).toHaveClass('is-refused')
+    expect(within(row()).getByText('refused')).toBeInTheDocument()
+  })
+
+  it('given a call that found nothing, when rendered, then it is not a failure', () => {
+    /** Matching nothing is an answer about the book, not a broken tool. */
+    // Given a query that ran and matched nothing
+    render(<ToolTrace tools={[call({ name: 'query_srd_graph',
+                                     args: { cypher_query: 'MATCH (n:Nope) RETURN n' },
+                                     status: 'empty', summary: 'no rows' })]} />)
+
+    // When the row is read
+    // Then the emptiness is reported without being marked as broken
+    expect(row()).toHaveClass('is-empty')
+    expect(row()).not.toHaveClass('is-failed')
+    expect(within(row()).getByText('no rows')).toBeInTheDocument()
   })
 
   it('given a call still running, when rendered, then it is marked as running', () => {
     // Given a search that has started but not finished
-    render(<ToolTrace tools={[call({ done: false })]} />)
+    render(<ToolTrace tools={[call({ done: false, status: undefined,
+                                     summary: undefined })]} />)
 
     // When its row is read
     // Then it is marked running rather than looking finished
-    expect(screen.getByRole('listitem')).toHaveClass('running')
+    expect(row()).toHaveClass('running')
+  })
+
+  it('given a running call, when rendered, then no outcome is claimed for it', () => {
+    // Given a call whose result has not arrived
+    render(<ToolTrace tools={[call({ done: false, status: undefined,
+                                     summary: undefined })]} />)
+
+    // When the row is read
+    // Then the outcome is blank rather than guessed at
+    expect(row().querySelector('.outcome')).toHaveTextContent('')
   })
 
   it('given a finished call, when rendered, then it is marked as done', () => {
@@ -108,7 +366,7 @@ describe('ToolTrace', () => {
 
     // When its row is read
     // Then it is marked done
-    expect(screen.getByRole('listitem')).toHaveClass('done')
+    expect(row()).toHaveClass('done')
   })
 
   it('given several lookups, when counted, then the label is pluralised', () => {
@@ -148,6 +406,6 @@ describe('ToolTrace', () => {
 
     // When the trace is read
     // Then it still says something rather than nothing
-    expect(screen.getByText('cypher')).toBeInTheDocument()
+    expect(within(row()).getByText('cypher')).toBeInTheDocument()
   })
 })

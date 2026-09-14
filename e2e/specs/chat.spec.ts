@@ -26,7 +26,7 @@ test.describe('asking a question', () => {
       .click()
 
     // Then it becomes the question, and an answer is on its way
-    await expect(app.locator('.message.user'))
+    await expect(app.locator('.message.user p'))
       .toHaveText('What exactly does the Prone condition do?')
     await expect(app.locator('.message.assistant')).toBeVisible()
   })
@@ -38,9 +38,42 @@ test.describe('asking a question', () => {
     await ask(app, 'What does the Prone condition do?')
 
     // When the trace is read
-    // Then it says what was searched for, and that it finished
+    // Then it says what was searched for, that it finished, and what it found
     await expect(app.locator('.trace')).toContainText('Searched the SRD')
     await expect(app.locator('.trace li')).toHaveClass(/done/)
+    await expect(app.locator('.trace .outcome')).toContainText('passages')
+  })
+
+  test('given an answered turn, when read, then it is dated and timed',
+       async ({ app }) => {
+    // Given an answered question
+    await ask(app, 'What does the Prone condition do?')
+
+    // When the turn is read
+    // Then it says when it happened and what the wait cost
+    await expect(app.locator('.message.user time.stamp')).toBeVisible()
+    await expect(app.locator('.message.assistant .timing .took'))
+      .toContainText(/\ds/)
+  })
+
+  test('given a lookup, when it is opened, then it shows what it returned',
+       async ({ app }) => {
+    /**
+     * The counts say a search found three passages; this says which three.
+     * Fetched on demand rather than sent with the turn, so the request is
+     * part of what is being tested.
+     */
+    // Given an answered question
+    await ask(app, 'What does the Prone condition do?')
+    await expect(app.locator('.trace li')).toHaveClass(/done/)
+
+    // When its row is opened
+    await app.locator('.trace .line').first().click()
+
+    // Then the passages the model was given are under it
+    await expect(app.locator('.trace .detail')).toBeVisible()
+    await expect(app.locator('.trace .detail')).toContainText('Prone')
+    await expect(app.locator('.trace .detail-label').last()).toHaveText('result')
   })
 
   test('given a finished answer, when it resolves, then it cites the book',
@@ -103,7 +136,7 @@ test.describe('asking a question', () => {
     // Then the conversation holds both, in order
     await expect(app.locator('.message.user')).toHaveCount(2)
     await expect(app.locator('.message.assistant')).toHaveCount(2)
-    await expect(app.locator('.message.user').first())
+    await expect(app.locator('.message.user p').first())
       .toContainText('Prone')
   })
 
