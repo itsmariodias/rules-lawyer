@@ -1186,6 +1186,23 @@ rules-correct value is used and the printed one kept in `printed_score`.
   so rather than offering a way in — searching for a node to start from, the
   way the Page tab's page-number box is a way into the book, is the missing
   half.
+- **A citation is a dead end for reading the book.** With nothing cited the
+  Page tab is the whole SRD — 364 pages to scroll and a page-number box to
+  jump by. Cite something and it becomes `PdfPage`, which renders only the
+  one or two pages the passage falls on, and the jump box is hidden because
+  it is gated on `!sectionId`. So there is no turning to the facing page, no
+  reading on past the end of the passage, and no going up to the spread the
+  section sits in. What is left is the tree — the parent link and the
+  subsection list in the meta line — which moves by section rather than by
+  page, and is one level at a time.
+  `cited` makes it worse than a mode: `App.tsx` never clears it. `onClose`
+  only closes the panel, so reopening it returns to the same citation, and
+  the whole-book reader is reachable only before the first citation of a
+  session. Clearing it is a one-line fix and the smaller half; the real
+  question is whether a citation should be a *position* in the book — the
+  book, opened there and boxed — rather than a two-page extract, which would
+  make the jump box and the scroll work the same way in both states and
+  leave the highlight as the only difference between them.
 - The panel shows the PDF, not the extracted markdown. `/source/{id}` still
   returns the text, and nothing renders it.
 - No CI. Much of the backend suite needs nothing, and everything that wants
