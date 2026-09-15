@@ -59,7 +59,8 @@ backend/src/dnd_graph_rag/
                      transaction, the derived schema, the rows rendered
     tools.py         the four of those the agent may call
     agent.py         LangGraph tool-calling loop on Gemini
-    service.py       one turn → a flat stream of typed events
+    service.py       one turn → a flat stream of typed events, and the
+                     rewind that asks the last one again
     source.py        a citation → its characters, and its page rectangles
     stub.py          a scripted model, for the suites.  Never a fallback
     neighbourhood.py the graph read as a graph: one node and what surrounds it
@@ -180,6 +181,7 @@ POST /chat              {"message": ..., "thread_id": ...} → SSE
 GET  /chat/threads      stored conversations, pinned first then newest
 GET  /chat/threads/{id} one conversation's turns, for reopening it
 GET  /chat/threads/{id}/lookups/{call_id}  what one lookup returned
+POST /chat/threads/{id}/retry  ask the last question again → SSE
 PUT  /chat/threads/{id}/pin  {"pinned": true}; 404 if there was none
 DEL  /chat/threads/{id} delete one conversation; 404 if there was none
 GET  /source/{id}       the markdown behind a citation, ?context=400
@@ -240,6 +242,57 @@ since closing it would leave the reader believing a conversation was
 deleted that is still there. The routes reach it through
 `request.app.state`, as a dependency, rather than closing over a module
 global.
+
+**Asking again is a rewind, not a second question.** The model is required
+and a failure is the reply, so a spent quota or a stalled call leaves an
+error where the answer should be, and retyping the question was the only way
+past it. `POST /chat/threads/{id}/retry` is the way past it now, and it sends
+no message: what was asked is in the checkpoint, and reading it there is what
+keeps the two halves from disagreeing about what is being retried. Appending
+the same text instead would leave the conversation holding the question
+twice, which is what a reader would find the next time they opened it —
+`turns_of` splits a conversation on its questions and `threads` counts them.
+
+The checkpointer cannot drop one checkpoint, only a whole thread, so the
+rewind is a *branch*: `rewind` walks `aget_state_history` for the newest
+checkpoint that does not yet carry the last question and hands its id to
+`stream_turn`, which passes it in the run config. The turn that was there
+stays on disk reachable from nothing, and `aget_state` — which is how the
+conversation is read back — returns the new branch, because the fork's
+checkpoints are the later ones. The opening turn needs no special case: the
+graph checkpoints a step before the input reaches it, so even the first
+question has an empty state behind it. `last_question` is pure, so the part
+that decides what is re-asked is tested without a checkpointer.
+
+The retry re-runs the retrieval, so the trace, the citations and the
+numbering are all the new turn's, and it is dated at the retry rather than at
+the question — that is when the answer on screen was written. The failure it
+exists for is knowable before the response is committed, so a thread with
+nothing in it is a **404** rather than an event inside a stream that has
+already announced itself as a turn.
+
+**The control is on the last turn, on both halves of it.** The question is
+what a reader reaches for to have it asked differently and the answer is what
+they are looking at when they decide it was not good enough, so both carry
+it and both do the same thing. Offering it on the question also covers the
+turn that has no answer to put it under: a failed turn stores no assistant
+message, so a failed conversation reopened from the thread list ends on what
+was asked. Only the last turn, because the rewind drops everything after the
+checkpoint it branches from, and only once the turn is over, because the
+alternative is rewinding the checkpoint that is being written into.
+
+Beside an error it is a button that says *Try again*, since there it is the
+whole way forward; everywhere else it is a quiet icon in the timing row,
+because an offer to throw an answer away should not compete with reading it.
+**Copy** sits beside it on every answer rather than only the last, since any
+of them is worth keeping, and what it writes is the model's own markdown with
+its dotted ids in it: the numbers on screen are this app's way of showing
+citations, and what someone pastes into a note should still say which section
+of the book it came from. A clipboard write is silent and can be refused
+outright, so the tick is a second state of the same button and appears only
+once the write resolves. That row is centred rather than aligned on the
+baseline: it is a line of small text beside a pair of 22px targets, and a
+glyph's baseline is nowhere near the middle of one.
 
 `/pdf` sits with stage 1 rather than with the chat that displays it: it
 serves `settings.pdf_path`, which is stage 1's input. Each route lives with

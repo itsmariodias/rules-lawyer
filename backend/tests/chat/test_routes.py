@@ -351,6 +351,90 @@ class TestForgetThread:
         assert client.delete("/chat/threads/never-used").status_code == 404
 
 
+class TestRetryTurn:
+    """Asking the last question again, in place of the answer it got."""
+
+    def test_given_an_answered_turn_when_retried_then_it_is_replaced(
+            self, client, graph):
+        """
+        The property the whole feature rests on.  Re-sending the text would
+        append, and a conversation holding the same question twice is what a
+        reader would find the next time they opened it.
+
+        Through the real checkpointer, because the rewind is a branch in it
+        and nothing else would catch a fork that left the old turn standing.
+        """
+        # Given a conversation of two answered turns
+        client.post("/chat", json={"message": "Prone condition",
+                                   "thread_id": "again"})
+        client.post("/chat", json={"message": "Restrained condition",
+                                   "thread_id": "again"})
+
+        # When the last of them is retried
+        response = client.post("/chat/threads/again/retry")
+
+        # Then it was answered afresh, and the conversation is still two turns
+        assert response.status_code == 200
+        events = events_of(response)
+        assert events[0] == {"type": "start", "thread_id": "again"}
+        assert any(event["type"] == "token" for event in events)
+        messages = client.get("/chat/threads/again").json()["messages"]
+        assert [m["content"] for m in messages if m["role"] == "user"] == [
+            "Prone condition", "Restrained condition"]
+        assert len(messages) == 4
+
+    def test_given_the_only_turn_of_a_thread_when_retried_then_it_is_alone(
+            self, client, graph):
+        """
+        The first question has no checkpoint before it to branch from, so it
+        rewinds by clearing the thread.  The id has to survive that: it is
+        what the browser is holding and what a pin would be keyed on.
+        """
+        # Given a conversation of one turn
+        client.post("/chat", json={"message": "Prone condition",
+                                   "thread_id": "first"})
+
+        # When it is retried
+        response = client.post("/chat/threads/first/retry")
+
+        # Then the thread still holds exactly that one question
+        assert response.status_code == 200
+        messages = client.get("/chat/threads/first").json()["messages"]
+        assert [m["content"] for m in messages if m["role"] == "user"] == [
+            "Prone condition"]
+        listed = client.get("/chat/threads").json()["threads"]
+        assert [(t["thread_id"], t["messages"]) for t in listed] == [
+            ("first", 1)]
+
+    def test_given_a_retried_turn_when_reopened_then_the_new_lookups_are_under_it(
+            self, client, graph):
+        """A retry re-runs the retrieval, so the trace under the answer has
+        to be the one that produced it."""
+        # Given a retried conversation
+        client.post("/chat", json={"message": "Prone condition",
+                                   "thread_id": "traced"})
+        client.post("/chat/threads/traced/retry")
+
+        # When it is reopened
+        answer = client.get("/chat/threads/traced").json()["messages"][1]
+
+        # Then the answer carries one finished lookup, not two turns' worth
+        assert len(answer["tools"]) == 1
+        assert answer["tools"][0]["done"] is True
+
+    def test_given_an_id_nobody_used_when_retried_then_it_is_a_not_found(
+            self, client):
+        """Raised before the response is committed, so a 404 never arrives
+        inside a stream that has already announced itself as a turn."""
+        # Given an id nothing was stored under
+        # When it is retried
+        response = client.post("/chat/threads/never-used/retry")
+
+        # Then there was nothing to ask again
+        assert response.status_code == 404
+        assert "never-used" in response.json()["detail"]
+
+
 class TestSource:
     """The SRD text behind a citation."""
 

@@ -31,8 +31,18 @@ from .agent import build_agent
 CITATION = re.compile(r"\[(\d+(?:\.\d+)+)\]")
 
 
-def _thread(thread_id: str) -> dict:
-    return {"configurable": {"thread_id": thread_id}}
+def _thread(thread_id: str, checkpoint_id: str | None = None) -> dict:
+    """
+    The config addressing one conversation, and optionally one moment in it.
+
+    Without a checkpoint id a run continues from the thread's latest state,
+    which is every turn but a retry.  With one it branches from that
+    checkpoint instead, which is what rewinding a turn is.
+    """
+    configurable = {"thread_id": thread_id}
+    if checkpoint_id is not None:
+        configurable["checkpoint_id"] = checkpoint_id
+    return {"configurable": configurable}
 
 
 def resolve_citations(text: str) -> list[dict]:
@@ -57,18 +67,21 @@ def resolve_citations(text: str) -> list[dict]:
 
 
 async def stream_turn(message: str, thread_id: str,
-                      checkpointer: BaseCheckpointSaver) -> AsyncIterator[dict]:
+                      checkpointer: BaseCheckpointSaver,
+                      checkpoint_id: str | None = None) -> AsyncIterator[dict]:
     """
     Run one user message and yield events until the answer is complete.
 
     History is not passed in: the checkpointer holds it under ``thread_id``,
-    so a caller only ever sends the new message.
+    so a caller only ever sends the new message.  ``checkpoint_id`` is the
+    one exception, and it is a retry: the run branches from that moment, so
+    everything after it is left behind rather than answered again.
 
     The model is required.  Nothing answers in its place, so a call that
     cannot be made or cannot be finished ends the turn with an ``error``
     saying which.
     """
-    config = _thread(thread_id)
+    config = _thread(thread_id, checkpoint_id)
     answer: list[str] = []
     announced: set[str] = set()
 
@@ -395,6 +408,58 @@ async def history(thread_id: str, checkpointer: BaseCheckpointSaver) -> list[dic
     return name_missing_subjects(
         turns_of((state.values or {}).get("messages", []),
                  await written_at(thread_id, checkpointer)))
+
+
+def last_question(messages: list) -> tuple[str, str] | None:
+    """
+    The final question in a conversation, and the id of the message it is.
+
+    Pure, so the part that decides what a retry re-asks is tested without a
+    checkpointer.  ``None`` when nothing was ever asked, which is a thread
+    that does not exist as far as anyone reading it is concerned.
+    """
+    for message in reversed(messages):
+        if isinstance(message, HumanMessage):
+            return message.text, message.id
+    return None
+
+
+async def rewind(thread_id: str,
+                 checkpointer: BaseCheckpointSaver) -> tuple[str, str | None] | None:
+    """
+    Undo the last turn of a conversation, and say what it asked.
+
+    A retry has to rewind rather than append: re-sending the same text would
+    leave the thread holding the question twice, and both ``turns_of`` and
+    ``threads`` read a conversation by its questions.  The checkpointer
+    cannot drop one checkpoint, only a whole thread, so the rewind is a
+    branch instead: the newest checkpoint that does not yet carry the last
+    question is where the retry runs from, and everything after it stays on
+    disk reachable from nothing.
+
+    The opening turn is not a special case, since the graph checkpoints a
+    step before the input reaches it.  A thread with nothing at all before
+    its question is left, which is the one case that has to clear the thread
+    and start it again under the same id: that id is what the browser holds
+    and what a pin is keyed on, so deleting the conversation is not an option.
+
+    Returns the question and the checkpoint to ask it from, ``None`` for the
+    latter meaning "from the beginning".
+    """
+    agent = build_agent(checkpointer)
+    state = await agent.aget_state(_thread(thread_id))
+    asked = last_question((state.values or {}).get("messages", []))
+    if asked is None:
+        return None
+    text, message_id = asked
+
+    async for snapshot in agent.aget_state_history(_thread(thread_id)):
+        messages = (snapshot.values or {}).get("messages", [])
+        if not any(getattr(m, "id", None) == message_id for m in messages):
+            return text, snapshot.config["configurable"]["checkpoint_id"]
+
+    await checkpointer.adelete_thread(thread_id)
+    return text, None
 
 
 # The namespace pins live under, in the store beside the checkpointer.

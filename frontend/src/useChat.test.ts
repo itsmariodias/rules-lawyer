@@ -20,6 +20,7 @@ vi.mock('./api', async (importOriginal) => ({
   pinThread: vi.fn(() => Promise.resolve()),
   deleteThread: vi.fn(() => Promise.resolve()),
   streamChat: vi.fn(() => Promise.resolve()),
+  retryChat: vi.fn(() => Promise.resolve()),
 }))
 
 const api = await import('./api')
@@ -32,9 +33,24 @@ function replying(...events: ChatEvent[]) {
     })
 }
 
+/** Make `retryChat` deliver these events, then finish. */
+function retrying(...events: ChatEvent[]) {
+  vi.mocked(api.retryChat).mockImplementation(async (_threadId, onEvent) => {
+    for (const event of events) onEvent(event)
+  })
+}
+
+/** One answered turn, which is what there is to retry. */
+async function answered(result: { current: ReturnType<typeof useChat> }) {
+  replying({ type: 'start', thread_id: 'held' },
+           { type: 'token', text: 'The first answer.' })
+  await act(() => result.current.send('Prone?'))
+}
+
 beforeEach(() => {
   vi.mocked(api.listThreads).mockResolvedValue([])
   vi.mocked(api.streamChat).mockResolvedValue(undefined)
+  vi.mocked(api.retryChat).mockResolvedValue(undefined)
 })
 
 describe('send', () => {
@@ -258,5 +274,80 @@ describe('threads', () => {
 
     // Then the conversation still works, with an empty sidebar
     await waitFor(() => expect(result.current.threads).toEqual([]))
+  })
+})
+
+describe('retry', () => {
+  it('given an answered turn, when retried, then the answer is replaced', async () => {
+    /**
+     * The whole point of a retry: the conversation must hold one question
+     * where the reader asked one, on screen and in the checkpoint both.
+     * Appending would leave the question twice over the moment it is
+     * reopened.
+     */
+    // Given an answered conversation
+    const { result } = renderHook(() => useChat())
+    await answered(result)
+    retrying({ type: 'token', text: 'The second answer.' })
+
+    // When the turn is retried
+    await act(() => result.current.retry())
+
+    // Then the question stands and the answer under it is the new one
+    expect(result.current.messages.map((m) => m.role))
+      .toEqual(['user', 'assistant'])
+    expect(result.current.messages[0].content).toBe('Prone?')
+    expect(result.current.messages[1].content).toBe('The second answer.')
+    expect(api.retryChat).toHaveBeenCalledWith(
+      'held', expect.any(Function), expect.any(AbortSignal))
+  })
+
+  it('given a turn that failed, when retried, then the error goes with it', async () => {
+    /**
+     * The error is the reply, so it has to be cleared by the reply that
+     * replaces it. Left behind, the failure would sit above an answer that
+     * contradicts it.
+     */
+    // Given a turn the model could not answer
+    const { result } = renderHook(() => useChat())
+    replying({ type: 'start', thread_id: 'held' },
+             { type: 'error', message: 'The Gemini quota is spent.' })
+    await act(() => result.current.send('Prone?'))
+    retrying({ type: 'token', text: 'A Prone creature…' })
+
+    // When it is retried
+    await act(() => result.current.retry())
+
+    // Then nothing of the failure is left under the question
+    expect(result.current.messages[1].error).toBeUndefined()
+    expect(result.current.messages[1].content).toBe('A Prone creature…')
+  })
+
+  it('given a conversation the server never saw, when retried, then nothing happens', async () => {
+    // Given a thread that was never minted
+    const { result } = renderHook(() => useChat())
+
+    // When a retry is asked for
+    await act(() => result.current.retry())
+
+    // Then there was nothing to rewind
+    expect(api.retryChat).not.toHaveBeenCalled()
+    expect(result.current.messages).toEqual([])
+  })
+
+  it('given a turn in flight, when retried, then it is ignored', async () => {
+    // Given an answered conversation with a second turn under way
+    const { result } = renderHook(() => useChat())
+    await answered(result)
+    vi.mocked(api.streamChat).mockImplementation(() => new Promise(() => {}))
+    act(() => void result.current.send('Restrained?'))
+    await waitFor(() => expect(result.current.streaming).toBe(true))
+
+    // When a retry is asked for
+    await act(() => result.current.retry())
+
+    // Then the turn being written was not rewound under itself
+    expect(api.retryChat).not.toHaveBeenCalled()
+    expect(result.current.messages).toHaveLength(4)
   })
 })

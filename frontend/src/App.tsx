@@ -48,8 +48,99 @@ function Dots() {
   )
 }
 
+/**
+ * Ask the last question again.
+ *
+ * `plain` is the failure case, where the retry is the whole way forward and
+ * has to read as one; everywhere else it is the quiet icon beside a
+ * timestamp, because an answer somebody is reading should not be crowded by
+ * an offer to throw it away.
+ */
+function Retry({ plain, onRetry }: { plain?: boolean; onRetry: () => void }) {
+  return (
+    <button className={plain ? 'retry plain' : 'retry'}
+            onClick={onRetry}
+            title="Ask this question again"
+            aria-label="Ask this question again">
+      <RetryIcon />
+      {plain && 'Try again'}
+    </button>
+  )
+}
+
+/**
+ * Take the answer out of the app.
+ *
+ * The copy is the markdown the model wrote, citations and all: the numbers
+ * on screen are this app's way of showing them, and what a reader pastes
+ * into a note should still say which section of the book it came from.
+ *
+ * It says so afterwards, because a clipboard write is silent and otherwise
+ * nothing on screen changes. The tick is a second state of the same button
+ * rather than a message beside it, so nothing moves under the pointer.
+ */
+function Copy({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    if (!copied) return
+    const clear = setTimeout(() => setCopied(false), 1600)
+    return () => clearTimeout(clear)
+  }, [copied])
+
+  const label = copied ? 'Copied' : 'Copy this answer'
+  return (
+    <button className={copied ? 'copy copied' : 'copy'}
+            onClick={() => {
+              // It can be refused outright: a clipboard write needs a
+              // secure context and the reader's permission, and saying
+              // "Copied" when nothing was copied is worse than saying
+              // nothing at all.
+              navigator.clipboard?.writeText(text)
+                .then(() => setCopied(true))
+                .catch(() => setCopied(false))
+            }}
+            title={label}
+            aria-label={label}>
+      {copied ? <TickIcon /> : <CopyIcon />}
+    </button>
+  )
+}
+
+function CopyIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none"
+         stroke="currentColor" strokeWidth="2" strokeLinejoin="round"
+         aria-hidden="true">
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M5 15V5a2 2 0 0 1 2-2h8" />
+    </svg>
+  )
+}
+
+function TickIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none"
+         stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"
+         strokeLinejoin="round" aria-hidden="true">
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+  )
+}
+
+function RetryIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none"
+         stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+         aria-hidden="true">
+      <path d="M20 11a8 8 0 1 0-2.3 5.7" />
+      <path d="M20 5v6h-6" />
+    </svg>
+  )
+}
+
 export default function App() {
-  const { messages, threads, threadId, streaming, send,
+  const { messages, threads, threadId, streaming, send, retry,
           stop, open, reset, forget, pin } = useChat()
   const graph = useGraphStatus()
   const [draft, setDraft] = useState('')
@@ -108,6 +199,11 @@ export default function App() {
     if (!panelOpen) setTab('page')
     setPanelOpen(true)
   }
+
+  // The question a retry would re-ask, so both halves of that turn can offer
+  // it. Everything before it stays as it is, since the rewind branches from
+  // the checkpoint under this one and takes whatever follows with it.
+  const lastAsked = messages.map((message) => message.role).lastIndexOf('user')
 
   const pinned = threads.filter((thread) => thread.pinned)
   const rest = threads.filter((thread) => !thread.pinned)
@@ -259,12 +355,29 @@ export default function App() {
             const running = streaming && index === messages.length - 1
             const since = running && message.at
               ? new Date(message.at).getTime() : null
+            // Only the last turn can be asked again, and only once it is
+            // over. A conversation the server has never seen has nothing
+            // to rewind, which is a turn that failed before it began.
+            // Both halves of the last turn offer it, and they do the same
+            // thing: the question is what a reader reaches for when they
+            // want it asked differently, the answer is what they are
+            // looking at when they decide it was not good enough.
+            const retryable = !streaming && threadId !== null
+              && (index === messages.length - 1 || index === lastAsked)
             return (
             <article key={index} className={`message ${message.role}`}>
               {message.role === 'user' ? (
                 <>
                   <p>{message.content}</p>
-                  <Clock at={message.at} />
+                  {/* A div rather than a p: every `p` in a user message is
+                      drawn as the bubble itself. A turn that failed stores
+                      no answer, so a failed conversation reopened from the
+                      list ends on its question, and this is the only place
+                      left to offer it again. */}
+                  <div className="timing">
+                    <Clock at={message.at} />
+                    {retryable && <Retry onRetry={retry} />}
+                  </div>
                 </>
               ) : (
                 <>
@@ -284,8 +397,11 @@ export default function App() {
                   {message.error && (
                     <div className="failed">
                       {/* The model is required, so a failure is the reply
-                          rather than a banner over something else. */}
+                          rather than a banner over something else. The one
+                          thing offered beside it is the same question again,
+                          since retyping it was the only way forward. */}
                       <p className="error">{message.error}</p>
+                      {retryable && <Retry plain onRetry={retry} />}
                     </div>
                   )}
                   <Citations citations={message.citations ?? []} onCite={cite} />
@@ -299,6 +415,14 @@ export default function App() {
                       <span className="took">{formatDuration(message.ms)}</span>
                     )}
                     {since !== null && <Elapsed since={since} />}
+                    {/* Quiet, and off to the side of what is being read:
+                        taking an answer away and replacing it are both
+                        things you do *after* reading it. Copy is offered on
+                        every answer, since any of them is worth keeping;
+                        retry only on the last, and not on a failure, where
+                        the block above already says it louder. */}
+                    {message.content && <Copy text={message.content} />}
+                    {retryable && !message.error && <Retry onRetry={retry} />}
                   </p>
                   )}
                 </>

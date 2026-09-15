@@ -647,7 +647,11 @@ code { font-family: var(--mono); font-size: 0.87em; }
  */
 .timing {
   display: flex;
-  align-items: baseline;
+  /* Centred, not on the baseline: the row is a line of text beside a pair of
+     icon buttons, and a glyph's baseline is nowhere near the middle of a
+     22px target. Aligned that way the timestamp sits visibly low against
+     them. */
+  align-items: center;
   gap: 8px;
   margin: 6px 0 0;
   font-size: 11px;
@@ -656,14 +660,12 @@ code { font-family: var(--mono); font-size: 0.87em; }
 .timing:empty { display: none; }
 .stamp { font-variant-numeric: tabular-nums; }
 .took::before { content: '· '; }
-.message.user .stamp {
-  display: block;
-  margin-top: 4px;
-  font-size: 11px;
-  color: var(--text-faint);
-  /* The bubble is right-aligned, so its stamp follows it. */
-  text-align: right;
-}
+/*
+ * The stamp under a question used to do its own layout: a block, nudged
+ * down, right-aligned. It sits in the timing row now, which centres it
+ * against the controls beside it, and a block with a top margin in that row
+ * is a stamp 4px lower than the buttons it is lined up with.
+ */
 
 @media (prefers-reduced-motion: reduce) {
   .thinking .dots i { animation: none; opacity: 0.6; }
@@ -1593,6 +1595,11 @@ path.edge-on { fill: var(--accent); }
 /* A turn the model could not answer.  The model is required, so the error
    is the whole of the reply rather than a note over a substitute for one. */
 .failed {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
   border: 1px solid var(--border);
   border-left: 3px solid var(--danger);
   border-radius: var(--radius);
@@ -1600,6 +1607,54 @@ path.edge-on { fill: var(--accent); }
   background: var(--bg-raised);
 }
 .failed .error { margin: 0; }
+
+/*
+ * Asking the last question again.
+ *
+ * Two weights of the one control. Beside an error it is the whole way
+ * forward and is drawn as a button that says so; under an answer somebody
+ * is reading it is the quiet icon, which must still be reachable from the
+ * keyboard, so the focus rule matters as much as the hover one.
+ */
+.retry, .copy {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border-radius: 6px;
+  color: inherit;
+  transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+}
+.retry:not(.plain), .copy {
+  width: 22px;
+  height: 22px;
+  opacity: 0.55;
+}
+.retry:not(.plain):hover, .copy:hover,
+.retry:focus-visible, .copy:focus-visible { opacity: 1; }
+.retry:not(.plain):hover, .copy:hover {
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+/* Said rather than shown until it has happened: the tick is the whole of the
+   confirmation, so it is the one state of this button that is not faint. */
+.copy.copied, .copy.copied:hover {
+  opacity: 1;
+  color: var(--accent);
+  background: none;
+}
+.retry.plain {
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  font-family: var(--ui);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.retry.plain:hover { color: var(--text); border-color: var(--text-faint); }
+
+/* The bubble is right-aligned, so what sits under it follows it. */
+.message.user .timing { justify-content: flex-end; margin-top: 4px; }
 
 /* ── the delete confirmation ───────────────────────────────────────── */
 

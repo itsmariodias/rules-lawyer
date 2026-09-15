@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  deleteThread, listThreads, loadThread, pinThread, streamChat,
+  deleteThread, listThreads, loadThread, pinThread, retryChat, streamChat,
   type ChatEvent, type Message, type Thread,
 } from './api'
 
@@ -66,14 +66,22 @@ export function useChat() {
     }
   }
 
-  /** Stream one turn into the assistant message already at the end. */
-  const run = useCallback(async (text: string) => {
+  /**
+   * Stream one turn into the assistant message already at the end.
+   *
+   * It takes the call to make rather than the question, because asking and
+   * asking again differ only in that: the timing, the abort, the error and
+   * the refreshed sidebar are the same either way.
+   */
+  const run = useCallback(async (
+    ask: (onEvent: (event: ChatEvent) => void, signal: AbortSignal) => Promise<void>,
+  ) => {
     const isFirst = threadId === null
     const started = Date.now()
     setStreaming(true)
     abort.current = new AbortController()
     try {
-      await streamChat(text, threadId, apply, abort.current.signal)
+      await ask(apply, abort.current.signal)
     } catch (error) {
       if (!abort.current.signal.aborted) {
         patchLast((m) => ({ ...m, error: String(error) }))
@@ -100,8 +108,29 @@ export function useChat() {
       { role: 'user', content: text, at },
       { role: 'assistant', content: '', at },
     ])
-    await run(text)
-  }, [streaming, run])
+    await run((onEvent, signal) => streamChat(text, threadId, onEvent, signal))
+  }, [streaming, threadId, run])
+
+  /**
+   * Ask the last question again, in place of the answer it got.
+   *
+   * The old answer is dropped here and on the server both: it rewinds the
+   * checkpoint rather than appending, so a conversation reopened later holds
+   * one question where the reader asked one. The question itself is not
+   * re-sent: the server reads what was asked out of the checkpoint, which
+   * is what keeps the two halves from disagreeing about what is being
+   * retried.
+   */
+  const retry = useCallback(async () => {
+    if (streaming || threadId === null) return
+    const asked = messages.map((m) => m.role).lastIndexOf('user')
+    if (asked === -1) return
+    setMessages((current) => [
+      ...current.slice(0, asked + 1),
+      { role: 'assistant', content: '', at: new Date().toISOString() },
+    ])
+    await run((onEvent, signal) => retryChat(threadId, onEvent, signal))
+  }, [streaming, threadId, messages, run])
 
   const stop = useCallback(() => abort.current?.abort(), [])
 
@@ -151,6 +180,6 @@ export function useChat() {
     setMessages([])
   }, [])
 
-  return { messages, threads, threadId, streaming, send,
+  return { messages, threads, threadId, streaming, send, retry,
            stop, open, reset, forget, pin }
 }

@@ -6,7 +6,7 @@
  * opens, what the toolbar toggles do, and the two dialogs guarding a delete.
  */
 
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -19,6 +19,7 @@ const chat = {
   threadId: null as string | null,
   streaming: false,
   send: vi.fn(),
+  retry: vi.fn(),
   stop: vi.fn(),
   open: vi.fn(),
   reset: vi.fn(),
@@ -153,6 +154,140 @@ describe('the conversation', () => {
     expect(screen.getByText('The Gemini quota is spent')).toBeInTheDocument()
     expect(screen.queryByRole('button',
                               { name: /SRD search instead/ })).toBeNull()
+  })
+
+  it('given a failed turn, when retried, then the question is asked again', async () => {
+    /**
+     * Retyping the question was the only way past a spent quota or a stalled
+     * call, and the failure is where a reader is looking when they need it.
+     */
+    // Given a turn the model could not answer, in a stored conversation
+    chat.threadId = 't1'
+    chat.messages = [
+      { role: 'user', content: 'Prone?' },
+      { role: 'assistant', content: '', error: 'The Gemini quota is spent' },
+    ]
+    render(<App />)
+
+    // When the reader asks for it again, from the failure itself
+    const failed = document.querySelector('.failed') as HTMLElement
+    await userEvent.click(
+      within(failed).getByRole('button', { name: 'Ask this question again' }))
+
+    // Then the turn is re-run rather than retyped
+    expect(chat.retry).toHaveBeenCalled()
+  })
+
+  it('given a turn being written, when rendered, then it cannot be retried', () => {
+    /**
+     * A retry rewinds the checkpoint, and rewinding the turn that is
+     * currently writing into it is not a thing to offer.
+     */
+    // Given an answer still streaming
+    chat.threadId = 't1'
+    chat.streaming = true
+    chat.messages = [
+      { role: 'user', content: 'Prone?' },
+      { role: 'assistant', content: 'A Prone creature' },
+    ]
+
+    // When it is rendered
+    render(<App />)
+
+    // Then nothing offers to replace it yet
+    expect(screen.queryByRole('button',
+                              { name: 'Ask this question again' })).toBeNull()
+  })
+
+  it('given an answer, when rendered, then only the last turn offers a retry', () => {
+    /**
+     * The rewind drops everything after the checkpoint it branches from, so
+     * only the end of a conversation can be asked again without quietly
+     * taking the turns under it too. Both halves of that turn offer it: the
+     * question is what you reach for to ask it differently, the answer is
+     * what you are looking at when you decide it was not good enough.
+     */
+    // Given a conversation of two answered turns
+    chat.threadId = 't1'
+    chat.messages = [
+      { role: 'user', content: 'Prone?' },
+      { role: 'assistant', content: 'A Prone creature' },
+      { role: 'user', content: 'Restrained?' },
+      { role: 'assistant', content: 'A Restrained creature' },
+    ]
+
+    // When it is rendered
+    render(<App />)
+
+    // Then the last turn offers it twice over, and the turn above not at all
+    expect(screen.getAllByRole('button',
+                               { name: 'Ask this question again' }))
+      .toHaveLength(2)
+    const turns = document.querySelectorAll('.message')
+    expect(within(turns[0] as HTMLElement).queryByRole(
+      'button', { name: 'Ask this question again' })).toBeNull()
+    expect(within(turns[1] as HTMLElement).queryByRole(
+      'button', { name: 'Ask this question again' })).toBeNull()
+  })
+
+  it('given an answer, when copied, then the markdown goes to the clipboard', () => {
+    /**
+     * What a reader pastes into a note should still say which section of the
+     * book it came from, so it is the model's own text with its ids in it
+     * rather than the numbered prose on screen.
+     */
+    // Given an answered turn and a clipboard to write to
+    const writeText = vi.fn(() => Promise.resolve())
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
+    chat.messages = [
+      { role: 'user', content: 'Prone?' },
+      { role: 'assistant', content: 'A Prone creature has Disadvantage [11.2.114].' },
+    ]
+    render(<App />)
+
+    // When the answer is copied
+    fireEvent.click(screen.getByRole('button', { name: 'Copy this answer' }))
+
+    // Then the ids went with it
+    expect(writeText).toHaveBeenCalledWith(
+      'A Prone creature has Disadvantage [11.2.114].')
+  })
+
+  it('given a copy, when it lands, then the button says so', async () => {
+    /** A clipboard write is silent, so nothing else on screen would change. */
+    // Given an answered turn
+    vi.stubGlobal('navigator',
+                  { ...navigator, clipboard: { writeText: () => Promise.resolve() } })
+    chat.messages = [
+      { role: 'user', content: 'Prone?' },
+      { role: 'assistant', content: 'A Prone creature.' },
+    ]
+    render(<App />)
+
+    // When it is copied
+    fireEvent.click(screen.getByRole('button', { name: 'Copy this answer' }))
+
+    // Then the same button is the confirmation
+    expect(await screen.findByRole('button', { name: 'Copied' }))
+      .toBeInTheDocument()
+  })
+
+  it('given a conversation, when rendered, then every answer can be copied', () => {
+    /** Any answer is worth keeping, not only the one at the end. */
+    // Given two answered turns
+    chat.messages = [
+      { role: 'user', content: 'Prone?' },
+      { role: 'assistant', content: 'A Prone creature' },
+      { role: 'user', content: 'Restrained?' },
+      { role: 'assistant', content: 'A Restrained creature' },
+    ]
+
+    // When it is rendered
+    render(<App />)
+
+    // Then the offer is on both, unlike the retry
+    expect(screen.getAllByRole('button', { name: 'Copy this answer' }))
+      .toHaveLength(2)
   })
 
   it('given any screen, when rendered, then the SRD attribution is on it', () => {

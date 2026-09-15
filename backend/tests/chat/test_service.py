@@ -666,6 +666,98 @@ class TestHistory:
         assert await service.history("never-used", saver) == []
 
 
+class TestLastQuestion:
+    """The final question in a conversation, and the message it is."""
+
+    def test_given_a_conversation_when_read_then_the_latest_question_wins(self):
+        # Given a conversation of two answered turns
+        from langchain_core.messages import AIMessage, HumanMessage
+        messages = [HumanMessage(content="Prone?"), AIMessage(content="Yes."),
+                    HumanMessage(content="Restrained?"), AIMessage(content="No.")]
+
+        # When its last question is found
+        found = service.last_question(messages)
+
+        # Then it is the one a retry would ask again, named by its own id
+        assert found == ("Restrained?", messages[2].id)
+
+    def test_given_a_turn_that_failed_when_read_then_the_question_still_stands(
+            self):
+        """A turn the model could not answer stores the question and nothing
+        else, which is exactly the turn somebody retries."""
+        # Given a question with no answer under it
+        from langchain_core.messages import HumanMessage
+        messages = [HumanMessage(content="Prone?")]
+
+        # When its last question is found
+        # Then the failure did not take it with it
+        assert service.last_question(messages)[0] == "Prone?"
+
+    def test_given_nothing_asked_when_read_then_there_is_nothing_to_retry(self):
+        # Given a conversation with no question in it
+        # When its last question is found
+        # Then the route has its 404
+        assert service.last_question([]) is None
+
+
+class TestRewind:
+    """Undoing the last turn, which is what makes a retry a retry."""
+
+    @pytest.mark.asyncio
+    async def test_given_a_later_turn_when_rewound_then_it_branches_before_it(
+            self, graph, stub_model, saver):
+        """
+        Re-asking without this would append, and the conversation would hold
+        the same question twice for as long as it existed.
+        """
+        # Given a conversation of two answered turns
+        await answer(saver, "again", "Prone condition")
+        await answer(saver, "again", "Restrained condition")
+
+        # When the last of them is rewound and asked again
+        text, checkpoint_id = await service.rewind("again", saver)
+        async for _ in service.stream_turn(text, "again", saver, checkpoint_id):
+            pass
+
+        # Then the question came back, and it was asked once
+        assert text == "Restrained condition"
+        assert checkpoint_id is not None
+        turns = await service.history("again", saver)
+        assert [t["content"] for t in turns if t["role"] == "user"] == [
+            "Prone condition", "Restrained condition"]
+
+    @pytest.mark.asyncio
+    async def test_given_the_only_turn_when_rewound_then_it_branches_before_it(
+            self, graph, stub_model, saver):
+        """
+        The first question is not a special case: the graph checkpoints a
+        step before the input reaches it, so even the opening turn has an
+        empty state to branch from.  The thread id survives the rewind either
+        way, which is what the browser is holding and what a pin is keyed on.
+        """
+        # Given a conversation of one answered turn
+        await answer(saver, "first", "Prone condition")
+
+        # When it is rewound and asked again
+        text, checkpoint_id = await service.rewind("first", saver)
+        async for _ in service.stream_turn(text, "first", saver, checkpoint_id):
+            pass
+
+        # Then the conversation is still that one question, under its own id
+        turns = await service.history("first", saver)
+        assert [t["content"] for t in turns if t["role"] == "user"] == [
+            "Prone condition"]
+        assert [t["thread_id"] for t in await service.threads(saver)] == ["first"]
+
+    @pytest.mark.asyncio
+    async def test_given_a_thread_nobody_used_when_rewound_then_it_is_nothing(
+            self, stub_model, saver):
+        # Given an id nothing was stored under
+        # When it is rewound
+        # Then there is no question to ask again
+        assert await service.rewind("never-used", saver) is None
+
+
 class TestThreads:
     """Every conversation on disk, pinned first and newest first within that."""
 

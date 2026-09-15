@@ -158,6 +158,31 @@ test.describe('asking a question', () => {
       .toContainText('Prone')
   })
 
+  test('given an answered turn, when retried, then it is replaced, not repeated',
+       async ({ app }) => {
+    /**
+     * A retry rewinds the checkpoint rather than appending to it, which only
+     * a round trip through the real server can show: on screen the two look
+     * the same until the conversation is reopened.
+     */
+    // Given an answered question
+    await ask(app, 'What does the Prone condition do?')
+
+    // When it is asked again. Both halves of the turn offer it; this is the
+    // one under the answer.
+    await app.getByRole('button', { name: 'Ask this question again' })
+      .last().click()
+    await expect(app.locator('.citations .chip').first())
+      .toBeVisible({ timeout: 30_000 })
+
+    // Then the conversation still holds that one question, reload and all
+    await expect(app.locator('.message.user')).toHaveCount(1)
+    await app.reload()
+    await app.locator('.thread .thread-open').first().click()
+    await expect(app.locator('.message.user')).toHaveCount(1)
+    await expect(app.locator('.message.assistant')).toHaveCount(1)
+  })
+
   test('given an empty box, when read, then there is nothing to send',
        async ({ app }) => {
     // Given nothing typed

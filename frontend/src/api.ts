@@ -1,7 +1,9 @@
 /**
  * The browser's half of the contract in `api.py`.
  *
- * One streaming call and three plain ones.  The event union here mirrors the
+ * Two streaming calls over one parser, and the plain ones beside them: a
+ * question and a question asked again are the same events either way.  The
+ * event union here mirrors the
  * dicts `chat/service.py` yields, so adding an event type is a change in two
  * files and nowhere else.
  */
@@ -247,23 +249,26 @@ export const loadNeighbourhood = (
 }
 
 /**
- * Send one message and invoke `onEvent` for each server-sent event.
+ * One turn, streamed: POST *path* and invoke `onEvent` for each event.
  *
  * `fetch` rather than `EventSource`, because the request is a POST with a
  * body and `EventSource` can only GET.  That means framing the stream here:
  * SSE separates events with a blank line, and a chunk boundary can land
  * anywhere, so the tail of a chunk is held back until its blank line arrives.
+ *
+ * Asking and asking again are the same stream of the same events, so they
+ * are the same parser: only the path and the body differ.
  */
-export async function streamChat(
-  message: string,
-  threadId: string | null,
+async function stream(
+  path: string,
+  body: unknown,
   onEvent: (event: ChatEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const response = await fetch('/api/chat', {
+  const response = await fetch(`/api${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, thread_id: threadId }),
+    body: JSON.stringify(body),
     signal,
   })
   if (!response.ok || !response.body) {
@@ -287,3 +292,25 @@ export async function streamChat(
     }
   }
 }
+
+/** Send one message, into a new conversation when `threadId` is null. */
+export const streamChat = (
+  message: string,
+  threadId: string | null,
+  onEvent: (event: ChatEvent) => void,
+  signal?: AbortSignal,
+) => stream('/chat', { message, thread_id: threadId }, onEvent, signal)
+
+/**
+ * Ask the last question of a conversation again, in place of its answer.
+ *
+ * No message is sent: what was asked is in the checkpoint, and reading it
+ * there is what makes this a rewind rather than a second question that
+ * happens to match.  The server drops the old turn before it answers, so
+ * the reply replaces what was there rather than following it.
+ */
+export const retryChat = (
+  threadId: string,
+  onEvent: (event: ChatEvent) => void,
+  signal?: AbortSignal,
+) => stream(`/chat/threads/${threadId}/retry`, null, onEvent, signal)

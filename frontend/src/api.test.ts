@@ -11,7 +11,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   deleteThread, graphStatus, listThreads, loadNeighbourhood, loadSource,
-  loadThread, pinThread, streamChat, type ChatEvent,
+  loadThread, pinThread, retryChat, streamChat, type ChatEvent,
 } from './api'
 
 /** A `fetch` answering one JSON body. */
@@ -297,5 +297,52 @@ describe('streamChat', () => {
     // Then the caller can show the failure rather than waiting on a stream
     await expect(streamChat('Prone?', null, () => {}))
       .rejects.toThrow('500')
+  })
+})
+
+describe('retryChat', () => {
+  it('given a conversation, when retried, then it is asked at the thread', async () => {
+    /**
+     * The question is not re-sent. The server reads what was asked out of
+     * the checkpoint it is about to rewind, which is what keeps a retry from
+     * being a second question that happens to match.
+     */
+    // Given a stored conversation
+    const stub = streaming([frame({ type: 'done', thread_id: 'held' })])
+
+    // When its last turn is retried
+    await retryChat('held', () => {})
+
+    // Then the thread is the whole of the request
+    const [url, init] = stub.mock.calls[0]
+    expect(url).toBe('/api/chat/threads/held/retry')
+    expect(init!.method).toBe('POST')
+    expect(JSON.parse(String(init!.body))).toBeNull()
+  })
+
+  it('given a retried turn, when streamed, then the events are a turn\u2019s', () => {
+    // Given a retry answering as any turn does
+    streaming([frame({ type: 'start', thread_id: 'held' })
+               + frame({ type: 'token', text: 'Prone' })
+               + frame({ type: 'done', thread_id: 'held' })])
+    const seen: ChatEvent[] = []
+
+    // When it is streamed
+    return retryChat('held', (event) => seen.push(event)).then(() => {
+      // Then it is parsed by the same framing as the first asking
+      expect(seen.map((event) => event.type)).toEqual(
+        ['start', 'token', 'done'])
+    })
+  })
+
+  it('given a thread nobody used, when retried, then the status is raised', async () => {
+    // Given a server with nothing to ask again
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(
+      { ok: false, status: 404, statusText: 'Not Found',
+        body: null } as unknown as Response)))
+
+    // When the retry is made
+    // Then the caller can show the failure rather than waiting on a stream
+    await expect(retryChat('never-used', () => {})).rejects.toThrow('404')
   })
 })

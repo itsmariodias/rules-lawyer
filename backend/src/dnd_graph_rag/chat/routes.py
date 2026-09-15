@@ -96,6 +96,45 @@ async def chat(request: ChatRequest,
     )
 
 
+@router.post("/chat/threads/{thread_id}/retry")
+async def retry_turn(thread_id: str,
+                     checkpointer: Conversations) -> StreamingResponse:
+    """
+    Ask the last question again, in place of the answer it got.
+
+    The same events ``/chat`` sends, and the same rule about which failures
+    are HTTP: the key and the rewind are both knowable before the response is
+    committed, so a missing key is a 503 and a thread with nothing in it is a
+    404 rather than an event inside a stream that has already announced
+    itself as a turn.
+
+    The browser sends no message.  What was asked is in the checkpoint, and
+    reading it there is what keeps the retry a rewind rather than a second
+    question that happens to match.
+    """
+    try:
+        chat_agent.build_agent(checkpointer)
+    except chat_agent.NoApiKey as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    rewound = await service.rewind(thread_id, checkpointer)
+    if rewound is None:
+        raise HTTPException(status_code=404, detail=f"no thread {thread_id!r}")
+    message, checkpoint_id = rewound
+
+    async def events() -> AsyncIterator[str]:
+        yield _sse({"type": "start", "thread_id": thread_id})
+        async for event in service.stream_turn(
+                message, thread_id, checkpointer, checkpoint_id):
+            yield _sse(event)
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @router.get("/chat/threads")
 async def chat_threads(checkpointer: Conversations, store: Flags,
                        limit: int = 50) -> dict:
