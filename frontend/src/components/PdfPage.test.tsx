@@ -8,11 +8,11 @@
  * not drawn yet.
  */
 
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { SourceExcerpt } from '../api'
-import { PdfBook, PdfPage } from './PdfPage'
+import { PdfBook, PdfPage, verticalScroller } from './PdfPage'
 
 const textLayer = vi.fn()
 
@@ -50,7 +50,29 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn()
   Object.defineProperty(HTMLElement.prototype, 'clientWidth',
                         { value: 612, configurable: true })
+  // jsdom has no layout, so its own scroll accessors are read-only zeroes
+  // and nothing overflows anything. Writable data properties on the
+  // prototype leave each element its own value once it is written to.
+  for (const [name, value] of [['scrollLeft', 0], ['scrollTop', 0],
+                               ['clientHeight', 500], ['scrollHeight', 2000]]) {
+    Object.defineProperty(HTMLElement.prototype, name,
+                          { value, writable: true, configurable: true })
+  }
+  document.body.className = ''
 })
+
+/** A page open in something that scrolls, which is how the panel holds it. */
+function inAPane(zoom = 2) {
+  const pane = document.createElement('div')
+  pane.style.overflowY = 'auto'
+  document.body.append(pane)
+  const view = render(<PdfPage excerpt={excerpt()} zoom={zoom} />,
+                      { container: pane })
+  return { pane, ...view }
+}
+
+const figureOf = (container: HTMLElement) =>
+  container.querySelector('.pdf-page') as HTMLElement
 
 describe('PdfPage', () => {
   it('given a citation, when drawn, then the page it was printed on is shown', async () => {
@@ -175,5 +197,216 @@ describe('PdfBook', () => {
 
     // Then the request is not swallowed as a no-op
     expect(Element.prototype.scrollIntoView).toHaveBeenCalled()
+  })
+})
+
+describe('verticalScroller', () => {
+  it('given a page in a scrolling pane, when asked, then the pane is found', () => {
+    // Given a page nested two deep inside something that scrolls
+    const pane = document.createElement('div')
+    pane.style.overflowY = 'auto'
+    const list = document.createElement('div')
+    const page = document.createElement('figure')
+    list.append(page)
+    pane.append(list)
+    document.body.append(pane)
+
+    // When the page asks what it scrolls inside
+    // Then it is the pane, not the list it sits in
+    expect(verticalScroller(page)).toBe(pane)
+  })
+
+  it('given nothing that scrolls, when asked, then there is no pane', () => {
+    /** The drag still moves sideways; there is simply nowhere to go down. */
+    // Given a page with no scrolling ancestor
+    const page = document.createElement('figure')
+    document.body.append(page)
+
+    // When it asks
+    // Then it is told so rather than handed the body
+    expect(verticalScroller(page)).toBeNull()
+  })
+})
+
+describe('usePan', () => {
+  it('given Space held, when the page is dragged, then both axes follow', async () => {
+    /**
+     * Two axes, two scroll containers: the figure sideways and the pane
+     * above it downwards, moved by one gesture.
+     */
+    // Given a page zoomed past the panel, with Space held
+    const { pane, container } = inAPane()
+    await screen.findByText('p. 186')
+    const page = figureOf(container)
+    pane.scrollTop = 400
+    fireEvent.keyDown(window, { code: 'Space' })
+    const was = { left: page.scrollLeft, top: pane.scrollTop }
+
+    // When it is dragged up and to the left
+    fireEvent.pointerDown(page, { button: 0, clientX: 200, clientY: 200 })
+    fireEvent.pointerMove(window, { clientX: 150, clientY: 130 })
+
+    // Then the page moves under the pointer, in both axes at once
+    expect(page.scrollLeft).toBe(was.left + 50)
+    expect(pane.scrollTop).toBe(was.top + 70)
+    // And the drag itself is not allowed to select what it crosses
+    expect(document.body.classList.contains('panning')).toBe(true)
+  })
+
+  it('given no Space, when the page is dragged, then the text is selected instead', async () => {
+    /**
+     * The text layer is rendered to be selectable, which is the one thing a
+     * bitmap of the page would cost. The primary button keeps meaning it.
+     */
+    // Given a page with nothing arming the hand
+    const { pane, container } = inAPane()
+    await screen.findByText('p. 186')
+    const page = figureOf(container)
+    const was = { left: page.scrollLeft, top: pane.scrollTop }
+
+    // When a plain primary drag crosses it
+    fireEvent.pointerDown(page, { button: 0, clientX: 200, clientY: 200 })
+    fireEvent.pointerMove(window, { clientX: 150, clientY: 130 })
+
+    // Then nothing was panned
+    expect(page.scrollLeft).toBe(was.left)
+    expect(pane.scrollTop).toBe(was.top)
+  })
+
+  it('given the middle button, when the page is dragged, then it pans without Space', async () => {
+    // Given a page and no key held
+    const { pane, container } = inAPane()
+    await screen.findByText('p. 186')
+    const page = figureOf(container)
+    const was = { left: page.scrollLeft, top: pane.scrollTop }
+
+    // When it is dragged with the middle button
+    fireEvent.pointerDown(page, { button: 1, clientX: 200, clientY: 200 })
+    fireEvent.pointerMove(window, { clientX: 190, clientY: 180 })
+
+    // Then that is the second way in
+    expect(page.scrollLeft).toBe(was.left + 10)
+    expect(pane.scrollTop).toBe(was.top + 20)
+  })
+
+  it('given a finished drag, when the pointer moves again, then the page stays put', async () => {
+    // Given a drag that has been let go of
+    const { pane, container } = inAPane()
+    await screen.findByText('p. 186')
+    const page = figureOf(container)
+    const was = { left: page.scrollLeft, top: pane.scrollTop }
+    fireEvent.pointerDown(page, { button: 1, clientX: 200, clientY: 200 })
+    fireEvent.pointerMove(window, { clientX: 190, clientY: 190 })
+    fireEvent.pointerUp(window)
+
+    // When the pointer keeps moving across the window
+    fireEvent.pointerMove(window, { clientX: 20, clientY: 20 })
+
+    // Then the page is where it was left
+    expect(page.scrollLeft).toBe(was.left + 10)
+    expect(pane.scrollTop).toBe(was.top + 10)
+    expect(document.body.classList.contains('panning')).toBe(false)
+  })
+})
+
+describe('useSpaceHeld', () => {
+  it('given Space, when it is held and released, then the hand comes and goes', async () => {
+    /** The cursor has to say the gesture is armed before anything moves. */
+    // Given the page
+    const { container } = inAPane()
+    await screen.findByText('p. 186')
+    const pdf = container.querySelector('.pdf') as HTMLElement
+
+    // When Space goes down and up again
+    fireEvent.keyDown(window, { code: 'Space' })
+    const armed = pdf.classList.contains('grabbable')
+    fireEvent.keyUp(window, { code: 'Space' })
+
+    // Then the hand is offered only while it is held
+    expect(armed).toBe(true)
+    expect(pdf.classList.contains('grabbable')).toBe(false)
+  })
+
+  it('given a window losing focus, when Space was held, then the hand is dropped', async () => {
+    /** A blurred window never delivers the keyup that would release it. */
+    // Given Space held
+    const { container } = inAPane()
+    await screen.findByText('p. 186')
+    const pdf = container.querySelector('.pdf') as HTMLElement
+    fireEvent.keyDown(window, { code: 'Space' })
+
+    // When the window loses focus mid-hold
+    fireEvent.blur(window)
+
+    // Then the cursor does not stay a hand for ever
+    expect(pdf.classList.contains('grabbable')).toBe(false)
+  })
+
+  it('given a space typed into a field, when it is pressed, then nothing is armed', async () => {
+    /** A space typed into the composer is a space. */
+    // Given the page open beside somewhere to type
+    const { container } = inAPane()
+    await screen.findByText('p. 186')
+    const field = document.createElement('input')
+    document.body.append(field)
+
+    // When a space is typed into the field
+    fireEvent.keyDown(field, { code: 'Space' })
+
+    // Then the page is not armed by it
+    expect(container.querySelector('.pdf')!.classList.contains('grabbable'))
+      .toBe(false)
+  })
+})
+
+describe('useSelecting', () => {
+  it('given a rendered page, when the text layer is built, then it ends in a catch-all', async () => {
+    /**
+     * Most of a page is gap, and a pointer in one is over no span at all,
+     * so without something last in DOM order to land on the browser
+     * extends the selection to the nearest text anywhere on the page.
+     */
+    // Given a page whose text layer has been built
+    const { container } = inAPane()
+    await waitFor(() => expect(textLayer).toHaveBeenCalled())
+
+    // When the layer is inspected
+    const layer = container.querySelector('.textLayer') as HTMLElement
+
+    // Then the block is there, and it is the last thing in it
+    await waitFor(() =>
+      expect(layer.lastElementChild).toHaveClass('endOfContent'))
+  })
+
+  it('given a drag, when it starts and ends, then the catch-all covers the page for its length', async () => {
+    /** It is only in the way while a selection is being dragged out. */
+    // Given a page with a text layer
+    const { container } = inAPane()
+    await waitFor(() => expect(textLayer).toHaveBeenCalled())
+    const layer = container.querySelector('.textLayer') as HTMLElement
+
+    // When a drag starts on it and then ends
+    fireEvent.pointerDown(layer, { button: 0, clientX: 100, clientY: 100 })
+    const during = layer.classList.contains('selecting')
+    fireEvent.pointerUp(window)
+
+    // Then the block is raised over the page only while the pointer is down
+    expect(during).toBe(true)
+    expect(layer.classList.contains('selecting')).toBe(false)
+  })
+
+  it('given a window losing focus, when a drag was running, then the catch-all drops', async () => {
+    /** A blurred window never sends the pointerup that would end it. */
+    // Given a drag in progress
+    const { container } = inAPane()
+    await waitFor(() => expect(textLayer).toHaveBeenCalled())
+    const layer = container.querySelector('.textLayer') as HTMLElement
+    fireEvent.pointerDown(layer, { button: 0, clientX: 100, clientY: 100 })
+
+    // When the window loses focus
+    fireEvent.blur(window)
+
+    // Then the page is not left with a block over it
+    expect(layer.classList.contains('selecting')).toBe(false)
   })
 })

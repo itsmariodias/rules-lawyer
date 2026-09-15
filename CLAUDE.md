@@ -622,6 +622,27 @@ otherwise. Each handle occupies a real grid column rather than overlapping
 its neighbour with a negative margin, which resolves the track to 0px while
 the element still paints 13px.
 
+**Above Fit the page is moved by hand, and the hand is the second gesture.**
+Zoomed in, the page is larger than the panel in both axes and the only way
+to move it was a scrollbar per axis — one at the foot of the page, one at
+the edge of the panel — which a trackpad never needed and a mouse could not
+do in one movement. But the primary button already means *select* here, and
+that is the whole reason the text layer is rendered over the canvas at all,
+so pan is armed by holding Space or by using the middle button and the
+plain drag is left alone. Space is ignored while something typable has the
+focus, prevented when it is not, and released on `blur` as well as on
+`keyup`, since a window that loses focus mid-hold never delivers the
+second one.
+
+The drag *scrolls*; it does not transform. Zoom is rasterised into the
+pdf.js viewport rather than applied as a scale, so both axes are already
+real overflow boxes — the figure sideways, the pane above it downwards —
+and one gesture writing to each moves the canvas, the selectable text and
+the highlight boxes together with no coordinate space of ours in between.
+Assigning `scrollLeft` and `scrollTop` clamps itself at either end, so
+there is no bound to compute. The pane is *found* rather than named:
+`.panel-body` is the panel's class, and this module renders pages.
+
 **The text layer's CSS is ours, not `pdfjs-dist/web/pdf_viewer.css`.** We
 use `TextLayer` and nothing else, but that file is the entire viewer chrome:
 it defines its own `.sidebar`, `.resizer` and `.error`, plus 376 custom
@@ -632,6 +653,24 @@ turned white and took pdf.js's `--sidebar-width: 239px` and
 `--sidebar-max-width: 632px`, and stayed that way after the panel closed.
 `index.css` now carries the ~30 lines `TextLayer` actually needs, scoped
 under `.pdf-stack`.
+
+Carrying only what `TextLayer` needs turned out to mean carrying two things
+it does not create. **A selection over the page has to tint it, not repaint
+it**: the spans are transparent ink over the canvas, and the browser's
+default selection sets a solid background *and* `color: HighlightText`, so
+text meant to be invisible came back as white glyphs on a blue block,
+flashing in and out as the selection changed. And **a drag across a page was
+selecting the rest of it**, because most of a page is gap — between the
+lines, down the gutter, out in the margins — and a pointer in a gap is over
+no span, so the browser extends to the nearest text in *DOM order*, which on
+two columns is somewhere else entirely. pdf.js answers that with
+`.endOfContent`, a block covering the layer for the length of a drag and
+sitting last among its children, so a pointer in a gap lands on it rather
+than reaching past it. Both live in `TextLayerBuilder`, which is viewer
+chrome, so both are carried here instead. Only the class is: the viewer also
+*moves* that block around the selection's anchor, and skips doing so
+outright on Firefox and Chromium 148 and up, where the browser needs no
+help.
 
 That import also hid a second bug. The rules read `--total-scale-factor`;
 we were setting `--scale-factor`, which is nothing to them. Every span was

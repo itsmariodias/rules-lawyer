@@ -1196,6 +1196,19 @@ body.resizing { user-select: none; cursor: col-resize; }
    is meant to scroll the *book*, which is the panel body above it. */
 .pdf-page { overflow: auto; overscroll-behavior-x: contain; }
 
+/* Holding Space arms the hand, so the cursor has to say so before anything
+   is dragged. The text layer covers the page and sets `cursor: text` on
+   every span of it, so saying it once on the figure is not enough. */
+.pdf.grabbable :is(.pdf-page, .textLayer :is(span, br)) { cursor: grab; }
+
+/* While panning, the pointer sweeps across the page it is moving; without
+   this it selects the text under it. Set on the body, like `.resizing`,
+   because the drag outlives the element it started on. */
+body.panning, body.panning .textLayer :is(span, br) {
+  user-select: none;
+  cursor: grabbing;
+}
+
 .pdf-page { margin: 0; }
 
 .pdf-page figcaption {
@@ -1314,6 +1327,45 @@ body.resizing { user-select: none; cursor: col-resize; }
 .pdf-stack .textLayer .markedContent { display: contents; }
 
 .pdf-stack .textLayer span[role="img"] { user-select: none; cursor: default; }
+
+/* A selection tints the page; it must not repaint it.
+   The spans are transparent ink laid over the canvas, and the browser's
+   default selection sets a solid background *and* `color: HighlightText` —
+   which turns text that is meant to be invisible into white glyphs on a
+   blue block, appearing and vanishing as the selection changes. Keeping
+   the colour transparent and the background a tint leaves the book's own
+   ink showing through, which is what a marked passage should look like.
+   The same argument as `.pdf-boxes span`, one layer up. */
+.pdf-stack .textLayer ::selection {
+  background: color-mix(in srgb, AccentColor, transparent 60%);
+  color: transparent;
+}
+/* A line break has no glyphs, so a tint on one is a block of colour in the
+   margin marking nothing. */
+.pdf-stack .textLayer br::selection { background: transparent; }
+
+/* The catch-all at the end of the text layer, and the reason a drag across
+   a page selects the lines it crossed rather than everything from there to
+   the foot of the page.
+   Most of a page is *gap* — between lines, down the gutter, out in the
+   margins — and a pointer in a gap is over no span at all, so the browser
+   extends the selection to the nearest text in *DOM order*, which on a
+   two-column page is somewhere else entirely. This is a block that covers
+   the whole layer for the duration of a drag and sits last among its
+   children, so a pointer in a gap lands on it instead of reaching through
+   to a distant line. It selects nothing itself.
+   It is pdf.js's own mechanism; it lives in `TextLayerBuilder`, which is
+   viewer chrome we do not use, so like the rules above it is carried here
+   rather than imported. */
+.pdf-stack .textLayer .endOfContent {
+  display: block;
+  position: absolute;
+  inset: 100% 0 0;
+  z-index: 0;
+  cursor: default;
+  user-select: none;
+}
+.pdf-stack .textLayer.selecting .endOfContent { top: 0; }
 
 .link { padding: 0; color: var(--accent); text-decoration: underline; text-align: left; }
 

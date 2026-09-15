@@ -12,6 +12,16 @@
  * `pdfjs-dist/web/pdf_viewer.css`: that file is the whole viewer chrome,
  * and importing it put a `.sidebar`, a `.resizer`, an `.error` and 376
  * `:root` variables — including `--bg` — into this app's cascade.
+ *
+ * That text layer is also why panning is a second gesture rather than the
+ * obvious one. Above Fit the page is larger than the panel in both axes and
+ * the only way to move it was a scrollbar per axis, but the primary button
+ * already means *select* here, and taking that back would cost the one
+ * thing the layer exists for. So the hand is armed by holding Space or by
+ * using the middle button, and the drag scrolls rather than transforms:
+ * zoom is rasterised into the viewport, so both axes are already real
+ * overflow boxes and the canvas, the text and the boxes stay registered
+ * with no coordinate space of our own.
  */
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -36,13 +46,15 @@ type Props = { excerpt: SourceExcerpt; zoom: number }
 
 export function PdfPage({ excerpt, zoom }: Props) {
   const [error, setError] = useState<string | null>(null)
+  const armed = useSpaceHeld()
   const pages = excerpt.pages?.length ? excerpt.pages : [excerpt.page ?? 1]
 
   return (
-    <div className="pdf">
+    <div className={armed ? 'pdf grabbable' : 'pdf'}>
       {error && <p className="error">{error}</p>}
       {pages.map((page) => (
         <Page key={page} page={page} zoom={zoom} onError={setError} eager
+              armed={armed}
               boxes={excerpt.boxes.filter((b) => b.page === page)} />
       ))}
     </div>
@@ -67,6 +79,8 @@ export function PdfBook({ zoom, jumpTo }: {
 }) {
   const [book, setBook] = useState<{ count: number; aspect: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Once for the book, not once per page: this mode mounts 364 of those.
+  const armed = useSpaceHeld()
   const root = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -96,16 +110,16 @@ export function PdfBook({ zoom, jumpTo }: {
   if (!book) return <p className="muted">Loading the book…</p>
 
   return (
-    <div className="pdf" ref={root}>
+    <div className={armed ? 'pdf grabbable' : 'pdf'} ref={root}>
       {Array.from({ length: book.count }, (_, index) => (
         <Page key={index + 1} page={index + 1} zoom={zoom} boxes={[]}
-              aspect={book.aspect} onError={setError} />
+              aspect={book.aspect} armed={armed} onError={setError} />
       ))}
     </div>
   )
 }
 
-function Page({ page, zoom, boxes, aspect, eager, onError }: {
+function Page({ page, zoom, boxes, aspect, eager, armed, onError }: {
   page: number
   zoom: number
   boxes: SourceExcerpt['boxes']
@@ -113,6 +127,8 @@ function Page({ page, zoom, boxes, aspect, eager, onError }: {
   aspect?: number
   /** Render immediately, for the one or two pages a citation falls on. */
   eager?: boolean
+  /** Space is down, so a primary drag pans instead of selecting. */
+  armed?: boolean
   onError: (message: string) => void
 }) {
   const canvas = useRef<HTMLCanvasElement>(null)
@@ -129,6 +145,9 @@ function Page({ page, zoom, boxes, aspect, eager, onError }: {
   const scrollTo = useCallback((element: HTMLSpanElement | null) => {
     element?.scrollIntoView({ block: 'center' })
   }, [])
+
+  const onPointerDown = usePan(frame, armed)
+  useSelecting(text)
 
   useEffect(() => {
     const box = boxes[0]
@@ -217,6 +236,10 @@ function Page({ page, zoom, boxes, aspect, eager, onError }: {
           container: text.current,
           viewport,
         }).render()
+
+        // Last among the layer's children, and re-added after every render
+        // because `replaceChildren` above clears them. See `useSelecting`.
+        if (!cancelled) text.current.append(endOfContent())
       } catch (failure) {
         // A cancelled render is the expected way to interrupt one.
         if (!cancelled && (failure as Error).name !== 'RenderingCancelledException') {
@@ -232,7 +255,11 @@ function Page({ page, zoom, boxes, aspect, eager, onError }: {
   }, [page, zoom, near, onError])
 
   return (
-    <figure className="pdf-page" ref={frame} data-page={page}>
+    <figure className="pdf-page" ref={frame} data-page={page}
+            onPointerDown={onPointerDown}
+            // Middle-click opens the browser's own autoscroll where there is
+            // one, which would fight the drag that has already started.
+            onAuxClick={(event) => event.preventDefault()}>
       <div className="pdf-stack" style={{ height: size.height || undefined }}>
         <canvas ref={canvas}
                 style={{ width: size.width || '100%', height: size.height || 'auto' }} />
@@ -257,4 +284,161 @@ function Page({ page, zoom, boxes, aspect, eager, onError }: {
       <figcaption>p. {page}</figcaption>
     </figure>
   )
+}
+
+/* ── panning ───────────────────────────────────────────────────────── */
+
+/** What Space must not mean: a character, or pressing the thing in focus. */
+const TYPING = 'input, textarea, select, button, a[href], [contenteditable]'
+
+/**
+ * Whether Space is being held, which is what arms the hand.
+ *
+ * The guard is the composer: a space typed into it is a space, and Space on
+ * a focused button is still that button. Everywhere else it is prevented,
+ * or the same key would also scroll the pane under the reader's hands.
+ * `blur` releases it too — a window that loses focus mid-hold never
+ * delivers the `keyup`, and the cursor would stay a hand for ever.
+ */
+function useSpaceHeld() {
+  const [held, setHeld] = useState(false)
+
+  useEffect(() => {
+    const typing = (event: KeyboardEvent) =>
+      event.target instanceof Element && event.target.closest(TYPING)
+
+    const down = (event: KeyboardEvent) => {
+      if (event.code !== 'Space' || typing(event)) return
+      event.preventDefault()
+      setHeld(true)
+    }
+    const up = (event: KeyboardEvent) => {
+      if (event.code === 'Space') setHeld(false)
+    }
+    const release = () => setHeld(false)
+
+    window.addEventListener('keydown', down)
+    window.addEventListener('keyup', up)
+    window.addEventListener('blur', release)
+    return () => {
+      window.removeEventListener('keydown', down)
+      window.removeEventListener('keyup', up)
+      window.removeEventListener('blur', release)
+    }
+  }, [])
+
+  return held
+}
+
+/**
+ * The ancestor a page scrolls vertically inside.
+ *
+ * Found rather than named: it is `.panel-body` today, but that class is the
+ * panel's and this module renders pages, not panels. Pure, so the walk is
+ * tested on plain elements.
+ */
+export function verticalScroller(from: Element | null): HTMLElement | null {
+  for (let node = from?.parentElement; node; node = node.parentElement) {
+    const overflow = getComputedStyle(node).overflowY
+    if ((overflow === 'auto' || overflow === 'scroll') &&
+        node.scrollHeight > node.clientHeight) return node
+  }
+  return null
+}
+
+/**
+ * Drag the page under the pointer.
+ *
+ * Two axes, two scroll containers — the figure sideways and the pane above
+ * it downwards — so one gesture writes to both. Assigning `scrollLeft` and
+ * `scrollTop` clamps itself at either end, which is why there is no bound
+ * here to compute.
+ *
+ * The listeners go on the window rather than the figure, like the panel's
+ * own resizer: a pointer routinely leaves the page mid-drag, and the drag
+ * must not stop when it does.
+ */
+function usePan(frame: React.RefObject<HTMLElement | null>, armed?: boolean) {
+  return useCallback((event: React.PointerEvent) => {
+    const page = frame.current
+    // The middle button, or Space held: the primary button on its own still
+    // means select, which is what the text layer is rendered for.
+    if (!page || (event.button !== 1 && !(armed && event.button === 0))) return
+    event.preventDefault()
+
+    const pane = verticalScroller(page)
+    const startX = event.clientX
+    const startY = event.clientY
+    const from = { left: page.scrollLeft, top: pane?.scrollTop ?? 0 }
+
+    const move = (moved: PointerEvent) => {
+      page.scrollLeft = from.left - (moved.clientX - startX)
+      if (pane) pane.scrollTop = from.top - (moved.clientY - startY)
+    }
+    const stop = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', stop)
+      window.removeEventListener('pointercancel', stop)
+      document.body.classList.remove('panning')
+    }
+
+    document.body.classList.add('panning')
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', stop)
+    window.addEventListener('pointercancel', stop)
+  }, [frame, armed])
+}
+
+/* ── selecting ─────────────────────────────────────────────────────── */
+
+/**
+ * The block that keeps a selection inside the lines it was dragged across.
+ *
+ * Most of a page is gap — between the lines, down the gutter, out in the
+ * margins — and a pointer in one is over no span at all, so the browser
+ * extends the selection to the nearest text in *DOM order*, which on a
+ * two-column page is somewhere else entirely. That is what makes a small
+ * drag select half a page. This element covers the layer while a drag is
+ * running and sits last among its children, so a pointer in a gap lands on
+ * it rather than reaching past it; `user-select: none` keeps it out of
+ * whatever is copied.
+ *
+ * It is pdf.js's own answer to this, and it lives in `TextLayerBuilder` —
+ * viewer chrome we do not use — so, like that class's CSS, it is carried
+ * here rather than imported.
+ */
+const endOfContent = () => {
+  const element = document.createElement('div')
+  element.className = 'endOfContent'
+  return element
+}
+
+/**
+ * When that block is covering the layer: for the length of a drag.
+ *
+ * pdf.js also *moves* the block around the selection's own anchor, which is
+ * what the viewer's `selectionchange` listener is for — and which it skips
+ * outright on Firefox and on Chromium 148 and above, where the browser gets
+ * this right unaided. So what is carried here is the half that still earns
+ * its keep on a current browser: the class, for as long as the pointer is
+ * down. `blur` releases it for the same reason the pan does — a window that
+ * loses focus mid-drag never sends the `pointerup`.
+ */
+function useSelecting(layer: React.RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const element = layer.current
+    if (!element) return
+
+    const start = () => element.classList.add('selecting')
+    const stop = () => element.classList.remove('selecting')
+
+    element.addEventListener('pointerdown', start)
+    window.addEventListener('pointerup', stop)
+    window.addEventListener('blur', stop)
+    return () => {
+      element.removeEventListener('pointerdown', start)
+      window.removeEventListener('pointerup', stop)
+      window.removeEventListener('blur', stop)
+    }
+  }, [layer])
 }
