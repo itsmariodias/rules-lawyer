@@ -64,6 +64,8 @@ backend/src/dnd_graph_rag/
     source.py        a citation → its characters, and its page rectangles
     stub.py          a scripted model, for the suites.  Never a fallback
     titles.py        a conversation's name: its first question, summarised
+    prompts/         what the model is told, as markdown: system.md,
+                     graph-orientation.md, title.md
     neighbourhood.py the graph read as a graph: one node and what surrounds it
     routes.py        /chat, /chat/threads, /source/{id}, /neighbourhood
 
@@ -135,7 +137,8 @@ uv run srd-graph-load                          # artifact + vectors → graph, t
 uv run srd-graph-load --no-reset --skip-verify
 uv run srd-graph-load --embeddings ~/Downloads/srd_embeddings.idx
 uv run pytest
-uv run uvicorn dnd_graph_rag.api:app --reload  # http://127.0.0.1:8000/docs
+uv run uvicorn dnd_graph_rag.api:app --reload --reload-include '*.md'
+                                               # http://127.0.0.1:8000/docs
 
 cd ../frontend && npm install && npm run dev   # http://localhost:5173
 npm test                                       # vitest, once
@@ -329,6 +332,21 @@ with four tools: `search_srd`, a hybrid search over both indexes;
 section; and `query_srd_graph`, read-only Cypher. `service.stream_turn` flattens LangGraph's stream into small typed
 events — `token`, `tool_start`, `tool_end`, `citations`, `error`, `done` —
 which `api.py` encodes as SSE and a test iterates directly.
+
+**The prompts are files.** What the model is told lives in `chat/prompts/`
+as markdown, so it can be read rendered and edited without escaping a
+Python string: `system.md` is the agent's instructions, `graph-orientation.md`
+the facts about the graph that `cypher.schema()` puts ahead of the derived
+relationships, and `title.md` the request for a conversation's name, with
+its `{question}` placeholder. Each file is exactly what is sent, so a
+paragraph or a bullet is one line however long: a line break inside one
+would reach the model as a line break. Only the editor's final newline is
+taken off. They are read when the module that sends them is imported, so a
+misspelt name fails at startup, and `--reload-include '*.md'` is what makes
+saving one restart the server; without it `--reload` watches only Python.
+The tool descriptions are not among them: they are the docstrings in
+`tools.py`, because LangChain parses their `Args:` sections into each
+tool's parameter schema.
 
 **The search has two arms, because they fail differently.** `srd_text` is
 Lucene, so its ranking *is* BM25, and it cannot match a question that shares
