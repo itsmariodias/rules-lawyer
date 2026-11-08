@@ -1,39 +1,34 @@
 /**
- * The drag handles either side of the conversation.
+ * The drag handle between the conversation and the page panel.
  *
- * How wide the thread list and the page facsimile need to be are questions
- * about the reader's screen and eyes, not ones this application can answer
- * — so both are controls rather than constants. One component serves both
- * edges; only which direction "wider" points differs.
+ * How wide the page facsimile needs to be is a question about the reader's
+ * screen and eyes, not one this application can answer, so it is a control
+ * rather than a constant. The thread list is not: a conversation title is
+ * one line of text, and a width that suits it is a fact about the text.
  */
 
 import { useCallback } from 'react'
 
-export const MIN_SIDEBAR = 180
-/** A thread title is one line of text; past this it is just whitespace. */
-export const MAX_SIDEBAR = 460
+/** The thread list: wide enough for a title, and fixed. */
+export const SIDEBAR = 260
 /** Enough panel to read a column of the SRD. */
 export const MIN_PANEL = 380
-/** Leave the conversation readable however the edges are dragged. */
+/** Leave the conversation readable however the panel is dragged. */
 const MIN_CHAT = 420
 const STEP = 30
 
-export type Edge = 'sidebar' | 'panel'
-
 /**
- * Clamp one edge, given how much the opposite edge is already taking.
+ * Clamp the panel, given how much the thread list is already taking.
  *
- * The two share a window, so neither can be clamped alone: widening the
- * panel to its own maximum while the sidebar is wide would leave nothing
- * in between.
+ * The two share a window, so the panel cannot be clamped alone: widening it
+ * to the window's edge while the thread list is open would leave nothing in
+ * between.
  */
-export function clampWidth(edge: Edge, width: number, other: number): number {
-  const min = edge === 'sidebar' ? MIN_SIDEBAR : MIN_PANEL
-  const room = window.innerWidth - other - MIN_CHAT
-  const max = edge === 'sidebar' ? Math.min(MAX_SIDEBAR, room) : room
-  // `max` can fall below `min` on a very narrow window; the minimum wins,
-  // and the layout's own media query takes over from there.
-  return Math.max(min, Math.min(width, Math.max(min, max)))
+export function clampWidth(width: number, sidebar: number): number {
+  const max = window.innerWidth - sidebar - MIN_CHAT
+  // `max` can fall below the minimum on a very narrow window; the minimum
+  // wins, and the layout's own media query takes over from there.
+  return Math.max(MIN_PANEL, Math.min(width, max))
 }
 
 /**
@@ -45,29 +40,24 @@ export function clampWidth(edge: Edge, width: number, other: number): number {
  * laptop.
  */
 export const defaultPanel = () =>
-  clampWidth('panel',
-             Math.min(1000, Math.max(560, Math.round(window.innerWidth / 2))),
-             MIN_SIDEBAR)
+  clampWidth(Math.min(1000, Math.max(560, Math.round(window.innerWidth / 2))),
+             SIDEBAR)
 
 type Props = {
-  edge: Edge
   width: number
-  other: number
+  /** How much of the window the thread list is taking: none when hidden. */
+  sidebar: number
   onResize: (width: number) => void
 }
 
-export function Resizer({ edge, width, other, onResize }: Props) {
-  // The sidebar grows rightwards from x=0, the panel leftwards from the
-  // right-hand edge. That is the only difference between the two.
-  const measure = (x: number) =>
-    edge === 'sidebar' ? x : window.innerWidth - x
-
+export function Resizer({ width, sidebar, onResize }: Props) {
   const start = useCallback((event: React.PointerEvent) => {
     event.preventDefault()
     // Listeners go on the window, not the handle: the pointer routinely
     // leaves a 13px target mid-drag, and the drag must not stop when it does.
+    // The panel grows leftwards from the right-hand edge.
     const move = (moved: PointerEvent) =>
-      onResize(clampWidth(edge, measure(moved.clientX), other))
+      onResize(clampWidth(window.innerWidth - moved.clientX, sidebar))
     const stop = () => {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', stop)
@@ -76,24 +66,21 @@ export function Resizer({ edge, width, other, onResize }: Props) {
     document.body.classList.add('resizing')
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', stop)
-  }, [edge, other, onResize])
+  }, [sidebar, onResize])
 
   return (
     <div
-      className={`resizer resizer-${edge}`}
+      className="resizer"
       role="separator"
       aria-orientation="vertical"
-      aria-label={edge === 'sidebar'
-        ? 'Resize the conversation list' : 'Resize the page panel'}
+      aria-label="Resize the page panel"
       aria-valuenow={Math.round(width)}
       tabIndex={0}
       onPointerDown={start}
       // Dragging is not the only way to move a divider.
       onKeyDown={(event) => {
-        const wider = edge === 'sidebar' ? 'ArrowRight' : 'ArrowLeft'
-        const narrower = edge === 'sidebar' ? 'ArrowLeft' : 'ArrowRight'
-        if (event.key === wider) onResize(clampWidth(edge, width + STEP, other))
-        else if (event.key === narrower) onResize(clampWidth(edge, width - STEP, other))
+        if (event.key === 'ArrowLeft') onResize(clampWidth(width + STEP, sidebar))
+        else if (event.key === 'ArrowRight') onResize(clampWidth(width - STEP, sidebar))
         else return
         event.preventDefault()
       }}

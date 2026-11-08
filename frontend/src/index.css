@@ -159,12 +159,12 @@ code { font-family: var(--mono); font-size: 0.87em; }
 
 /* ── shell ─────────────────────────────────────────────────────────── */
 
-/* Sidebar, its handle, the conversation, then the panel's handle and the
-   panel. The handles are `auto` columns that overlap the pane beside them
-   with a negative margin, so they read as a divider rather than a gap. */
+/* The thread list, the conversation, then the panel's handle and the
+   panel. The thread list is a fixed width, so it has no handle of its own;
+   the panel's is an `auto` column of its own (see `.resizer`). */
 .app {
   display: grid;
-  grid-template-columns: var(--sidebar) auto minmax(0, 1fr);
+  grid-template-columns: var(--sidebar) minmax(0, 1fr);
   height: 100vh;
   /* Nothing scrolls the shell itself. Each pane owns its own scroller, and
      a grid item's `min-height: auto` would otherwise let a 364-page panel
@@ -175,12 +175,11 @@ code { font-family: var(--mono); font-size: 0.87em; }
 }
 
 .app.with-panel {
-  grid-template-columns: var(--sidebar) auto minmax(0, 1fr) auto var(--panel);
+  grid-template-columns: var(--sidebar) minmax(0, 1fr) auto var(--panel);
 }
 
-/* Collapsed, the pane becomes a rail of its own controls and the drag
-   handle goes: a rail is the width of two icons, and there is nothing in
-   it to make wider. */
+/* Collapsed, the pane becomes a rail of its own controls: the width of two
+   icons. */
 .app.no-sidebar { grid-template-columns: var(--rail) minmax(0, 1fr); }
 .app.no-sidebar.with-panel {
   grid-template-columns: var(--rail) minmax(0, 1fr) auto var(--panel);

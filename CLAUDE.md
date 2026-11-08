@@ -610,15 +610,17 @@ clamped — because the page is rendered *to fit the panel*, so the panel's
 width is the reading size; a fixed default would be a thumbnail on one
 screen and half the desk on another.
 
-Both edges are the same component; only which direction "wider" points
-differs. Neither can be clamped alone — they share a window, so each is
-clamped against what the other is already taking, leaving the conversation
-at least 420px.
+The thread list is not a control. A title is one line of text, so its
+width is a fact about the text rather than about the reader, and it is a
+constant, `SIDEBAR`, that sets `--sidebar`. The panel is clamped against it
+while it is open, leaving the conversation at least 420px. That clamp runs
+on load as well as on a resize: a width remembered on a large display and
+reopened on a laptop would otherwise squeeze the conversation to a column.
 
 The drag listens on the *window*, not on the handle: a pointer routinely
 leaves a 13px target mid-drag and the drag must not stop when it does. The
-grip is drawn 4px and grabbed 13px — easy to see, miserable to hit
-otherwise. Each handle occupies a real grid column rather than overlapping
+grip is drawn 4px and grabbed 13px, easy to see and miserable to hit
+otherwise. The handle occupies a real grid column rather than overlapping
 its neighbour with a negative margin, which resolves the track to 0px while
 the element still paints 13px.
 

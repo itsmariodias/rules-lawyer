@@ -15,7 +15,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useChat } from './useChat'
 import { useGraphStatus } from './useGraphStatus'
 import { useStored, useTheme, type Theme } from './useStored'
-import { clampWidth, defaultPanel, Resizer } from './components/Resizer'
+import { clampWidth, defaultPanel, Resizer, SIDEBAR } from './components/Resizer'
 import { Markdown } from './components/Markdown'
 import { ToolTrace } from './components/ToolTrace'
 import { Clock, Elapsed, formatDuration } from './components/Timing'
@@ -160,26 +160,25 @@ export default function App() {
   // Which row's menu is open, and where to draw it. One at a time.
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
   const [panel, setPanel] = useStored('panel-width', defaultPanel())
-  const [sidebar, setSidebar] = useStored('sidebar-width', 260)
   // Collapsed or not is a preference like the widths are, so it is
   // remembered the same way. What the rest of the layout has to know is
   // how much room the sidebar is actually taking, which is none when it is
   // shut — otherwise the panel would keep clamping around a pane that is
   // not on screen.
   const [sidebarOpen, setSidebarOpen] = useStored('sidebar-open', true)
-  const sidebarRoom = sidebarOpen ? sidebar : 0
+  const sidebarRoom = sidebarOpen ? SIDEBAR : 0
   const end = useRef<HTMLDivElement>(null)
 
-  // A window narrowed since the widths were stored would otherwise leave no
-  // room for the conversation between them.
+  // A window narrower than the one the panel's width was stored on would
+  // otherwise leave no room for the conversation beside it. That is as true
+  // on load as on a resize: a panel remembered at 1000px from a large
+  // display, reopened on a laptop, squeezed the conversation to a column.
   useEffect(() => {
-    const fit = () => {
-      setSidebar((current) => clampWidth('sidebar', current, panel))
-      setPanel((current) => clampWidth('panel', current, sidebarRoom))
-    }
+    const fit = () => setPanel(clampWidth(panel, sidebarRoom))
+    fit()
     window.addEventListener('resize', fit)
     return () => window.removeEventListener('resize', fit)
-  }, [panel, sidebarRoom, setPanel, setSidebar])
+  }, [panel, sidebarRoom, setPanel])
 
   useEffect(() => {
     end.current?.scrollIntoView({ behavior: 'smooth' })
@@ -234,9 +233,9 @@ export default function App() {
     <div className={`app ${panelOpen ? 'with-panel' : ''} ${sidebarOpen ? '' : 'no-sidebar'}`}
          style={{
            '--panel': `${panel}px`,
-           '--sidebar': `${sidebar}px`,
+           '--sidebar': `${SIDEBAR}px`,
          } as React.CSSProperties}>
-      {sidebarOpen && (<>
+      {sidebarOpen && (
       <nav className="sidebar">
         {/* The name lives here rather than only on the welcome screen,
             which disappears the moment a conversation starts. */}
@@ -296,10 +295,7 @@ export default function App() {
           <ThemeSwitch theme={theme} onPick={setTheme} />
         </footer>
       </nav>
-
-      <Resizer edge="sidebar" width={sidebar} other={panelOpen ? panel : 0}
-               onResize={setSidebar} />
-      </>)}
+      )}
 
       {/* Collapsed, the pane keeps the width of its own controls: the one
           that brings it back, and the one thing you would have opened it
@@ -491,7 +487,7 @@ export default function App() {
         </footer>
       </main>
 
-      {panelOpen && <Resizer edge="panel" width={panel} other={sidebarRoom}
+      {panelOpen && <Resizer width={panel} sidebar={sidebarRoom}
                              onResize={setPanel} />}
       {panelOpen && (
         <SidePanel sectionId={cited} tab={tab} onTab={setTab}

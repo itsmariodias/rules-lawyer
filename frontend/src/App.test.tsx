@@ -674,17 +674,44 @@ describe('the sidebar', () => {
       .toBeInTheDocument()
   })
 
-  it('given the resize handles, when the panel is closed, then only one is drawn', async () => {
+  it('given the thread list, when the window is read, then it has no handle to drag', async () => {
+    /** A title is one line of text; its width is a fact about the text. */
     // Given the panel closed
     render(<App />)
 
     // When the separators are counted
-    // Then only the thread list has one to drag
-    expect(screen.getAllByRole('separator')).toHaveLength(1)
+    // Then there are none: the thread list is a fixed width
+    expect(screen.queryAllByRole('separator')).toHaveLength(0)
 
-    // And when the panel opens, its own handle appears
+    // And when the panel opens, only its own handle appears
     await userEvent.click(screen.getByRole('button', { name: 'Book page' }))
-    expect(screen.getAllByRole('separator')).toHaveLength(2)
+    expect(screen.getAllByRole('separator')).toHaveLength(1)
+    expect(screen.getByRole('separator', { name: 'Resize the page panel' }))
+      .toBeInTheDocument()
+  })
+
+  it('given a panel width stored on a wider screen, when the app loads, then the panel gives way', async () => {
+    /**
+     * Clamped only on a resize, a 1000px panel remembered from a large
+     * display squeezed the conversation to a column on a laptop.
+     */
+    // Given a width stored on a large display, and a laptop-sized window
+    const width = window.innerWidth
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1512 })
+    localStorage.setItem('panel-width', '1000')
+    try {
+      render(<App />)
+
+      // When the panel opens
+      await userEvent.click(screen.getByRole('button', { name: 'Book page' }))
+
+      // Then it takes what the thread list and the conversation leave
+      expect(screen.getByRole('separator', { name: 'Resize the page panel' }))
+        .toHaveAttribute('aria-valuenow', String(1512 - 260 - 420))
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
+      localStorage.removeItem('panel-width')
+    }
   })
 })
 
