@@ -22,7 +22,7 @@ Three stages, each meeting the next at one artifact on disk.
 **1. The PDF becomes a document.** `srd-parse` reads the 364-page PDF and
 writes `srd_hierarchy.json`: a tree of 2368 typed sections, plus flat
 collections of creatures, spells, equipment, classes and glossary terms, and
-5132 typed edges between them. It works at the line level and orders by text
+5255 typed edges between them. It works at the line level and orders by text
 baseline, because the book is two-column and PyMuPDF's own reading order
 detaches a stat block's defence line from its stat block.
 
@@ -33,14 +33,14 @@ proficiency bonus, and 338 spells cross-check against the class spell lists.
 The run fails loudly instead of quietly producing a wrong graph.
 
 **2. The document becomes a graph.** `srd-graph-load` maps it into Neo4j,
-4260 nodes and 11319 relationships, then verifies the result against the
-artifact's own counts with 67 checks. The section tree is the spine: a spell
+4260 nodes and 11442 relationships, then verifies the result against the
+artifact's own counts with 68 checks. The section tree is the spine: a spell
 *is* its section with an extra `:Spell` label, so anything a traversal finds
 still carries the character offsets that resolve it back to the book.
 
 Every section with prose also carries a 1536-dimension embedding under a
-vector index. That is the document half of a hybrid retriever; the chat does
-not query it yet.
+vector index. The chat's search queries it alongside the full-text index and
+fuses the two rankings.
 
 **3. The graph answers questions.** A LangGraph tool-calling agent on Gemini,
 behind a React chat UI. Every rules claim in an answer is cited by section
@@ -178,7 +178,7 @@ each section's text, so only sections that actually changed are re-embedded.
 uv run srd-graph-load
 ```
 
-That applies the schema, empties the graph, reloads it, and runs 67 checks
+That applies the schema, empties the graph, reloads it, and runs 68 checks
 against the artifact's own counts. `--no-reset` merges instead of emptying;
 `--skip-verify` skips the checks.
 
