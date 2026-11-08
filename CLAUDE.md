@@ -192,13 +192,13 @@ maps those character ranges to page rectangles.
 | classes | 12 | core traits, 20-level progression, features, subclasses |
 | species / backgrounds / feats | 9 / 4 / 17 | |
 | glossary | 172 | 15 conditions, 13 damage types, 12 actions, 4 poison types, ... |
-| references | 5255 | typed edges between all of the above |
+| references | 5266 | typed edges between all of the above |
 
 | `entity_type` | Count |
 | --- | --- |
-| `class_feature` / `rule` | 446 / 361 |
-| `spell` / `magic_item` (with a `spell` / `item` block) | 343 / 265 |
-| `creature` (its stat block) / `creature_group` (`members`) | 336 / 189 |
+| `class_feature` / `rule` | 446 / 382 |
+| `spell` / `magic_item` (with a `spell` / `item` block) | 339 / 258 |
+| `creature` (its stat block) / `creature_group` (`members`) | 336 / 179 |
 | `equipment` (81 are the gear items themselves) | 194 |
 | `glossary_term` (`term`, `term_type`) | 155 |
 | `origin` / `feat` / `front_matter` | 32 / 24 / 3 |
@@ -245,6 +245,13 @@ maps those character ranges to page rectangles.
   Grappled, Incapacitated, or Restrained condition" is usually target
   eligibility. Reading only single names left the Tarrasque's Thunderous
   Bellow imposing nothing.
+- **`spell` and `magic_item` come only from the subtitle** the book prints
+  under the heading, never from position: a table printed as a subsection
+  of a spell ("Teleportation Outcome") is not a spell. **`creature_group`
+  is only assigned in the monster chapters;** elsewhere a printed stat block
+  (a summoned creature, a figurine) is a `creature` and the spell or item
+  around it keeps its type. Both rules once put Find Steed and five others
+  in the wrong type and miscounted spells as 343.
 - **Closed sets get a type.** `ENTRY_SET_ENTITY_TYPES` types traps,
   environmental effects and contagions, which were indistinguishable `rule`
   sections. Entries are the heading's children, or its following siblings
@@ -254,7 +261,7 @@ maps those character ranges to page rectangles.
 
 ## Stage 2: the graph
 
-`srd-graph-load` writes **4260 nodes and 11442 relationships**, then runs
+`srd-graph-load` writes **4260 nodes and 11453 relationships**, then runs
 **68 verification checks**. Loads MERGE on stable keys, but a full reset is
 the default: the artifact is the whole truth, and merging alone would keep
 nodes a re-parse has dropped.
@@ -262,7 +269,7 @@ nodes a re-parse has dropped.
 | Label | Key | Count |
 | --- | --- | --- |
 | `:Section` | `id` | 2368 |
-| + `:Spell` / `:MagicItem` / `:Creature` / `:Rule` / `:ClassFeature` / ... | `id` | 343 / 265 / 336 / 361 / 446 / ... |
+| + `:Spell` / `:MagicItem` / `:Creature` / `:Rule` / `:ClassFeature` / ... | `id` | 339 / 258 / 336 / 382 / 446 / ... |
 | + `:Trap` / `:EnvironmentalEffect` / `:Contagion` | `id` | 8 / 9 / 3 |
 | `:CreatureAbility` | `key` (`Goblin\|actions/Bite`) | 1314 |
 | `:GlossaryTerm` + `:Condition` / `:DamageType` / `:PoisonType` / ... | `name` | 172 |
@@ -294,7 +301,7 @@ documents each one; `tests/test_docs.py` fails if it falls behind `mapping`.
   ability key, so 1582 edges land on the ability rather than the whole stat
   block.
 - **Targets are matched, never merged.** An unresolved target is reported in
-  `unresolved`, not created as an empty node. All 5255 currently resolve.
+  `unresolved`, not created as an empty node. All 5266 currently resolve.
 - **Poison types are nodes** because nothing refers to them; without
   `HAS_POISON_TYPE` the paragraph defining "Injury" is unreachable.
 - **`mapping.py` is pure.** No driver; `loader.py` only batches and writes.
@@ -332,7 +339,7 @@ documents each one; `tests/test_docs.py` fails if it falls behind `mapping`.
 Expected values come from the document (`meta.counts`, collections), never
 from the loader's tally. Checks: a count per exact label set and per
 `entity_type`; collections; 336 creatures with stats; 16 roots and one parent
-per section; all 5255 reference edges and zero unresolved; 1314 abilities,
+per section; all 5266 reference edges and zero unresolved; 1314 abilities,
 each attached; abilities with damage; sections with prose each having a
 vector of the right width; `srd_vector` online and of that width; no orphans
 beyond two exemptions. Non-zero failures exit non-zero.

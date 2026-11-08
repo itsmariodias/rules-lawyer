@@ -22,7 +22,7 @@ Three stages, each meeting the next at one artifact on disk.
 **1. The PDF becomes a document.** `srd-parse` reads the 364-page PDF and
 writes `srd_hierarchy.json`: a tree of 2368 typed sections, plus flat
 collections of creatures, spells, equipment, classes and glossary terms, and
-5255 typed edges between them. It works at the line level and orders by text
+5266 typed edges between them. It works at the line level and orders by text
 baseline, because the book is two-column and PyMuPDF's own reading order
 detaches a stat block's defence line from its stat block.
 
@@ -33,7 +33,7 @@ proficiency bonus, and 338 spells cross-check against the class spell lists.
 The run fails loudly instead of quietly producing a wrong graph.
 
 **2. The document becomes a graph.** `srd-graph-load` maps it into Neo4j,
-4260 nodes and 11442 relationships, then verifies the result against the
+4260 nodes and 11453 relationships, then verifies the result against the
 artifact's own counts with 68 checks. The section tree is the spine: a spell
 *is* its section with an extra `:Spell` label, so anything a traversal finds
 still carries the character offsets that resolve it back to the book.

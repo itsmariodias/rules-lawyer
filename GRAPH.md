@@ -181,14 +181,15 @@ because they are genuinely different things.
 
 ### `:Section:CreatureGroup`
 
-A section whose subtree contains stat blocks. The label is assigned by what a
-section *contains*, so a summoning spell counts as one — and still carries
-its own spell properties.
+A section in the monster chapters (Monsters, Monsters A-Z, Animals) whose
+subtree holds stat blocks other than its own. Outside those chapters a
+section printing a stat block keeps its own type: the summoning spell
+`10.3.10` "Animate Objects" is a `:Spell`, and its Animated Object stat block
+is a `:Creature` below it.
 
-- **Adds** — spell or item properties on the few nodes that are also a spell
-  or an item
-- **Example** — `10.3.10` "Animate Objects", which is both a spell and the
-  parent of the Animated Object stat block
+- **Adds:** `members`, the names of the stat blocks in its subtree
+- **Example:** `15.16` "Black Dragons", whose members are the four black
+  dragon stat blocks
 
 ### `:Section:GlossarySection`
 

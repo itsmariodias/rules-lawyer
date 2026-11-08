@@ -44,8 +44,8 @@ _EMPHASIS_RE = re.compile(r"\*{1,2}(.+?)\*{1,2}")
 # ---------------------------------------------------------------------------
 # Entity typing
 # ---------------------------------------------------------------------------
-# Default entity type by top-level section.  SUBTREE_ENTITY_TYPES refines
-# mixed sections; subtitles, stat blocks and entry sets override both.
+# Default entity type by top-level section.  Subtitles (spell, magic_item),
+# stat blocks (creature, creature_group) and entry sets override it.
 
 SECTION_ENTITY_TYPES: dict[str, str] = {
     "Legal Information": "front_matter",
@@ -67,12 +67,10 @@ SECTION_ENTITY_TYPES: dict[str, str] = {
     "Animals": "creature_lore",
 }
 
-# (top-level section, second-level heading) → type for that subtree's leaves
-SUBTREE_ENTITY_TYPES: list[tuple[str, str, str]] = [
-    ("Spells", "Spell Descriptions", "spell"),
-    ("Magic Items", "Magic Items A–Z", "magic_item"),
-    ("Feats", "Feat Descriptions", "feat"),
-]
+# Chapters whose sections are grouped by the stat blocks they hold.  Outside
+# them a stat block (a summoned creature, a figurine) leaves the spell or item
+# printing it typed as that.
+MONSTER_CHAPTERS = {"Monsters", "Monsters A–Z", "Animals"}
 
 # Headings introducing a closed set of entries that are typed as entities
 # rather than left as "rule".
@@ -419,9 +417,8 @@ def annotate(tree: list[dict], creatures: list[dict]) -> None:
         creatures: Stat block records, matched by ``source.char_start``.
     """
     for section in tree:
-        section_name = section["heading"]
-        default = SECTION_ENTITY_TYPES.get(section_name, "rule")
-        _annotate_subtree(section, section_name, default)
+        _annotate_subtree(section,
+                          SECTION_ENTITY_TYPES.get(section["heading"], "rule"))
 
     _attach_creatures(tree, creatures)
     _mark_groups(tree)
@@ -469,17 +466,14 @@ def _deepest_containing(nodes: list[dict], offset: int) -> dict | None:
     return None
 
 
-def _subtree_type(section: str, path: list[str], default: str) -> str:
-    for top, second, kind in SUBTREE_ENTITY_TYPES:
-        if section == top and second in path:
-            return kind
-    return default
-
-
-def _annotate_subtree(node: dict, section: str, default: str,
-                      path: list[str] | None = None) -> None:
-    path = (path or []) + [node["heading"]]
-    node["entity_type"] = _subtree_type(section, path, default)
+def _annotate_subtree(node: dict, default: str) -> None:
+    """
+    Type a subtree: ``default``, or ``spell`` / ``magic_item`` where the
+    section opens with that kind of subtitle.  Position alone never makes a
+    spell, so a table inside a spell ("Teleportation Outcome") stays
+    ``default``.
+    """
+    node["entity_type"] = default
 
     subtitle = leading_subtitle(node["content"])
     if subtitle:
@@ -499,7 +493,7 @@ def _annotate_subtree(node: dict, section: str, default: str,
         node["entries"] = entries
 
     for child in node["subsections"]:
-        _annotate_subtree(child, section, default, path)
+        _annotate_subtree(child, default)
 
 
 def _mark_groups(tree: list[dict]) -> None:
@@ -507,10 +501,17 @@ def _mark_groups(tree: list[dict]) -> None:
     Mark ``creature`` and ``creature_group`` sections.
 
     A section is a creature only when it owns exactly one stat block of the
-    same name ("Azer" holding only "Azer Sentinel" is a group).  Any other
-    section with stat blocks in its subtree is a group, with ``members``.
+    same name ("Azer" holding only "Azer Sentinel" is a group).  Within
+    ``MONSTER_CHAPTERS``, any other section with stat blocks in its subtree
+    is a group, with ``members``.
     """
-    for node in walk(tree):
+    for chapter in tree:
+        _mark_chapter(chapter, grouped=chapter["heading"] in MONSTER_CHAPTERS)
+
+
+def _mark_chapter(chapter: dict, grouped: bool) -> None:
+    """``_mark_groups`` for one top-level section."""
+    for node in walk([chapter]):
         owned = node.get("creatures", [])
         if len(owned) == 1 and owned[0] == node["heading"]:
             node["entity_type"] = "creature"
@@ -520,7 +521,7 @@ def _mark_groups(tree: list[dict]) -> None:
             name for child in walk(node["subsections"])
             for name in child.get("creatures", [])
         })
-        if members:
+        if members and grouped:
             node["entity_type"] = "creature_group"
             node["members"] = members
 

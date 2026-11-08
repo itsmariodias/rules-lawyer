@@ -441,6 +441,72 @@ class TestTypeEntrySets:
         assert tree[0]["subsections"][1]["entity_type"] == "contagion"
 
 
+def _node(heading: str, entity_type: str = "rule", creatures=(), content: str = "",
+          subsections=()) -> dict:
+    node = {"heading": heading, "entity_type": entity_type, "content": content,
+            "subsections": list(subsections)}
+    if creatures:
+        node["creatures"] = list(creatures)
+    return node
+
+
+class TestMarkGroups:
+    def test_given_a_spell_printing_a_stat_block_when_marked_then_it_stays_a_spell(self):
+        """Regression: Find Steed and three other spells became creature groups."""
+        # Given a spell whose summoned creature's stat block is its child
+        tree = [_node("Spells", subsections=[
+            _node("Spell Descriptions", subsections=[
+                _node("Find Steed", "spell", subsections=[
+                    _node("Otherworldly Steed",
+                          creatures=["Otherworldly Steed"])])])])]
+
+        # When groups are marked
+        pipeline._mark_groups(tree)
+
+        # Then the stat block is a creature, and nothing above it is a group
+        spells = tree[0]
+        descriptions = spells["subsections"][0]
+        spell = descriptions["subsections"][0]
+        assert spell["subsections"][0]["entity_type"] == "creature"
+        assert spell["entity_type"] == "spell"
+        assert descriptions["entity_type"] == "rule"
+        assert spells["entity_type"] == "rule"
+        assert "members" not in spell
+
+    def test_given_a_monster_chapter_when_marked_then_its_sections_are_groups(self):
+        # Given a monster heading holding two stat blocks
+        tree = [_node("Monsters A–Z", "creature_lore", subsections=[
+            _node("Black Dragons", "creature_lore", subsections=[
+                _node("Adult Black Dragon", creatures=["Adult Black Dragon"]),
+                _node("Young Black Dragon", creatures=["Young Black Dragon"])])])]
+
+        # When groups are marked
+        pipeline._mark_groups(tree)
+
+        # Then the heading is a group of both, and each stat block a creature
+        dragons = tree[0]["subsections"][0]
+        assert dragons["entity_type"] == "creature_group"
+        assert dragons["members"] == ["Adult Black Dragon", "Young Black Dragon"]
+        assert [c["entity_type"] for c in dragons["subsections"]] == [
+            "creature", "creature"]
+
+
+class TestAnnotateSubtree:
+    def test_given_a_table_inside_a_spell_when_typed_then_it_is_not_a_spell(self):
+        """Regression: Teleportation Outcome and seven other tables were spells."""
+        # Given a spell with a table printed as its own subsection
+        spell = _node("Teleport", content="_Level 7 Conjuration (Wizard)_\n\nText.",
+                      subsections=[_node("Teleportation Outcome",
+                                         content="| Roll | Result |")])
+
+        # When the subtree is typed
+        pipeline._annotate_subtree(spell, "rule")
+
+        # Then the spell is a spell and its table keeps the default
+        assert spell["entity_type"] == "spell"
+        assert spell["subsections"][0]["entity_type"] == "rule"
+
+
 class TestParseStatBlockIndex:
     def test_given_the_index_when_parsed_then_each_entry_names_a_page(self):
         # Given the index section and the page the monsters begin on
@@ -602,6 +668,17 @@ class TestTheRealArtifact:
         assert counts["creatures"] == len(document["creatures"])
         assert counts["equipment"] == len(document["equipment"])
         assert counts["glossary"] == len(document["glossary"])
+
+    def test_given_the_artifact_when_read_then_spells_and_items_are_what_their_subtitles_say(
+            self, document):
+        # Given every section in the tree
+        nodes = list(pipeline.walk(document["sections"]))
+
+        # When types are compared with the subtitles the book prints
+        # Then a section is a spell or magic item exactly when it has one
+        for node in nodes:
+            assert (node["entity_type"] == "spell") == bool(node.get("spell")), node["id"]
+            assert (node["entity_type"] == "magic_item") == bool(node.get("item")), node["id"]
 
     def test_given_the_artifact_when_read_then_every_section_is_typed(self, document):
         # Given every node in the tree

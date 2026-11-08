@@ -39,7 +39,7 @@ export async function loadGraph(backend: string, data: string): Promise<void> {
       DND_GRAPH_RAG_DATA: data,
       NEO4J_URI, NEO4J_PASSWORD,
     },
-    // The load is 4260 nodes and 11442 relationships, then 68 checks.
+    // The load is 4260 nodes and 11453 relationships, then 68 checks.
     timeout: 600_000,
     maxBuffer: 32 * 1024 * 1024,
   })
