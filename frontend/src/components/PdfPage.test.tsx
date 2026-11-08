@@ -8,13 +8,14 @@
  * not drawn yet.
  */
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { SourceExcerpt } from '../api'
 import { PdfBook, PdfPage, verticalScroller } from './PdfPage'
 
 const textLayer = vi.fn()
+const renders = vi.fn()
 
 vi.mock('pdfjs-dist/build/pdf.worker.min.mjs?url', () => ({ default: 'worker' }))
 vi.mock('pdfjs-dist', () => {
@@ -22,7 +23,10 @@ vi.mock('pdfjs-dist', () => {
                                          height: 792 * scale })
   const page = {
     getViewport: ({ scale }: { scale: number }) => viewport(scale),
-    render: () => ({ promise: Promise.resolve(), cancel: vi.fn() }),
+    render: (options: unknown) => {
+      renders(options)
+      return { promise: Promise.resolve(), cancel: vi.fn() }
+    },
     getTextContent: () => Promise.resolve({ items: [] }),
   }
   return {
@@ -45,8 +49,10 @@ const excerpt = (overrides: Partial<SourceExcerpt> = {}): SourceExcerpt => ({
 })
 
 beforeEach(() => {
-  // jsdom's canvas has no 2D context, and the render call needs one.
-  HTMLCanvasElement.prototype.getContext = vi.fn(() => ({})) as never
+  // jsdom's canvas has no 2D context, and the render and the copy onto the
+  // page's own canvas both need one.
+  HTMLCanvasElement.prototype.getContext = vi.fn(() => ({ drawImage: vi.fn() })) as never
+  renders.mockClear()
   Element.prototype.scrollIntoView = vi.fn()
   Object.defineProperty(HTMLElement.prototype, 'clientWidth',
                         { value: 612, configurable: true })
@@ -156,6 +162,45 @@ describe('PdfPage', () => {
     // Then the scale is published under the name those rules use
     const layer = container.querySelector('.textLayer') as HTMLElement
     expect(layer.style.getPropertyValue('--total-scale-factor')).toBe('1')
+  })
+
+  it('given a drawn page, when the panel is dragged wider, then the page fills it', async () => {
+    /**
+     * The page is rendered to fit the panel, so a wider panel is a larger
+     * page. It follows the drag at once, stretched, and is redrawn sharp
+     * only once the width holds still: a render per pointer move is a
+     * render per pixel.
+     */
+    // Given a page drawn at Fit in a 612px panel, and an observer to drive
+    let resized = () => {}
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: () => void) { resized = callback }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    const { container } = render(<PdfPage excerpt={excerpt()} zoom={1} />)
+    await waitFor(() => expect(renders).toHaveBeenCalledTimes(1))
+    const canvas = container.querySelector('canvas') as HTMLCanvasElement
+    expect(canvas.style.width).toBe('612px')
+
+    // When the panel is dragged to half as wide again
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth',
+                          { value: 918, configurable: true })
+    act(() => resized())
+
+    // Then the page, its text and its boxes fill it at once, before any redraw
+    const layer = container.querySelector('.textLayer') as HTMLElement
+    const box = container.querySelector('.pdf-boxes span') as HTMLElement
+    expect(canvas.style.width).toBe('918px')
+    expect(layer.style.getPropertyValue('--total-scale-factor')).toBe('1.5')
+    expect(box.style.left).toBe('85.5px')
+    expect(renders).toHaveBeenCalledTimes(1)
+
+    // And once the width settles, it is redrawn at the new scale
+    await waitFor(() => expect(renders).toHaveBeenCalledTimes(2))
+    const [{ viewport }] = renders.mock.lastCall as [{ viewport: { scale: number } }]
+    expect(viewport.scale).toBe(1.5)
   })
 })
 

@@ -728,6 +728,18 @@ page is wider than the panel, so the stack must size to the canvas and let
 the figure scroll it — and the render must therefore measure the *figure*
 for its fit width, never the stack, which would be circular.
 
+**The page follows the panel as it is dragged.** It used to measure the
+figure once per render, so a wider panel left the page where it was. The
+width is now observed, and what is *shown* is derived from it on every
+frame: the canvas's CSS size, the boxes, and `--total-scale-factor`, which
+the text layer's spans are sized by while being placed in percentages, so
+the layer follows without being rebuilt. Only the bitmap waits for the
+width to hold still for 150ms, since a render per pointer move is a render
+per pixel; until then the last one is stretched, and it sharpens when the
+drag stops. It is drawn off screen and copied across, because resizing a
+canvas clears it and drawing into the visible one blanked the page on
+every redraw.
+
 **The Graph tab is the same citation asked a different question.** The page
 says what the book printed; `/neighbourhood` says what that passage is
 connected to. Both tabs share the selected section, so switching never loses

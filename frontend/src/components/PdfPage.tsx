@@ -133,8 +133,8 @@ function Page({ page, zoom, boxes, aspect, eager, armed, onError }: {
 }) {
   const canvas = useRef<HTMLCanvasElement>(null)
   const text = useRef<HTMLDivElement>(null)
-  const [scale, setScale] = useState(1)
-  const [size, setSize] = useState({ width: 0, height: 0 })
+  /** The page's own size in PDF points, once it has been loaded. */
+  const [points, setPoints] = useState<{ width: number; height: number } | null>(null)
   const [near, setNear] = useState(!!eager)
 
   // Two axes, two scroll containers: the page scrolls horizontally inside
@@ -149,6 +149,30 @@ function Page({ page, zoom, boxes, aspect, eager, armed, onError }: {
   const onPointerDown = usePan(frame, armed)
   useSelecting(text)
 
+  // The page follows the panel's width, so dragging the panel wider fills
+  // it rather than leaving the page where it was. What is shown is derived
+  // from the live width on every frame: the canvas, the text layer and the
+  // boxes all scale with it at once. Only the bitmap waits for the width to
+  // settle, since redrawing a page per pointer move is a render per pixel;
+  // until then the last one is stretched, and sharpens when the drag stops.
+  const width = useWidth(frame)
+  const settled = useSettled(width, SETTLE_MS)
+  const scale = points && width ? (width / points.width) * zoom : 0
+  // Floored, not rounded: at Fit the page is the container's own width and
+  // a fractional pixel over it is a horizontal scrollbar across the panel.
+  // Before the page is loaded its space is still reserved, from the aspect
+  // the book passes, so 364 placeholders scroll like 364 pages rather than
+  // collapsing to nothing.
+  // Width is floored from the width it fits rather than from points times
+  // scale, whose float product lands a hair under and loses a whole pixel.
+  const size = points && scale
+    ? { width: Math.floor(width * zoom),
+        height: Math.floor(width * zoom * (points.height / points.width)) }
+    : aspect && width
+      ? { width: Math.floor(width * zoom),
+          height: Math.floor(width * zoom * aspect) }
+      : { width: 0, height: 0 }
+
   useEffect(() => {
     const box = boxes[0]
     if (!box || !frame.current || !scale) return
@@ -156,14 +180,6 @@ function Page({ page, zoom, boxes, aspect, eager, armed, onError }: {
     frame.current.scrollLeft = Math.max(
       0, middle - frame.current.clientWidth / 2)
   }, [boxes, scale])
-
-  // Reserve the page's space before it is drawn, so 364 placeholders scroll
-  // like 364 pages rather than collapsing to nothing.
-  useLayoutEffect(() => {
-    if (!aspect || !frame.current) return
-    const width = Math.floor(frame.current.clientWidth * zoom)
-    setSize({ width, height: Math.floor(width * aspect) })
-  }, [aspect, zoom])
 
   // A page is rendered once it is within a screenful of the viewport: far
   // enough ahead that scrolling meets drawn pages, near enough that opening
@@ -181,7 +197,7 @@ function Page({ page, zoom, boxes, aspect, eager, armed, onError }: {
   }, [eager, near])
 
   useEffect(() => {
-    if (!near) return
+    if (!near || !settled) return
     let cancelled = false
     // Rendering into a canvas that React has since reused would paint the
     // wrong page, so every await checks whether this effect is still current.
@@ -194,43 +210,42 @@ function Page({ page, zoom, boxes, aspect, eager, armed, onError }: {
         if (cancelled || !canvas.current) return
 
         const unscaled = rendered.getViewport({ scale: 1 })
-        // Measured on the scrolling figure, never on .pdf-stack: the stack
-        // takes its width *from* the canvas, so asking it how wide the
-        // canvas should be is circular.
-        const width = frame.current!.clientWidth
+        setPoints((current) =>
+          current?.width === unscaled.width && current.height === unscaled.height
+            ? current : { width: unscaled.width, height: unscaled.height })
+        // `settled` is measured on the scrolling figure, never on
+        // .pdf-stack: the stack takes its width *from* the canvas, so asking
+        // it how wide the canvas should be is circular.
         const viewport = rendered.getViewport({
-          scale: (width / unscaled.width) * zoom,
+          scale: (settled / unscaled.width) * zoom,
         })
 
-        // The canvas is sized in device pixels and displayed in CSS pixels,
-        // so the page stays sharp on a retina display.
+        // Drawn off screen and copied across once it is finished: resizing
+        // a canvas clears it, so drawing into the one on screen would blank
+        // the page every time the panel was dragged. The canvas is sized in
+        // device pixels and displayed in CSS pixels, so the page stays
+        // sharp on a retina display.
         const ratio = window.devicePixelRatio || 1
-        canvas.current.width = Math.floor(viewport.width * ratio)
-        canvas.current.height = Math.floor(viewport.height * ratio)
-        // Floored, not rounded: at Fit the viewport is the container's own
-        // width and a fractional pixel over it is a horizontal scrollbar
-        // across the whole panel.
-        setSize({
-          width: Math.floor(viewport.width),
-          height: Math.floor(viewport.height),
-        })
-        setScale(viewport.scale)
-
+        const offscreen = document.createElement('canvas')
+        offscreen.width = Math.floor(viewport.width * ratio)
+        offscreen.height = Math.floor(viewport.height * ratio)
         task = rendered.render({
-          canvas: canvas.current,
-          canvasContext: canvas.current.getContext('2d')!,
+          canvas: offscreen,
+          canvasContext: offscreen.getContext('2d')!,
           viewport,
           transform: ratio === 1 ? undefined : [ratio, 0, 0, ratio, 0, 0],
         })
         await task.promise
-        if (cancelled || !text.current) return
+        if (cancelled || !canvas.current || !text.current) return
+        canvas.current.width = offscreen.width
+        canvas.current.height = offscreen.height
+        canvas.current.getContext('2d')!.drawImage(offscreen, 0, 0)
 
+        // The spans are placed in percentages of the page and sized by
+        // `--total-scale-factor`, which is set from the live scale below, so
+        // the layer follows a drag without being rebuilt and is rebuilt here
+        // only to match the new bitmap.
         text.current.replaceChildren()
-        // `--total-scale-factor`, not `--scale-factor`: it is the name the
-        // text layer's own rules read, and without it every span renders at
-        // font-size 0 and selection lands nowhere near the glyphs.
-        text.current.style.setProperty('--total-scale-factor',
-                                       String(viewport.scale))
         await new pdfjs.TextLayer({
           textContentSource: await rendered.getTextContent(),
           container: text.current,
@@ -252,7 +267,7 @@ function Page({ page, zoom, boxes, aspect, eager, armed, onError }: {
       cancelled = true
       task?.cancel()
     }
-  }, [page, zoom, near, onError])
+  }, [page, zoom, near, settled, onError])
 
   return (
     <figure className="pdf-page" ref={frame} data-page={page}
@@ -263,7 +278,11 @@ function Page({ page, zoom, boxes, aspect, eager, armed, onError }: {
       <div className="pdf-stack" style={{ height: size.height || undefined }}>
         <canvas ref={canvas}
                 style={{ width: size.width || '100%', height: size.height || 'auto' }} />
-        <div ref={text} className="textLayer" />
+        {/* `--total-scale-factor`, not `--scale-factor`: it is the name the
+            text layer's own rules read, and without it every span renders
+            at font-size 0 and selection lands nowhere near the glyphs. */}
+        <div ref={text} className="textLayer"
+             style={{ '--total-scale-factor': scale } as React.CSSProperties} />
         <div className="pdf-boxes">
           {boxes.map((box, index) => (
             <span key={index}
@@ -284,6 +303,51 @@ function Page({ page, zoom, boxes, aspect, eager, armed, onError }: {
       <figcaption>p. {page}</figcaption>
     </figure>
   )
+}
+
+/* ── fitting ───────────────────────────────────────────────────────── */
+
+/** How long the width must hold still before the page is redrawn for it. */
+const SETTLE_MS = 150
+
+/**
+ * The element's width, kept current as it changes.
+ *
+ * Read off `clientWidth` rather than the observer's entry, which measures
+ * the content box and so would disagree with the render about the
+ * figure's own scrollbar.
+ */
+function useWidth(ref: React.RefObject<HTMLElement | null>) {
+  const [width, setWidth] = useState(0)
+
+  useLayoutEffect(() => {
+    const element = ref.current
+    if (!element) return
+    const measure = () => setWidth(element.clientWidth)
+    measure()
+    const watch = new ResizeObserver(measure)
+    watch.observe(element)
+    return () => watch.disconnect()
+  }, [ref])
+
+  return width
+}
+
+/**
+ * `value`, once it has stopped changing for `ms`.
+ *
+ * The first value is taken at once: a page opening should draw straight
+ * away rather than wait out a drag that never happened.
+ */
+export function useSettled(value: number, ms: number) {
+  const [settled, setSettled] = useState(value)
+
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(value), settled ? ms : 0)
+    return () => clearTimeout(timer)
+  }, [value, ms, settled])
+
+  return settled
 }
 
 /* ── panning ───────────────────────────────────────────────────────── */
