@@ -159,9 +159,12 @@ describe('PdfPage', () => {
     // When the text layer has been built
     await waitFor(() => expect(textLayer).toHaveBeenCalled())
 
-    // Then the scale is published under the name those rules use
+    // Then the scale is published under the name those rules use. It comes
+    // from React state set once the page is loaded, so it is waited for
+    // rather than read the moment the layer is built.
     const layer = container.querySelector('.textLayer') as HTMLElement
-    expect(layer.style.getPropertyValue('--total-scale-factor')).toBe('1')
+    await waitFor(() =>
+      expect(layer.style.getPropertyValue('--total-scale-factor')).toBe('1'))
   })
 
   it('given a drawn page, when the panel is dragged wider, then the page fills it', async () => {
