@@ -34,6 +34,11 @@ from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResu
 # lead every result with, so one is read out of the other.
 CITATION = re.compile(r"\[(\d+(?:\.\d+)+)\]")
 
+# What every scripted call claims to have cost.  Made up, like the
+# sentences: it is here so the usage a turn reports is exercised end to end,
+# not to say anything about what a real call costs.
+USAGE = {"input_tokens": 1200, "output_tokens": 30, "total_tokens": 1230}
+
 
 class ScriptedModel(BaseChatModel):
     """
@@ -55,8 +60,9 @@ class ScriptedModel(BaseChatModel):
     def _generate(self, messages: list[BaseMessage], stop: list[str] | None = None,
                   run_manager: CallbackManagerForLLMRun | None = None,
                   **kwargs: Any) -> ChatResult:
-        return ChatResult(
-            generations=[ChatGeneration(message=_reply(messages))])
+        reply = _reply(messages)
+        reply.usage_metadata = dict(USAGE)
+        return ChatResult(generations=[ChatGeneration(message=reply)])
 
     def _stream(self, messages: list[BaseMessage], stop: list[str] | None = None,
                 run_manager: CallbackManagerForLLMRun | None = None,
@@ -78,10 +84,16 @@ class ScriptedModel(BaseChatModel):
                     "id": call["id"],
                     "index": 0,
                 }],
+                usage_metadata=dict(USAGE),
             ))
             return
-        for word in str(reply.content).split(" "):
-            yield ChatGenerationChunk(message=AIMessageChunk(content=word + " "))
+        words = str(reply.content).split(" ")
+        for index, word in enumerate(words):
+            # Once per call, on the last chunk: merged chunks sum their counts.
+            last = index == len(words) - 1
+            yield ChatGenerationChunk(message=AIMessageChunk(
+                content=word + " ",
+                usage_metadata=dict(USAGE) if last else None))
 
 
 def _reply(messages: list[BaseMessage]) -> AIMessage:

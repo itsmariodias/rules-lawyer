@@ -95,7 +95,7 @@ class TestChat:
 
         # Then the whole contract the browser renders is there
         for expected in ("start", "tool_start", "tool_end", "token",
-                         "citations", "done"):
+                         "usage", "citations", "done"):
             assert expected in kinds
 
     def test_given_no_api_key_when_posted_then_the_turn_is_refused_outright(
@@ -211,6 +211,21 @@ class TestChatThread:
         # Then the question and its answer are both there
         assert body["thread_id"] == "kept"
         assert [m["role"] for m in body["messages"]] == ["user", "assistant"]
+
+    def test_given_a_stored_conversation_when_fetched_then_its_cost_matches_the_live_one(
+            self, client, graph):
+        """Both read the stored messages, so reopening shows what was shown."""
+        # Given a turn, and what it reported as it streamed
+        live = next(e for e in events_of(client.post(
+            "/chat", json={"message": "Prone condition", "thread_id": "kept"}))
+            if e["type"] == "usage")
+
+        # When the conversation is fetched
+        answer = client.get("/chat/threads/kept").json()["messages"][-1]
+
+        # Then the answer carries the same count
+        del live["type"]
+        assert answer["usage"] == live
 
     def test_given_a_stored_conversation_when_fetched_then_its_turns_are_dated(
             self, client, graph):

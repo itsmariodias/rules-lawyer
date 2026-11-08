@@ -41,10 +41,23 @@ export type ChatEvent =
   | { type: 'tool_start'; id: string; name: string; args: Record<string, unknown> }
   | { type: 'tool_end'; id: string; name: string; result_chars: number;
       status?: ToolStatus; summary?: string; subject?: string }
+  | ({ type: 'usage' } & Usage)
   | { type: 'citations'; citations: Citation[] }
   /** The model could not answer, and nothing answers in its place. */
   | { type: 'error'; message: string }
   | { type: 'done'; thread_id: string }
+
+/**
+ * What one answer cost in tokens, summed over every model call in the turn:
+ * a search, a query and the answer are three calls, and each re-reads the
+ * system prompt and every result so far, so `input` dwarfs `output`.
+ */
+export type Usage = {
+  input: number
+  output: number
+  total: number
+  calls: number
+}
 
 export type Message = {
   role: 'user' | 'assistant'
@@ -62,6 +75,8 @@ export type Message = {
   at?: string
   /** How long the answer took, in milliseconds. Live turns only. */
   ms?: number
+  /** Null when the stored turn carries no counts. */
+  usage?: Usage | null
   citations?: Citation[]
   tools?: ToolCall[]
   error?: string

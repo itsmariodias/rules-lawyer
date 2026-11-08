@@ -65,7 +65,8 @@ async def chat(request: ChatRequest, checkpointer: Conversations,
 
     Events are ``token`` (a fragment of the answer), ``tool_start`` and
     ``tool_end`` (the searches the agent ran, so the UI can show its
-    working), ``citations`` (resolved once the answer is complete),
+    working), ``usage`` (the tokens every model call in the turn read and
+    wrote, summed), ``citations`` (resolved once the answer is complete),
     ``error`` (the model could not answer, and nothing answers in its
     place), and finally ``done``.
 

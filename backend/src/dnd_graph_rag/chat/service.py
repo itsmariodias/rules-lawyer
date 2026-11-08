@@ -84,6 +84,8 @@ async def stream_turn(message: str, thread_id: str,
     config = _thread(thread_id, checkpoint_id)
     answer: list[str] = []
     announced: set[str] = set()
+    # Every model call's finished message, for what the turn cost.
+    spoken: list[AIMessage] = []
 
     try:
         agent = build_agent(checkpointer)
@@ -99,6 +101,7 @@ async def stream_turn(message: str, thread_id: str,
                 for event in _from_message_chunk(chunk, answer, announced):
                     yield event
             elif mode == "updates":
+                spoken.extend(_model_messages(payload))
                 for event in _from_update(payload):
                     yield event
     # The error is the reply: it reaches the browser as an event rather than
@@ -106,6 +109,11 @@ async def stream_turn(message: str, thread_id: str,
     # turn.  A part-written answer keeps what it managed to say, above it.
     except Exception as exc:
         yield {"type": "error", "message": _explain(exc)}
+
+    # After an error too: a failed turn still spent what it spent.
+    usage = usage_of(spoken)
+    if usage is not None:
+        yield {"type": "usage", **usage}
 
     text = "".join(answer)
     # No answer, no citations: an empty list after an error would read as
@@ -220,6 +228,37 @@ def _from_update(payload: dict) -> list[dict]:
     return events
 
 
+def _model_messages(payload: dict) -> list[AIMessage]:
+    """The finished message of each model call in a state update."""
+    return [message
+            for step in payload.values() if isinstance(step, dict)
+            for message in step.get("messages", [])
+            if isinstance(message, AIMessage)]
+
+
+def usage_of(messages: list) -> dict | None:
+    """
+    What a turn cost in tokens, summed over every model call in it.
+
+    One answer is several calls, a search or a query and then the answer,
+    and each re-sends the system prompt, the schema and every result so
+    far, so reading dwarfs writing.  Taken from ``usage_metadata`` on the
+    finished messages, which are also what the checkpoint stores, so a
+    reopened conversation counts the same as the live one did.  ``None``
+    when no message carries counts: nothing shown beats "0 tokens".
+    """
+    counted = [message.usage_metadata for message in messages
+               if isinstance(message, AIMessage) and message.usage_metadata]
+    if not counted:
+        return None
+    return {
+        "input": sum(usage.get("input_tokens", 0) for usage in counted),
+        "output": sum(usage.get("output_tokens", 0) for usage in counted),
+        "total": sum(usage.get("total_tokens", 0) for usage in counted),
+        "calls": len(counted),
+    }
+
+
 def _text_of(chunk: Any) -> str:
     """
     Gemini sends content as a string sometimes and a list of parts others.
@@ -270,6 +309,8 @@ def turns_of(messages: list, when: dict[str, str] | None = None) -> list[dict]:
     # Keyed by tool call id, which is what joins a call to its result, and
     # ordered, which is what keeps the trace in the order they were made.
     pending: dict[str, dict] = {}
+    # The model calls since the question, which is what one answer cost.
+    spoken: list[AIMessage] = []
 
     for message in messages:
         if isinstance(message, HumanMessage):
@@ -278,11 +319,13 @@ def turns_of(messages: list, when: dict[str, str] | None = None) -> list[dict]:
             # A turn that ended in an error leaves its lookups behind. They
             # belong to that turn, not to the next question.
             pending = {}
+            spoken = []
         elif isinstance(message, ToolMessage):
             row = pending.get(message.tool_call_id)
             if row is not None:
                 _close_row(row, message)
         elif isinstance(message, AIMessage):
+            spoken.append(message)
             for call in message.tool_calls or []:
                 if call.get("id") and call.get("name"):
                     pending[call["id"]] = _call_row(call)
@@ -295,8 +338,10 @@ def turns_of(messages: list, when: dict[str, str] | None = None) -> list[dict]:
                 turns.append({"role": "assistant", "content": text,
                               "citations": resolve_citations(text),
                               "tools": tools,
+                              "usage": usage_of(spoken),
                               "at": when.get(message.id)})
                 pending = {}
+                spoken = []
     return turns
 
 

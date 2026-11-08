@@ -75,7 +75,8 @@ frontend/            React + Vite chat UI
   src/useStored.ts   localStorage-backed state; guarded both ways
   src/components/    Markdown (clickable citations), ToolTrace (a marker
                      per tool, the outcome in its own column), Timing (when
-                     a turn happened, and how long it is taking), SidePanel,
+                     a turn happened, and how long it is taking), Usage
+                     (what an answer cost in tokens), SidePanel,
                      PdfPage (canvas + text layer + highlight boxes),
                      GraphView (force layout, expanded a node at a time)
                      over graph-layout.ts (the arithmetic, with no React in
@@ -584,6 +585,21 @@ what makes a reopened conversation dated by when it happened rather than by
 when it was read. The *duration* is the browser's, measured from pressing
 send to the stream ending, because that is the wait somebody actually sat
 through rather than the span between two server writes.
+
+**Every answer says what it cost, summed over its calls.** One answer is
+several model calls, a search or a query and then the answer, and each
+re-sends the system prompt, the schema and every result so far, so a turn is
+typically 10k to 30k tokens read and a few hundred written. The stamp's row
+carries the total after the duration, since that is what a quota counts,
+and the split is on hover: `15,244 in · 1,341 out · 4 model calls`. `usage_of` sums the
+`usage_metadata` Gemini puts on each finished message, and it reads the same
+messages twice: live, off the `updates` stream, to send a `usage` event
+before `done` (after an `error` too, since a failed turn still spent what it
+spent), and reopened, off the checkpoint in `turns_of`. So the two agree
+without anything new being stored. A turn with no counts shows nothing
+rather than "0 tokens". The title call made beside a new conversation is
+not part of any answer and is not counted. The stub reports a fixed, made-up
+1,230 per call, so the suites exercise the event.
 
 **The id is what the model writes and a number is what a reader sees.**
 Those are two decisions and the renderer used to make one of them. The

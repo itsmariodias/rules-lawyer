@@ -57,6 +57,11 @@ export function useChat() {
               : t),
         }))
         break
+      case 'usage': {
+        const { type: _, ...usage } = event
+        patchLast((m) => ({ ...m, usage }))
+        break
+      }
       case 'citations':
         patchLast((m) => ({ ...m, citations: event.citations }))
         break

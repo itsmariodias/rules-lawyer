@@ -198,6 +198,50 @@ class TestFromUpdate:
         assert event["id"] == "c1"
 
 
+class TestUsageOf:
+    """What a turn cost in tokens, summed over every model call in it."""
+
+    @staticmethod
+    def _call(content: str, input_tokens: int, output_tokens: int):
+        from langchain_core.messages import AIMessage
+        return AIMessage(content=content, usage_metadata={
+            "input_tokens": input_tokens, "output_tokens": output_tokens,
+            "total_tokens": input_tokens + output_tokens})
+
+    def test_given_several_calls_when_counted_then_they_are_summed(self):
+        """One answer is a search, a query and the answer: each is a call."""
+        # Given a turn of three model calls
+        messages = [self._call("", 4000, 20), self._call("", 5200, 35),
+                    self._call("It is [11.2.114].", 6100, 410)]
+
+        # When what it cost is counted
+        usage = service.usage_of(messages)
+
+        # Then every call is in the sum, and the calls are counted
+        assert usage == {"input": 15300, "output": 465, "total": 15765,
+                         "calls": 3}
+
+    def test_given_other_messages_when_counted_then_only_model_calls_count(self):
+        # Given a question and a tool result among the calls
+        from langchain_core.messages import HumanMessage, ToolMessage
+        messages = [HumanMessage(content="Prone?"), self._call("", 100, 5),
+                    ToolMessage(content="[1.1] …", tool_call_id="c1")]
+
+        # When what it cost is counted
+        # Then neither is mistaken for a call
+        assert service.usage_of(messages)["calls"] == 1
+
+    def test_given_no_counts_when_counted_then_there_is_no_usage(self):
+        """Nothing shown beats a confident "0 tokens"."""
+        # Given calls that carry no counts, as a conversation stored before might
+        from langchain_core.messages import AIMessage
+
+        # When what it cost is counted
+        # Then there is no figure at all
+        assert service.usage_of([AIMessage(content="It is.")]) is None
+        assert service.usage_of([]) is None
+
+
 class TestTurnsOf:
     """A stored conversation, as the turns a UI draws."""
 
@@ -236,6 +280,24 @@ class TestTurnsOf:
             "id": "c1", "name": "search_srd", "args": {"query": "prone"},
             "done": True, "status": "ok", "summary": "3 passages",
             "subject": None}]
+
+    def test_given_two_turns_when_read_then_each_counts_only_its_own_calls(self):
+        """So a reopened conversation shows what each answer cost."""
+        # Given two turns, every call in them counted
+        messages = (self._turn("Prone?", "c1", "prone", "It is [11.2.114].")
+                    + self._turn("Grappled?", "c2", "grappled", "It is [11.2.60]."))
+        for message in messages:
+            if message.type == "ai":
+                message.usage_metadata = {"input_tokens": 1000,
+                                          "output_tokens": 10,
+                                          "total_tokens": 1010}
+
+        # When they are read back
+        answers = [t for t in service.turns_of(messages) if t["role"] == "assistant"]
+
+        # Then each answer carries its own two calls, not the turn before's
+        assert [a["usage"] for a in answers] == [
+            {"input": 2000, "output": 20, "total": 2020, "calls": 2}] * 2
 
     def test_given_two_turns_when_read_then_each_keeps_its_own_lookups(self):
         """A lookup belongs to the turn that made it, not to the thread."""
@@ -559,6 +621,20 @@ class TestUntilSilent:
 
 class TestStreamTurn:
     """One user message, run until the answer is complete."""
+
+    @pytest.mark.asyncio
+    async def test_given_a_turn_when_run_then_what_it_cost_comes_before_done(
+            self, graph, stub_model, saver):
+        # Given the scripted model, which searches and then answers
+        # When the turn runs
+        events = await collect("Prone condition", saver)
+
+        # Then both calls are counted, once, ahead of the end of the turn
+        kinds = [e["type"] for e in events if e["type"] != "token"]
+        usage = next(e for e in events if e["type"] == "usage")
+        assert kinds[-3:] == ["usage", "citations", "done"]
+        assert usage["calls"] == 2
+        assert usage["total"] == usage["input"] + usage["output"]
 
     @pytest.mark.asyncio
     async def test_given_a_failed_model_when_run_then_the_error_is_the_answer(

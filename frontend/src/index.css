@@ -657,6 +657,9 @@ code { font-family: var(--mono); font-size: 0.87em; }
   color: var(--text-faint);
 }
 .timing:empty { display: none; }
+/* What the answer cost, in the stamp's row after how long it took. */
+.usage { font-variant-numeric: tabular-nums; cursor: default; }
+.usage::before { content: '· '; }
 .stamp { font-variant-numeric: tabular-nums; }
 .took::before { content: '· '; }
 /*

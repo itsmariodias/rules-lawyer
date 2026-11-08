@@ -364,6 +364,26 @@ describe('the conversation', () => {
     expect(container.querySelector('.elapsed')).toBeNull()
   })
 
+  it('given what an answer cost, when rendered, then it is in the stamp\'s row', () => {
+    // Given an answer with its tokens counted, and an older one without
+    chat.messages = [
+      { role: 'user', content: 'Prone?' },
+      { role: 'assistant', content: 'It does.', usage: null },
+      { role: 'user', content: 'Grappled?' },
+      { role: 'assistant', content: 'It is.',
+        usage: { input: 17_790, output: 450, total: 18_240, calls: 5 } },
+    ]
+
+    // When they are rendered
+    const { container } = render(<App />)
+
+    // Then only the counted one says what it cost, on the same line as its time
+    const counts = container.querySelectorAll('.usage')
+    expect(counts).toHaveLength(1)
+    expect(counts[0]).toHaveTextContent('18,240 tokens')
+    expect(counts[0].parentElement).toHaveClass('timing')
+  })
+
   it('given citations, when a chip is pressed, then the panel opens on the page', async () => {
     /** What someone clicking a rules claim out of an answer is usually after. */
     // Given an answer with a citation chip

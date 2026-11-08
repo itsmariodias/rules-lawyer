@@ -19,6 +19,7 @@ import { clampWidth, defaultPanel, Resizer, SIDEBAR } from './components/Resizer
 import { Markdown } from './components/Markdown'
 import { ToolTrace } from './components/ToolTrace'
 import { Clock, Elapsed, formatDuration } from './components/Timing'
+import { Usage } from './components/Usage'
 import { SidePanel, type Tab } from './components/SidePanel'
 import type { Citation, Thread } from './api'
 /* The mark itself, as text. See `LogoIcon`, below, for why raw. */
@@ -411,6 +412,7 @@ export default function App() {
                       <span className="took">{formatDuration(message.ms)}</span>
                     )}
                     {since !== null && <Elapsed since={since} />}
+                    {message.usage && <Usage usage={message.usage} />}
                     {/* Quiet, and off to the side of what is being read:
                         taking an answer away and replacing it are both
                         things you do *after* reading it. Copy is offered on

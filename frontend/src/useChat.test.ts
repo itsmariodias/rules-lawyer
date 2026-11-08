@@ -154,6 +154,20 @@ describe('apply', () => {
       .toBe('11.2.114')
   })
 
+  it('given what the turn cost, when it arrives, then it is on the answer', async () => {
+    // Given a turn that reports its tokens
+    replying({ type: 'usage', input: 17_790, output: 450, total: 18_240,
+               calls: 5 })
+    const { result } = renderHook(() => useChat())
+
+    // When it runs
+    await act(() => result.current.send('Prone?'))
+
+    // Then the counts are on the answer, without the event's own type
+    expect(result.current.messages[1].usage).toEqual(
+      { input: 17_790, output: 450, total: 18_240, calls: 5 })
+  })
+
   it('given a failed turn, when the error arrives, then it is the answer', async () => {
     /**
      * The model is required, so nothing stands in for it: the failure is
