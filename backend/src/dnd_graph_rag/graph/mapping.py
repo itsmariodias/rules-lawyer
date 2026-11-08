@@ -1,24 +1,11 @@
 """
-Turn the SRD document into node and edge batches.
+The stage 1 document as node and edge batches.  Pure: no driver, no I/O.
 
-Pure: it takes the dict ``srd.load()`` returns and gives back
-:class:`~.model.GraphData`.  No driver, no I/O, no settings.
-
-Two ideas shape the result.
-
-**The section tree is the spine.**  Every one of its nodes becomes a
-``:Section`` keyed on its dotted path id — the only globally unique, stable
-identifier the artifact has — and entity types become *extra labels on that
-same node* rather than parallel copies.  A spell is therefore one node
-carrying both its prose and its ``char_start``/``char_end``, so anything
-found by traversal resolves straight back to the text in the book.
-
-**Flat collections stay their own nodes.**  ``creatures`` is the exception,
-because a stat block *is* its section (1:1, and the mapper fails if that ever
-stops being true).  The rest — equipment, classes, glossary — are separate
-nodes joined to their section by ``DEFINED_IN``.  Glossary terms in
-particular cannot be folded in: all thirteen damage types share the section
-id ``11.2.46.1``, since they come from one table.
+Every tree node is a ``:Section`` keyed on its dotted id, with its entity
+type as a second label.  Creatures, gear and poisons fold into the section
+that prints them.  Other collections are separate nodes joined by
+``DEFINED_IN``; glossary terms cannot fold because several share a section
+(all thirteen damage types are ``11.2.46.1``).
 """
 
 from __future__ import annotations
@@ -33,8 +20,8 @@ from .model import EdgeBatch, GraphData, NodeBatch, as_json, clean
 # Vocabulary
 # --------------------------------------------------------------------------
 
-# Section entity types.  Where a flat collection covers the same ground, the
-# section keeps the qualified name and the entity gets the clean one.
+# Where a flat collection has the plain name (Feat, Equipment), the section
+# label is qualified (FeatSection, EquipmentSection).
 SECTION_LABELS = {
     "rule": "Rule",
     "trap": "Trap",
@@ -70,8 +57,7 @@ EQUIPMENT_LABELS = {
     "poison": "Poison",
 }
 
-# Reference targets name a type; the glossary names a term_type.  Only the
-# punctuation differs, but it has to be bridged explicitly.
+# Reference target type -> glossary term_type.
 TARGET_TERM_TYPES = {
     "condition": "condition",
     "action": "action",
@@ -94,25 +80,31 @@ def walk(nodes: list[dict]) -> Iterator[dict]:
 
 def ability_key(creature: str, category: str, name: str) -> str:
     """
-    Identify a stat block entry, which has no id of its own.
+    The ``:CreatureAbility`` key for a stat block entry.
 
-    The tail is exactly the shape ``references[].source.part`` already uses
-    (``"actions/Bite"``), so mechanics edges land on the ability that causes
-    them rather than being smeared across the whole creature.
+    The part after ``|`` matches ``references[].source.part``, so
+    ``_resolve_source`` can attach reference edges to the ability.
+
+    Args:
+        creature: The creature's name.
+        category: e.g. ``"actions"``.
+        name: The entry's name.
+
+    Returns:
+        e.g. ``"Goblin|actions/Bite"``.
     """
     return f"{creature}|{category}/{name}"
 
 
 class Mapper:
-    """Accumulates batches while walking the document once per collection."""
+    """Accumulates batches and name indexes across the ``add_*`` passes."""
 
     def __init__(self, document: dict) -> None:
         self.document = document
         self.data = GraphData()
         self._nodes: dict[tuple[str, ...], NodeBatch] = {}
         self._edges: dict[tuple, EdgeBatch] = {}
-        # id -> row, so a later collection can enrich a section it belongs to
-        # instead of writing a second node beside it.
+        # Section id -> its emitted row and batch, for folding entities in.
         self._section_rows: dict[str, dict] = {}
         self._section_batches: dict[str, NodeBatch] = {}
         self._by_name: dict[str, dict[str, str]] = defaultdict(dict)
@@ -121,7 +113,16 @@ class Mapper:
     # -- batch plumbing ----------------------------------------------------
 
     def node_batch(self, *labels: str, key: str = "id") -> NodeBatch:
-        """One batch per exact label set, MERGE-ing on ``labels[0]``."""
+        """
+        The batch for an exact label set, created on first use.
+
+        Args:
+            *labels: Labels in order; rows MERGE on the first.
+            key: The property rows MERGE on.
+
+        Returns:
+            The shared batch for that label set.
+        """
         batch = self._nodes.get(labels)
         if batch is None:
             batch = NodeBatch(labels=list(labels), key=key)
@@ -131,6 +132,17 @@ class Mapper:
 
     def edge(self, type_: str, start: tuple[str, str], start_id: str,
              end: tuple[str, str], end_id: str, **properties: Any) -> None:
+        """
+        Add an edge to the batch for its type and endpoint labels.
+
+        Args:
+            type_: Relationship type.
+            start: ``(label, key_property)`` of the start node.
+            start_id: Key value of the start node.
+            end: ``(label, key_property)`` of the end node.
+            end_id: Key value of the end node.
+            **properties: Relationship properties.
+        """
         signature = (type_, start, end)
         batch = self._edges.get(signature)
         if batch is None:
@@ -141,28 +153,37 @@ class Mapper:
         batch.add(start_id, end_id, **properties)
 
     def warn(self, message: str) -> None:
+        """Record a non-fatal mapping problem in ``data.warnings``."""
         self.data.warnings.append(message)
 
     # -- name resolution ---------------------------------------------------
 
     def index(self, kind: str, name: str, key: str) -> None:
+        """
+        Record that ``name`` of ``kind`` resolves to node key ``key``.
+
+        The first key for a name wins; a conflicting one marks it ambiguous.
+        """
         known = self._by_name[kind]
         if name in known and known[name] != key:
             self._ambiguous[kind].add(name)
-            return  # first one wins; see resolve_item for the tie-break
+            return
         known[name] = key
 
     def lookup(self, kind: str, name: str) -> str | None:
+        """The key ``index`` recorded for a name, or None."""
         return self._by_name[kind].get(name)
 
     def relabel(self, section_id: str, *extra: str) -> dict:
         """
-        Move a section's row into a batch carrying additional labels.
+        Move a section's row to the batch with ``extra`` labels added.
 
-        Used where an entity *is* its section and so must not become a second
-        node beside it — a gear item or a poison, which the book prints as a
-        heading with prose.  The row moves rather than being copied, so the
-        node is still written exactly once.
+        Args:
+            section_id: The section to relabel.
+            *extra: Labels to add.
+
+        Returns:
+            The moved row, for the caller to add properties to.
         """
         batch = self._section_batches[section_id]
         row = self._section_rows[section_id]
@@ -173,12 +194,18 @@ class Mapper:
         return row
 
     def section_row(self, section_id: str) -> dict:
-        """The row already emitted for a section, so a later collection
-        can add properties to it instead of writing a node beside it."""
+        """The row already emitted for a section, for adding properties to."""
         return self._section_rows[section_id]
 
     def resolve_target(self, type_: str, name: str) -> tuple[str, str, str] | None:
-        """A reference target -> (label, key property, key value), or None."""
+        """
+        Args:
+            type_: A reference target's ``type``.
+            name: Its ``name``.
+
+        Returns:
+            ``(label, key_property, key_value)``, or None if unresolved.
+        """
         if type_ in TARGET_TERM_TYPES:
             key = self.lookup("glossary", name)
             return ("GlossaryTerm", "name", key) if key else None
@@ -188,11 +215,11 @@ class Mapper:
 
 def add_sections(mapper: "Mapper") -> None:
     """
-    Every tree node, with its entity type as a second label.
+    Every tree node, with its entity type as a second label, plus
+    ``HAS_SUBSECTION``.  Indexes spells, creatures and magic items by name.
 
-    Magic items are indexed in two passes: the heading "Deck of
-    Illusions" appears twice, so a name alone is not a safe key and the
-    node carrying ``item`` metadata wins.
+    "Deck of Illusions" heads two sections, so magic items are indexed in two
+    passes and the one carrying ``item`` metadata wins.
     """
     nodes = list(walk(mapper.document["sections"]))
 
@@ -282,7 +309,7 @@ def _item_properties(item: dict | None) -> dict:
 
 
 def _range_properties(range_ft: int | dict | None) -> dict:
-    """A thrown or ranged weapon prints two ranges, a plain one prints one."""
+    """``range_ft`` is an int, or ``{"normal", "long"}`` for ranged attacks."""
     if isinstance(range_ft, dict):
         return {"range_ft": range_ft.get("normal"),
                 "range_long_ft": range_ft.get("long")}
@@ -291,13 +318,11 @@ def _range_properties(range_ft: int | dict | None) -> dict:
 
 def _damage_properties(damage: list[dict] | None) -> dict:
     """
-    A damage list becomes parallel arrays.
+    A damage list as parallel ``damage_dice``/``damage_types``/
+    ``damage_averages`` arrays, since Neo4j has no list of maps.
 
-    Neo4j has no list-of-maps, and the dice, type and average of one damage
-    component belong together only by position — which is exactly what the
-    arrays preserve.  Averages are dropped rather than padded with a
-    sentinel when the book does not print them: spells give dice only, and a
-    -1 among real averages would read as a number rather than as a gap.
+    ``damage_averages`` is omitted unless every entry has one (spells print
+    dice only); a sentinel would read as a real number.
     """
     entries = [d for d in (damage or []) if d]
     if not entries:
@@ -314,12 +339,11 @@ def _damage_properties(damage: list[dict] | None) -> dict:
 
 def add_creatures(mapper: "Mapper") -> None:
     """
-    Enrich each creature's section node with its stat block, then give every
-    trait, action and reaction a node of its own.
+    Fold each stat block into its section, and add a ``:CreatureAbility``
+    per entry with ``HAS_ABILITY``.
 
-    A stat block *is* its section, so the two must line up exactly.  Both
-    sides are 336 with unique names, and if that ever stops being true the
-    load fails here rather than producing a graph quietly missing creatures.
+    Raises:
+        ValueError: A creature has no ``creature`` section of the same name.
     """
     for creature in mapper.document.get("creatures", []):
         name = creature["name"]
@@ -366,7 +390,7 @@ def _add_ability(mapper: "Mapper", creature: str, section_id: str,
 
 
 def _creature_properties(creature: dict) -> dict:
-    """Flatten a stat block into properties Neo4j can hold and query."""
+    """A stat block's fields as flat section properties, Nones dropped."""
     hp = creature.get("hp") or {}
     initiative = creature.get("initiative") or {}
     row: dict[str, Any] = {
@@ -404,12 +428,9 @@ def _creature_properties(creature: dict) -> dict:
 
 def add_glossary(mapper: "Mapper") -> None:
     """
-    Conditions, actions, damage types and the rest of the Rules Glossary.
+    A ``:GlossaryTerm`` per glossary entry, ``DEFINED_IN`` its section.
 
-    These stay separate from their sections: all thirteen damage types are
-    printed in one table and so share the section id ``11.2.46.1``, which
-    makes the section useless as a key.  ``DEFINED_IN`` keeps the link to the
-    prose without pretending the two are the same node.
+    Indexes each by name under ``"glossary"`` and under its term type.
     """
     for term in mapper.document.get("glossary", []):
         term_type = term.get("term_type") or "definition"
@@ -435,11 +456,9 @@ def add_equipment(mapper: "Mapper") -> None:
     """
     Weapons, armour, gear and poisons.
 
-    Weapons and armour are printed only as table rows, so they become nodes
-    of their own.  Gear and poisons are printed as a heading with prose, so
-    they *are* their section and fold into it — otherwise the same paragraph
-    would be stored twice, once as a section and once as an item, and every
-    edge drawn from it would exist twice over.
+    Items with a ``section_id`` (gear, poisons) fold into that section;
+    weapons and armour, which are only table rows, become ``:Equipment``
+    nodes.
     """
     for item in mapper.document.get("equipment", []):
         kind = item.get("kind") or "gear"
@@ -479,9 +498,8 @@ def _fold_into_section(mapper: "Mapper", item: dict, label: str,
     """
     Add the item's labels and properties to the section that prints it.
 
-    ``name`` deliberately overwrites the heading-derived one: the heading is
-    "Acid (25 GP)" and the entity is "Acid", and `heading` still holds what
-    the book prints.
+    ``name`` overwrites the section's ("Acid (25 GP)" becomes "Acid");
+    ``heading`` keeps the printed form.
     """
     if section_id not in mapper._section_rows:
         mapper.warn(f"{item['name']!r} names section {section_id}, which does "
@@ -508,11 +526,10 @@ def _fold_into_section(mapper: "Mapper", item: dict, label: str,
 
 def add_classes(mapper: "Mapper") -> None:
     """
-    Classes, their subclasses, their features and the level table.
-
-    The twenty progression rows become ``:ClassLevel`` nodes so a query can
-    ask what a level grants without unpacking a list property, and the
-    resources map — which Neo4j cannot store — becomes parallel arrays.
+    ``:Class``, ``:Subclass`` and one ``:ClassLevel`` per progression row,
+    with ``HAS_FEATURE``, ``HAS_SUBCLASS``, ``AT_LEVEL`` and
+    ``GRANTS_FEATURE``.  A level's resources become parallel
+    ``resource_names``/``resource_values`` arrays.
     """
     for klass in mapper.document.get("classes", []):
         name = klass["name"]
@@ -566,7 +583,7 @@ def _add_subclass(mapper: "Mapper", class_name: str, subclass: dict) -> None:
 
 def _link_feature(mapper: "Mapper", owner: tuple[str, str], owner_id: str,
                   feature: dict) -> None:
-    """Point at the feature's own section node rather than copying its prose."""
+    """``HAS_FEATURE`` from the owner to the feature's section."""
     section_id = feature.get("section_id")
     if not section_id:
         mapper.warn(f"class feature {feature['name']!r} has no section_id")
@@ -593,13 +610,13 @@ def _add_class_level(mapper: "Mapper", class_name: str, row: dict,
     for feature_name in row.get("features", []):
         feature = features.get(feature_name)
         if feature is None or not feature.get("section_id"):
-            continue  # the table names some features the chapter never details
+            continue  # named in the table but never given a section
         mapper.edge("GRANTS_FEATURE", ("ClassLevel", "key"), key,
                     ("Section", "id"), feature["section_id"])
 
 
 def add_origins(mapper: "Mapper") -> None:
-    """Species, backgrounds and feats — same shape, three labels."""
+    """Species, backgrounds and feats, each with ``DEFINED_IN`` and ``HAS_TRAIT``."""
     for kind, label, collection in (
         ("species", "Species", "species"),
         ("background", "Background", "backgrounds"),
@@ -648,12 +665,10 @@ def _pages(entry: dict) -> dict:
 
 def add_references(mapper: "Mapper") -> None:
     """
-    The cross-references stage 1 found in the book's own markup.
+    One edge per stage 1 reference, relation uppercased.
 
-    Neither endpoint is ever created here.  A target carries a name and a
-    type but no id, and inventing a node for a name that fails to resolve
-    would hide the drift between the stages that this pass exists to catch,
-    so unresolved ends are collected in ``data.unresolved`` instead.
+    Endpoints are resolved, never created; unresolved ones go to
+    ``data.unresolved`` so drift between the stages is reported.
     """
     for reference in mapper.document.get("references", []):
         source, target = reference["source"], reference["target"]
@@ -682,11 +697,10 @@ def add_references(mapper: "Mapper") -> None:
 
 def _resolve_source(mapper: "Mapper", source: dict) -> tuple[str, str, str] | None:
     """
-    Sections carry their id; stat blocks and table rows do not.
+    A reference source as ``(label, key_property, key_value)``.
 
-    A creature source names the entry it came from in ``part``
-    (``"actions/Bite"``), which is the tail of a ``:CreatureAbility`` key, so
-    those edges attach to the ability rather than the whole creature.
+    Creature sources resolve to the ability named by ``part``; sections by
+    id; equipment by name.  None if equipment does not resolve.
     """
     if source.get("part"):
         key = f"{source['name']}|{source['part']}"
@@ -699,11 +713,8 @@ def _resolve_source(mapper: "Mapper", source: dict) -> tuple[str, str, str] | No
 
 def add_derived(mapper: "Mapper") -> None:
     """
-    Edges implied by list fields on entities already loaded.
-
-    A creature's ``immunities`` and ``gear``, a spell's class list, a
-    poison's delivery type: names that resolve to a node become a
-    relationship, so they can be traversed rather than scanned.
+    Edges from list fields whose names resolve to nodes: creature
+    defences and gear, spell class lists, poison types, background feats.
     """
     for creature in mapper.document.get("creatures", []):
         section_id = mapper.lookup("creature", creature["name"])
@@ -724,17 +735,13 @@ def add_derived(mapper: "Mapper") -> None:
                             ("Equipment", "name"), name)
 
     for node in walk(mapper.document["sections"]):
-        # A node's own ``creatures`` list only ever names itself, so
-        # containment is left to HAS_SUBSECTION rather than duplicated.
         for name in node.get("spell", {}).get("classes", []) or []:
             if mapper.lookup("class", name):
                 mapper.edge("ON_SPELL_LIST", ("Section", "id"), node["id"],
                             ("Class", "name"), name)
 
     for item in mapper.document.get("equipment", []):
-        # The four delivery types are defined in one passage of their own,
-        # which nothing else refers to; without this edge it is unreachable
-        # from the poisons it describes.
+        # Nothing references the poison types, so this is their only edge.
         name = item.get("poison_type")
         if name and mapper.lookup("poison type", name):
             mapper.edge("HAS_POISON_TYPE", ("Equipment", "name"), item["name"],
@@ -755,7 +762,19 @@ def _feat_name(printed: str | None) -> str | None:
 
 
 def build(document: dict) -> GraphData:
-    """The whole translation, in the order the passes depend on each other."""
+    """
+    Map a stage 1 document to graph batches.
+
+    Args:
+        document: What ``srd.load()`` returns.
+
+    Returns:
+        Every batch, plus unresolved references and warnings.
+
+    Raises:
+        ValueError: A stat block has no matching section.
+        TypeError: A property is not a Neo4j value.
+    """
     mapper = Mapper(document)
     add_sections(mapper)      # indexes spells, creatures and magic items
     add_glossary(mapper)      # indexes conditions, damage types, actions

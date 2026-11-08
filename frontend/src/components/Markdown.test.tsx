@@ -1,14 +1,3 @@
-/**
- * The assistant's answer, with its citations made clickable.
- *
- * The model writes citations as bare `[11.2.114]`, which is not markdown.
- * The rewrite into links before parsing is what makes a citation inside a
- * table cell or a list item work like any other, so that is what is tested.
- *
- * The id is what the model writes and a number is what a reader sees, so the
- * other thing tested here is that the two never disagree.
- */
-
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
@@ -24,11 +13,6 @@ const cited = (...ids: string[]): Citation[] =>
 
 describe('numbering', () => {
   it('given resolved citations, when numbered, then they set the order', () => {
-    /**
-     * They are the ones checked against the book, and they are already
-     * deduplicated in order of first appearance, so the list and the prose
-     * cannot disagree.
-     */
     // Given an answer and the citations resolved from it
     const order = numbering('a [11.2.114] b [7.1.44]',
                             cited('11.2.114', '7.1.44'))
@@ -39,7 +23,6 @@ describe('numbering', () => {
   })
 
   it('given no citations yet, when numbered, then the text decides', () => {
-    /** While the answer is still streaming, the text is all there is. */
     // Given an answer mid-stream, citing one section twice
     const order = numbering('a [11.2.114] b [7.1.44] c [11.2.114]')
 
@@ -51,10 +34,6 @@ describe('numbering', () => {
 
 describe('Markdown', () => {
   it('given a citation, when rendered, then it is numbered rather than dotted', () => {
-    /**
-     * `11.2.114` means nothing to a reader and appeared five times in a
-     * four-line answer. The id stays the key and the prose gets `[1]`.
-     */
     // Given an answer citing a section
     render(<Markdown text="A Prone creature has Disadvantage [11.2.114]."
                      citations={cited('11.2.114')} onCite={() => {}} />)
@@ -77,7 +56,6 @@ describe('Markdown', () => {
   })
 
   it('given a citation, when pressed, then the section is opened', () => {
-    /** The number is the label; the id is still what the panel is told. */
     // Given a rendered answer
     const onCite = vi.fn()
     render(<Markdown text="Disadvantage [11.2.114]."
@@ -93,9 +71,8 @@ describe('Markdown', () => {
 
   it('given an id that resolved to nothing, when rendered, then it is not a link', () => {
     /**
-     * It used to draw as a live chip that opened nothing, which is a worse
-     * lie than showing that the model cited something the book does not
-     * have.
+     * Regression: an unresolved id used to render as a link that opened
+     * nothing.
      */
     // Given an answer citing one real section and one invented id
     render(<Markdown text="Real [11.2.114], invented [99.99.99]."
@@ -119,7 +96,6 @@ describe('Markdown', () => {
   })
 
   it('given a citation inside a table, when rendered, then it is still a button', () => {
-    /** Which is why it is a rewrite rather than a custom text renderer. */
     // Given an answer citing from inside a table cell
     const table = ['| Condition | Effect |', '|---|---|',
                    '| Prone [11.2.114] | Disadvantage |'].join('\n')
@@ -145,7 +121,6 @@ describe('Markdown', () => {
   })
 
   it('given ordinary brackets, when rendered, then they are not citations', () => {
-    /** Anchored on the digits, so prose brackets never become links. */
     // Given prose carrying brackets that are not ids
     render(<Markdown text="See [below] and step [3]." onCite={() => {}} />)
 

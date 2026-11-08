@@ -1,32 +1,24 @@
-/**
- * Conversations: kept, reopened, pinned and deleted.
- *
- * This is the flow that outlives the page. The server owns the history —
- * there is no thread table, only checkpoints — so "the conversation is
- * still there after a reload" is a claim about SQLite, the checkpointer and
- * the thread id the browser held, and only a real stack can settle it.
- */
-
 import type { Page } from '@playwright/test'
 
 import { ask, expect, test } from '../fixtures'
 
-/** A question nothing else in the run will ask, so its row is findable. */
+/** A question no other spec asks, so its row is unique. */
 const unique = () => `What does the Prone condition do? (${Date.now()})`
 
 const rowFor = (page: Page, title: string) =>
   page.locator('.thread').filter({ hasText: title })
 
-/** The row's own title button, not the `⋯` beside it — whose accessible
-    name carries the title too, so a name alone matches both. */
+/**
+ * The row's title button.  The ⋯ button's accessible name also contains the
+ * title, so match the role and class.
+ */
 const openerFor = (page: Page, title: string) =>
   rowFor(page, title).locator('.thread-open')
 
-/** A pinned row wears a pin; which section it sits in is then a detail. */
 const pinOn = (page: Page, title: string) =>
   rowFor(page, title).locator('svg.pin')
 
-/** Open the menu on one conversation's row. */
+/** Open the ⋯ menu on one conversation's row. */
 async function menuFor(page: Page, title: string) {
   await rowFor(page, title).hover()
   await rowFor(page, title).getByRole('button', { name: /^Options for/ }).click()
@@ -36,8 +28,6 @@ async function menuFor(page: Page, title: string) {
 test.describe('the thread list', () => {
   test('given an answered question, when the turn ends, then it is listed',
        async ({ app }) => {
-    /** The sidebar changes when a thread is created, so it is refreshed
-        after a turn rather than during one. */
     // Given a question nobody else asked
     const question = unique()
 
@@ -50,10 +40,6 @@ test.describe('the thread list', () => {
 
   test('given a stored conversation, when the page reloads, then it can be reopened',
        async ({ app }) => {
-    /**
-     * The server owns the history, which is why reopening is a fetch and
-     * not a cache lookup — and why this survives a reload at all.
-     */
     // Given an answered conversation
     const question = unique()
     await ask(app, question)
@@ -67,19 +53,8 @@ test.describe('the thread list', () => {
     await expect(app.locator('.message.user p')).toHaveText([question])
     await expect(app.locator('.citations .chip').first()).toBeVisible()
 
-    /**
-     * And the retrieval comes back with them. It used to be dropped on the
-     * way out of the checkpointer, so a reopened conversation showed its
-     * answer with nothing under it and the trace read as something that had
-     * never happened.
-     */
     await expect(app.locator('.trace-toggle')).toContainText('1 lookup')
 
-    /**
-     * Folded away, though. Watching the retrieval happen is the point of it
-     * during a turn; coming back to a conversation you want the answer, with
-     * the working a click away.
-     */
     await expect(app.locator('.trace li')).toHaveCount(0)
     await app.locator('.trace-toggle').click()
     await expect(app.locator('.trace li')).toHaveClass(/done/)
@@ -88,10 +63,6 @@ test.describe('the thread list', () => {
 
   test('given a conversation, when pinned, then it moves to its own section',
        async ({ app }) => {
-    /**
-     * Ordering alone said which came first and nothing about why, so a pin
-     * looked like luck; a heading says what the group *is*.
-     */
     // Given an answered conversation, with no Pinned section yet
     const question = unique()
     await ask(app, question)
@@ -132,7 +103,6 @@ test.describe('the thread list', () => {
 
   test('given a delete, when it is confirmed, then the conversation is gone for good',
        async ({ app }) => {
-    /** There is no undo — the checkpointer is the whole store. */
     // Given an answered conversation
     const question = unique()
     await ask(app, question)
@@ -153,10 +123,6 @@ test.describe('the thread list', () => {
 
   test('given the delete dialog, when it opens, then cancel is what has the focus',
        async ({ app }) => {
-    /**
-     * With no undo, the key someone presses without reading has to be the
-     * one that changes nothing — and Escape agrees with it.
-     */
     // Given an answered conversation and the dialog open on it
     const question = unique()
     await ask(app, question)
@@ -190,7 +156,6 @@ test.describe('the thread list', () => {
 
   test('given the thread list, when it is hidden, then the rail keeps its controls',
        async ({ app }) => {
-    /** Collapsed, the pane keeps the width of its own controls. */
     // Given the open pane
     await app.getByRole('button', { name: 'Hide the thread list' }).click()
 

@@ -1,11 +1,3 @@
-"""
-Stage 1's orchestration: the hierarchy, the metadata parsers and validation.
-
-The tree, the spell and item readers and the anchor bisection are all pure
-functions of text, so they run without the PDF.  The tests that need the
-artifact take the ``document`` fixture and skip when it has not been built.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -14,8 +6,6 @@ from dnd_graph_rag.srd import pipeline
 
 
 class TestStripMarkup:
-    """A heading, with the book's typography removed."""
-
     def test_given_emphasis_when_stripped_then_only_the_words_remain(self):
         # Given a heading carrying bold and italic markers
         # When it is stripped
@@ -24,8 +14,6 @@ class TestStripMarkup:
 
 
 class TestCleanContent:
-    """Prose, with the page markers removed."""
-
     def test_given_page_markers_when_cleaned_then_they_are_gone(self):
         # Given content interrupted by a page marker
         text = "First half.\n\n<!-- PAGE:12 -->\n\nSecond half."
@@ -38,8 +26,6 @@ class TestCleanContent:
 
 
 class TestBuildPageIndex:
-    """Where each page begins in the finished markdown."""
-
     def test_given_markers_when_indexed_then_each_offset_names_its_page(self):
         # Given markdown carrying two page markers
         markdown = "intro\n<!-- PAGE:1 -->\nfirst\n<!-- PAGE:2 -->\nsecond"
@@ -53,8 +39,6 @@ class TestBuildPageIndex:
 
 
 class TestPageAt:
-    """Which page a character offset falls on."""
-
     def test_given_an_offset_inside_a_page_when_asked_then_that_page_answers(self):
         # Given an index of two pages
         index = [(0, 1), (100, 2)]
@@ -81,8 +65,6 @@ class TestPageAt:
 
 
 class TestFirstHeadingLevel:
-    """The shallowest heading level present in a body."""
-
     def test_given_a_body_when_asked_then_the_shallowest_level_answers(self):
         # Given a body opening on a level-three heading
         body = "### A\n\ntext\n\n#### B\n\ntext"
@@ -92,10 +74,6 @@ class TestFirstHeadingLevel:
         assert pipeline.first_heading_level(body, 2) == 3
 
     def test_given_only_deeper_headings_than_the_maximum_when_asked_then_none_answers(self):
-        """
-        Level 6 is reserved for stat block sections, whose content is already
-        captured on the creature records.
-        """
         # Given a body whose only headings are stat block sections
         body = "###### Actions\n\ntext"
 
@@ -105,8 +83,6 @@ class TestFirstHeadingLevel:
 
 
 class TestSplitOnLevel:
-    """A body split on headings of exactly one level."""
-
     def test_given_two_headings_when_split_then_each_carries_its_own_body(self):
         # Given two sections at the same level
         body = "## First\n\nOne.\n\n## Second\n\nTwo."
@@ -131,8 +107,6 @@ class TestSplitOnLevel:
 
 
 class TestDirectContent:
-    """The prose under a heading, before its first child heading."""
-
     def test_given_a_child_heading_when_read_then_only_the_prose_above_it_is_taken(self):
         # Given a body whose prose is followed by a child section
         body = "\n\nIntro.\n\n### Child\n\nDeeper."
@@ -149,8 +123,6 @@ class TestDirectContent:
 
 
 class TestBuildTree:
-    """The section tree, which is the spine of everything downstream."""
-
     @pytest.fixture
     def markdown(self) -> str:
         return ("<!-- PAGE:1 -->\n# Spells\n\nIntro.\n\n## Fireball\n\n"
@@ -179,10 +151,6 @@ class TestBuildTree:
 
     def test_given_a_node_when_built_then_its_offsets_slice_the_markdown_back(
             self, markdown):
-        """
-        The whole payoff of stage 1: every node resolves to real text, which
-        is what makes a citation openable.
-        """
         # Given the same markdown
         # When the tree is built
         tree = pipeline.build_tree(markdown,
@@ -214,8 +182,6 @@ class TestBuildTree:
 
 
 class TestParseNamedEntries:
-    """Prose split into the entries the book names inside it."""
-
     def test_given_bold_italic_names_when_split_then_each_becomes_an_entry(self):
         # Given the form the book uses for a trait or an effect
         content = ("Preamble.\n\n**_Multiattack._** Twice.\n\n"
@@ -248,8 +214,6 @@ class TestParseNamedEntries:
 
 
 class TestParseSpellSubtitle:
-    """The line under a spell's name."""
-
     def test_given_a_levelled_spell_when_parsed_then_level_school_and_classes_are_read(self):
         # Given a spell subtitle as the book prints one
         # When it is parsed
@@ -282,8 +246,6 @@ class TestParseSpellSubtitle:
 
 
 class TestParseSpellFields:
-    """The four mechanical fields printed under a spell's subtitle."""
-
     def test_given_all_four_fields_when_parsed_then_each_is_read(self):
         # Given a spell's field block
         content = ("**Casting Time:** Action\n**Range:** 150 feet\n"
@@ -299,7 +261,6 @@ class TestParseSpellFields:
         assert fields["duration"] == "Instantaneous"
 
     def test_given_a_ritual_when_parsed_then_it_is_lifted_out_of_the_casting_time(self):
-        """The book folds it into Casting Time; a graph wants to filter on it."""
         # Given a spell that can be cast as a ritual
         content = "**Casting Time:** Action or Ritual"
 
@@ -375,8 +336,6 @@ class TestParseSpellFields:
 
 
 class TestParseItemSubtitle:
-    """The line under a magic item's name."""
-
     def test_given_a_full_subtitle_when_parsed_then_every_part_is_read(self):
         # Given the most detailed form the book prints
         text = "_Weapon (Any Sword), Rare (Requires Attunement by a Druid)_"
@@ -409,8 +368,6 @@ class TestParseItemSubtitle:
 
 
 class TestLeadingSubtitle:
-    """The italicised line a spell or item opens with."""
-
     def test_given_an_italic_opening_line_when_read_then_it_is_the_subtitle(self):
         # Given content opening on an italic line
         content = "_Level 3 Evocation (Wizard)_\n\n**Casting Time:** Action"
@@ -427,8 +384,6 @@ class TestLeadingSubtitle:
 
 
 class TestWalk:
-    """Every node of the tree, in document order."""
-
     def test_given_a_nested_tree_when_walked_then_every_node_is_visited_once(self):
         # Given a tree two levels deep
         tree = [{"heading": "A", "subsections": [
@@ -444,8 +399,6 @@ class TestWalk:
 
 
 class TestCountNodes:
-    """How many sections the tree holds."""
-
     def test_given_a_nested_tree_when_counted_then_every_node_counts(self):
         # Given a tree of four nodes
         tree = [{"subsections": [{"subsections": [{"subsections": []}]}]},
@@ -457,8 +410,6 @@ class TestCountNodes:
 
 
 class TestTypeEntrySets:
-    """A closed set the book introduces, typed from its introducing heading."""
-
     def test_given_a_heading_that_nests_its_entries_when_typed_then_children_are_typed(self):
         # Given "Example Traps", which nests the traps it introduces
         tree = [{"heading": "Toolbox", "subsections": [
@@ -475,10 +426,7 @@ class TestTypeEntrySets:
         assert toolbox[0]["entity_type"] == "rule"
 
     def test_given_a_heading_printed_beside_its_entries_when_typed_then_siblings_are_typed(self):
-        """
-        "Example Contagions" is printed at the same level as the three it
-        introduces, rather than above them.
-        """
+        """"Example Contagions" is printed at the same level as its entries."""
         # Given the sibling shape
         tree = [{"heading": "Toolbox", "subsections": [
             {"heading": "Example Contagions", "entity_type": "rule",
@@ -494,8 +442,6 @@ class TestTypeEntrySets:
 
 
 class TestParseStatBlockIndex:
-    """The book's own index of stat blocks, which validation runs against."""
-
     def test_given_the_index_when_parsed_then_each_entry_names_a_page(self):
         # Given the index section and the page the monsters begin on
         tree = [
@@ -514,10 +460,7 @@ class TestParseStatBlockIndex:
         assert index == {"Aboleth": 350, "Goblin": 362}
 
     def test_given_contents_lines_bleeding_in_when_parsed_then_they_are_dropped(self):
-        """
-        The index shares its opening page with the table of contents, whose
-        entries have the same dotted-leader shape.
-        """
+        """The index shares its first page with the table of contents."""
         # Given an index polluted by contents entries pointing at the front
         tree = [
             {"heading": "Index of Stat Blocks",
@@ -542,11 +485,9 @@ class TestParseStatBlockIndex:
 
 
 class TestSectionBoxes:
-    """The page rectangles a character range covers."""
-
     @pytest.fixture
     def anchors(self) -> list[dict]:
-        """Three parts, in document order, as the layout pass emits them."""
+        """Three anchors in document order."""
         return [
             {"start": 0, "end": 100, "boxes": [{"page": 1, "y0": 10}]},
             {"start": 100, "end": 200, "boxes": [{"page": 1, "y0": 30}]},
@@ -588,7 +529,6 @@ class TestSectionBoxes:
         assert pipeline.section_boxes(anchors, 500, 600) == []
 
     def test_given_no_anchors_at_all_when_asked_then_it_is_not_an_error(self):
-        """An artifact generated before the anchors existed has none."""
         # Given an empty anchor list
         # When the boxes are collected
         # Then the citation still resolves, just without geometry
@@ -596,14 +536,7 @@ class TestSectionBoxes:
 
 
 class TestCheckAnchors:
-    """Every section's geometry must fall on the pages it claims."""
-
     def test_given_agreeing_geometry_when_checked_then_nothing_is_reported(self):
-        """
-        The two are derived by different routes — the range from the page
-        markers, the boxes from the lines themselves — so agreeing means both
-        describe the same passage.
-        """
         # Given a section whose boxes sit on the page it claims
         tree = [{"id": "1", "heading": "A", "subsections": [],
                  "source": {"char_start": 0, "char_end": 100,
@@ -646,8 +579,6 @@ class TestCheckAnchors:
 
 
 class TestLoad:
-    """Reading back what an earlier run wrote."""
-
     def test_given_no_artifact_when_loaded_then_the_failure_names_the_path(
             self, tmp_path):
         # Given a path nothing has been written to
@@ -660,8 +591,6 @@ class TestLoad:
 
 
 class TestTheRealArtifact:
-    """What the pipeline actually produced, held against its own claims."""
-
     def test_given_the_artifact_when_read_then_its_counts_match_its_collections(
             self, document):
         # Given the artifact on disk
@@ -685,10 +614,6 @@ class TestTheRealArtifact:
 
     def test_given_the_artifact_when_read_then_every_offset_slices_real_text(
             self, document, markdown):
-        """
-        The reason the graph is usable for retrieval: a node resolves back to
-        the book's own words rather than to a copy of them.
-        """
         # Given the markdown the offsets were measured against
         # When each section's own heading is sliced out at its offsets
         for node in pipeline.walk(document["sections"]):
@@ -719,11 +644,6 @@ class TestTheRealArtifact:
 
     def test_given_the_artifact_when_read_then_the_four_poison_types_are_there(
             self, document):
-        """
-        The delivery types are defined in one paragraph rather than a table,
-        and every poison names one of them, which is what makes the pairing
-        useful: a poison can be read together with what its type does.
-        """
         # Given the glossary's poison types
         types = {t["name"]: t for t in document["glossary"]
                  if t["term_type"] == "poison type"}
@@ -739,11 +659,6 @@ class TestTheRealArtifact:
 
     def test_given_the_artifact_when_read_then_the_toolbox_entry_sets_are_typed(
             self, document):
-        """
-        Traps, environmental effects and contagions were `rule` sections
-        indistinguishable from the prose around them, so "which traps deal
-        Poison damage" had nothing to select on.
-        """
         # Given the counts the run recorded
         counts = document["meta"]["counts"]["entity_types"]
 

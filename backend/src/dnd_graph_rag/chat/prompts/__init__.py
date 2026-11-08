@@ -1,14 +1,8 @@
 """
-The prose the model is given, kept as markdown files beside this module.
+Prompt files sent to the model verbatim.
 
-Each file is exactly what the model receives, so a paragraph or a bullet is
-one line however long it gets: a line break inside one would be sent as a
-line break. The trailing newline an editor adds at the end of a file is the
-only thing taken off.
-
-The tool descriptions are not here. They are the docstrings in ``tools.py``,
-because LangChain parses their ``Args:`` sections into each tool's
-parameter schema, which makes them code as much as prose.
+Keep each paragraph on one line: a line break in a file is a line break
+the model receives.  Tool descriptions live in ``tools.py`` docstrings.
 """
 
 from __future__ import annotations
@@ -20,10 +14,16 @@ HERE = Path(__file__).parent
 
 def prompt(name: str) -> str:
     """
-    The prompt in ``<name>.md``.
+    Read ``<name>.md`` beside this module.  Called at import time, so a
+    misspelt name fails at startup.
 
-    Read once, by the module that sends it, when that module is imported: an
-    unknown name fails at startup rather than on the first turn that needed
-    it.
+    Args:
+        name: File stem, e.g. ``"system"``.
+
+    Returns:
+        The file's text without trailing newlines.
+
+    Raises:
+        FileNotFoundError: No such prompt.
     """
     return (HERE / f"{name}.md").read_text(encoding="utf-8").rstrip("\n")

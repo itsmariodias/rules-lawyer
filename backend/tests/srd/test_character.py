@@ -1,11 +1,3 @@
-"""
-Classes, species, backgrounds, feats, poisons and damage types.
-
-These all share one shape — a heading, a run of bold labels, then prose — so
-the label reader is the piece worth the most coverage.  The extractors are
-exercised against hand-built section trees rather than the PDF.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -15,7 +7,7 @@ from dnd_graph_rag.srd import character
 
 def section(heading: str, content: str = "", node_id: str = "1",
             subsections: list | None = None, **extra) -> dict:
-    """A tree node of the shape ``build_tree`` produces."""
+    """A tree node shaped like ``build_tree``'s output."""
     return {
         "id": node_id,
         "heading": heading,
@@ -28,8 +20,6 @@ def section(heading: str, content: str = "", node_id: str = "1",
 
 
 class TestParseLabeledFields:
-    """A run of "**Label:** value" read into a dict."""
-
     def test_given_several_labels_on_one_line_when_parsed_then_each_gets_its_value(self):
         # Given the way species, backgrounds and core traits all open
         text = "**Creature Type:** Humanoid **Size:** Medium **Speed:** 30 feet"
@@ -75,8 +65,6 @@ class TestParseLabeledFields:
 
 
 class TestExtractSpecies:
-    """Every species, from the children of "Species Descriptions"."""
-
     def test_given_a_species_section_when_extracted_then_its_traits_come_with_it(self):
         # Given a species printed the way the book prints one
         nodes = [section("Species Descriptions", subsections=[
@@ -96,10 +84,7 @@ class TestExtractSpecies:
                                       "description": "120 feet."}]
 
     def test_given_traits_split_by_a_table_when_extracted_then_the_subtree_is_read(self):
-        """
-        A table printed mid-entry pushes the rest of the traits into a child
-        section, as the Draconic Ancestors table does to the Dragonborn.
-        """
+        """The Draconic Ancestors table splits the Dragonborn's traits."""
         # Given an entry whose traits continue below a table
         nodes = [section("Species Descriptions", subsections=[
             section("Dragonborn", "**Size:** Medium", node_id="4.2",
@@ -124,8 +109,6 @@ class TestExtractSpecies:
 
 
 class TestExtractBackgrounds:
-    """Every background, read the same way as a species."""
-
     def test_given_a_background_section_when_extracted_then_it_is_typed_as_one(self):
         # Given a background printed under its own heading
         nodes = [section("Background Descriptions", subsections=[
@@ -141,13 +124,7 @@ class TestExtractBackgrounds:
 
 
 class TestExtractFeats:
-    """Every feat, with the category the book prints under its name."""
-
     def test_given_a_feat_when_extracted_then_the_italic_category_wins(self):
-        """
-        A feat keeps its italicised category wherever it is reprinted, which
-        makes it more reliable than the group it happens to sit under.
-        """
         # Given a feat whose printed category differs from its group heading
         nodes = [section("Feat Descriptions", subsections=[
             section("General Feats", subsections=[
@@ -185,8 +162,6 @@ class TestExtractFeats:
 
 
 class TestExtractPoisonTypes:
-    """The four delivery types, from the paragraph that introduces them."""
-
     def test_given_the_introducing_paragraph_when_extracted_then_all_four_are_read(self):
         # Given the passage that defines the whole set
         content = ("Poisons come in the following four types: "
@@ -216,8 +191,6 @@ class TestExtractPoisonTypes:
 
 
 class TestExtractPoisons:
-    """The Sample Poisons, which are priced items like any other equipment."""
-
     def test_given_a_poison_when_extracted_then_its_price_and_type_are_read(self):
         # Given a poison printed as a heading with prose
         nodes = [section("Sample Poisons", subsections=[
@@ -235,10 +208,6 @@ class TestExtractPoisons:
         assert poison["poison_type"] == "Injury"
 
     def test_given_a_poison_when_extracted_then_it_names_the_section_that_prints_it(self):
-        """
-        Naming the section is what lets the loader fold the item into it
-        rather than storing the same paragraph twice.
-        """
         # Given a poison printed under its own heading
         nodes = [section("Sample Poisons", subsections=[
             section("Serpent Venom (200 GP)", "_Injury Poison_\n\nText.",
@@ -252,8 +221,6 @@ class TestExtractPoisons:
 
 
 class TestExtractDamageTypes:
-    """The damage types, from the glossary's own table."""
-
     def test_given_the_table_when_extracted_then_each_type_is_a_glossary_term(self):
         # Given the Damage Types table
         content = ("| Type | Examples |\n|---|---|\n"
@@ -270,7 +237,7 @@ class TestExtractDamageTypes:
         assert {t["section_id"] for t in types} == {"11.2.46.1"}
 
     def test_given_the_table_printed_in_two_halves_when_extracted_then_none_repeats(self):
-        """The book prints the table in two halves side by side."""
+        """The book prints the table in two side-by-side halves."""
         # Given the same type appearing in both halves
         content = ("| Type | Examples |\n|---|---|\n| Fire | Dragon |\n\n"
                    "| Type | Examples |\n|---|---|\n| Fire | Dragon |\n"

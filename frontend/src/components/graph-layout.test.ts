@@ -1,11 +1,3 @@
-/**
- * The arithmetic behind the graph explorer.
- *
- * The simulation, the fit and the merge rules are ours rather than a
- * library's, so the numbers are worth holding to account directly — and
- * none of it needs a canvas, which is why it lives apart from the view.
- */
-
 import { describe, expect, it } from 'vitest'
 
 import type { GraphEdge, GraphNode, Neighbourhood } from '../api'
@@ -37,10 +29,6 @@ const body = (x: number, y: number) => ({ x, y, vx: 0, vy: 0, pinned: false })
 
 describe('kindOf', () => {
   it('given a multi-label node, when coloured, then the most specific wins', () => {
-    /**
-     * Nodes are multi-label by design — `:Section:Rule:Equipment:Poison` is
-     * one real node — so being a Poison says more than being Equipment does.
-     */
     // Given a node carrying several labels at once
     const poison = node('p', { labels: ['Rule', 'Equipment', 'Poison'] })
 
@@ -58,9 +46,8 @@ describe('kindOf', () => {
 
   it('given a label the palette does not know, when coloured, then it falls back', () => {
     /**
-     * Not an error anywhere: the node draws, and only someone who knows the
-     * graph notices it is the wrong colour — which is why `test_docs.py`
-     * holds this table against the mapper.
+     * An unlisted label draws grey without error; test_docs.py checks this
+     * table against the mapper.
      */
     // Given a node with no known label
     // When its kind is decided
@@ -79,7 +66,6 @@ describe('radiusOf', () => {
   })
 
   it('given a hub of any size, when sized, then it stops growing', () => {
-    /** Poison has 195 edges; a circle scaled to that fills the panel. */
     // Given an enormous hub
     // When it is sized
     // Then the radius is capped
@@ -89,7 +75,6 @@ describe('radiusOf', () => {
 
 describe('restLength', () => {
   it('given few nodes in a large panel, when spaced, then the spring is capped', () => {
-    /** Or a two-node graph flings itself into the corners. */
     // Given two nodes on a big canvas
     // When the rest length is derived
     // Then it stops at the maximum rather than filling the panel
@@ -97,7 +82,6 @@ describe('restLength', () => {
   })
 
   it('given many nodes in a small panel, when spaced, then it has a floor', () => {
-    /** And a sixty-node graph does not fold in on itself. */
     // Given a crowded canvas
     // When the rest length is derived
     // Then it stops at the minimum
@@ -105,10 +89,6 @@ describe('restLength', () => {
   })
 
   it('given the same panel, when it holds more nodes, then they settle closer', () => {
-    /**
-     * Twelve nodes in a tall panel and sixty in a short one want very
-     * different pictures, so the rest length comes from the room available.
-     */
     // Given one canvas holding two different graphs
     const roomy = restLength({ width: 900, height: 700 }, 12)
     const crowded = restLength({ width: 900, height: 700 }, 40)
@@ -128,11 +108,6 @@ describe('fit', () => {
   })
 
   it('given a crowded picture, when fitted, then it stops shrinking at the floor', () => {
-    /**
-     * A node is a dot with a name beside it about 130 units wide, and thirty
-     * of those do not fit across a panel whatever the spacing: legible and
-     * partly off-screen beats complete and unreadable.
-     */
     // Given a wide spread of nodes in a small panel
     const spread = Array.from({ length: 30 }, (_, i) => body(i * 200, 0))
 
@@ -144,7 +119,6 @@ describe('fit', () => {
   })
 
   it('given a tiny picture, when fitted, then it stops growing at the ceiling', () => {
-    /** A two-node graph blown up to fill a panel looks broken, not close. */
     // Given two nodes close together in a large panel
     // When they are fitted
     const view = fit([body(0, 0), body(10, 0)], { width: 1200, height: 900 }, 0)
@@ -154,10 +128,6 @@ describe('fit', () => {
   })
 
   it('given the details card, when fitted, then the space it covers is not laid out in', () => {
-    /**
-     * The card floats over the picture, so fitting into the whole canvas
-     * leaves the furthest nodes drawn and invisible behind it.
-     */
     // Given the same picture fitted with and without a card over it
     const points = [body(-300, -200), body(300, 200)]
     const whole = fit(points, { width: 900, height: 800 }, 0)
@@ -171,7 +141,6 @@ describe('fit', () => {
 
 describe('merge', () => {
   it('given an expansion, when merged, then it grows the picture already drawn', () => {
-    /** Expanding is walking around one picture, not opening another. */
     // Given a drawn graph and an expansion of one of its nodes
     const drawn = graph()
     const more: Neighbourhood = {
@@ -188,7 +157,6 @@ describe('merge', () => {
   })
 
   it('given a node reached again, when merged, then it keeps the depth it was drawn at', () => {
-    /** Which is the distance from the citation the reader started at. */
     // Given a node already drawn one hop out
     const drawn = graph()
     const more: Neighbourhood = {
@@ -203,7 +171,6 @@ describe('merge', () => {
   })
 
   it('given a group sampled again, when merged, then the later count wins', () => {
-    /** The later count is the one that matches what is now drawn. */
     // Given a truncation reported before and after an expansion
     const drawn = graph({
       truncated: [{ uid: 'a', type: 'REFERENCES_SPELL', direction: 'out',
@@ -253,10 +220,6 @@ describe('labelled', () => {
   })
 
   it('given more edges than can be read, when labelled, then none is written', () => {
-    /**
-     * A section with ten subsections drew `has_subsection` ten times over
-     * itself and said nothing the details card does not say better.
-     */
     // Given a node with six edges
     const busy = graph({
       nodes: [node('root'), ...'abcdef'.split('').map((n) => node(n))],
@@ -287,10 +250,6 @@ describe('connections', () => {
   })
 
   it('given a truncated group, when counted, then the row says how many exist', () => {
-    /**
-     * This is where a hub becomes readable: the picture can honestly show
-     * eight of Poison's 121 references; only a count can say it is 121.
-     */
     // Given a group the server sampled
     const hub = graph({
       truncated: [{ uid: 'root', type: 'HAS_SUBSECTION', direction: 'out',

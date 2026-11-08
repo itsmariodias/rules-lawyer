@@ -1,13 +1,3 @@
-"""
-The cross-reference edges, and the name resolution behind them.
-
-Edges come from the book's own markup — spells and magic items italicised,
-creatures bolded — but a span only becomes an edge when it resolves to an
-entity that was actually extracted, since italic is also emphasis and book
-titles.  Conditions, actions and damage types are not marked up at all, so
-they match on required phrasing.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -17,14 +7,14 @@ from dnd_graph_rag.srd.references import NameIndex, ReferenceScanner
 
 
 def glossary(*entries: tuple[str, str]) -> list[dict]:
-    """Glossary records, as ``(name, term_type)`` pairs."""
+    """Glossary records from ``(name, term_type)`` pairs."""
     return [{"name": name, "term_type": term_type, "description": "",
              "section_id": "11.2"} for name, term_type in entries]
 
 
 @pytest.fixture
 def scanner() -> ReferenceScanner:
-    """A scanner over a small, closed set of known entities."""
+    """A scanner over a small fixed set of entities."""
     return ReferenceScanner(
         spells=["Fireball", "Cure Wounds"],
         magic_items=["Bag of Holding"],
@@ -36,8 +26,6 @@ def scanner() -> ReferenceScanner:
 
 
 class TestNormalise:
-    """A captured span, reduced to the name inside it."""
-
     def test_given_emphasis_when_normalised_then_only_the_name_is_left(self):
         # Given a span carrying the markup it was captured with
         # When it is normalised
@@ -52,8 +40,6 @@ class TestNormalise:
 
 
 class TestNameIndex:
-    """Resolving a captured span to a known entity name."""
-
     def test_given_an_exact_name_when_resolved_then_it_comes_back_as_printed(self):
         # Given an index of known creatures
         index = NameIndex(["Goblin"])
@@ -63,7 +49,6 @@ class TestNameIndex:
         assert index.resolve("Goblin") == "Goblin"
 
     def test_given_a_different_case_when_resolved_then_it_still_matches(self):
-        """A few references appear mid-sentence in lower case."""
         # Given an index of known creatures
         index = NameIndex(["Goblin"])
 
@@ -76,7 +61,7 @@ class TestNameIndex:
     ])
     def test_given_a_plural_when_resolved_then_it_falls_back_to_the_singular(
             self, plural, singular):
-        """The book pluralises references freely: "two **Ghasts**"."""
+        """The book writes "two **Ghasts**"."""
         # Given an index holding the singular
         index = NameIndex([singular])
 
@@ -102,8 +87,6 @@ class TestNameIndex:
 
 
 class TestReferenceScannerScan:
-    """Every resolvable cross-reference in a piece of SRD text."""
-
     def test_given_an_italicised_spell_when_scanned_then_it_is_a_spell_reference(self):
         # Given the book's own markup for a spell
         # When the text is scanned
@@ -124,7 +107,6 @@ class TestReferenceScannerScan:
 
     def test_given_italic_that_is_only_emphasis_when_scanned_then_no_edge_is_drawn(
             self, scanner):
-        """Italic is also emphasis and book titles, so resolution is the filter."""
         # Given an italicised phrase that names no entity
         # When the text is scanned
         found = scanner.scan("The creature is _truly_ dangerous.")
@@ -142,7 +124,7 @@ class TestReferenceScannerScan:
         assert found == [("condition", "Prone")]
 
     def test_given_a_bare_noun_when_scanned_then_it_does_not_fire(self, scanner):
-        """"Cover", "Attack" and "Force" would all fire as bare nouns."""
+        """"Cover", "Attack" and "Force" are also ordinary nouns."""
         # Given the word used as an ordinary noun
         # When the text is scanned
         found = scanner.scan("The creature is pushed with great Force.")
@@ -168,7 +150,6 @@ class TestReferenceScannerScan:
         assert found == [("action", "Utilize")]
 
     def test_given_a_sized_area_when_scanned_then_the_shape_is_captured(self):
-        """Areas of effect are always sized: "a 60-foot Cone"."""
         # Given an area printed the way the book prints one
         # When the text is scanned
         found = ReferenceScanner([], [], [], []).scan(
@@ -188,7 +169,6 @@ class TestReferenceScannerScan:
         assert found == [("spell", "Fireball")]
 
     def test_given_a_term_type_with_no_dependable_phrasing_when_built_then_it_is_not_matched(self):
-        """Only conditions, actions, areas and damage types have one."""
         # Given a glossary holding a plain definition
         scanner = ReferenceScanner([], [], [], glossary(("Ability Check",
                                                           "definition")))
@@ -201,14 +181,8 @@ class TestReferenceScannerScan:
 
 
 class TestEdges:
-    """One piece of text, turned into edges."""
-
     def test_given_a_condition_that_is_inflicted_when_built_then_the_relation_is_stronger(
             self, scanner):
-        """
-        Typography only says two things are mentioned together; the direction
-        comes from ``mechanics``, and is passed in.
-        """
         # Given text imposing a condition, and the caller's own determination
         text = "The target has the Prone condition."
         source = {"type": "creature", "name": "Goblin", "part": "actions/Bite"}
@@ -241,8 +215,6 @@ class TestEdges:
 
 
 class TestMarkGlossaryNodes:
-    """Flagging the children of "Rules Definitions" so they read as terms."""
-
     def test_given_the_glossary_section_when_marked_then_its_children_are_flagged(self):
         # Given the section the glossary lives under
         nodes = [{"heading": "Rules Definitions", "subsections": [
@@ -266,10 +238,7 @@ class TestMarkGlossaryNodes:
 
 
 class TestExtractGlossary:
-    """The Rules Glossary, read into typed term records."""
-
     def test_given_a_tagged_entry_when_extracted_then_the_book_does_the_typing(self):
-        """A condition is a condition because the SRD bracketed it as one."""
         # Given a flagged glossary entry carrying the book's own tag
         node = {"id": "11.2.114", "heading": "Prone [Condition]",
                 "content": "While you have the Prone condition…",

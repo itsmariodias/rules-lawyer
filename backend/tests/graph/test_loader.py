@@ -1,10 +1,6 @@
 """
-The loader: query construction, batching, and the write itself.
-
-The query builders are pure strings and run anywhere.  Everything below
-``TestLoadGraphAgainstNeo4j`` needs a real database and skips without one —
-Neo4j Community serves a single database, so those run against the configured
-one and reload it from the artifact, which is what ``srd-graph-load`` does.
+Loader tests.  ``TestLoadGraphAgainstNeo4j`` reloads the configured database
+from the artifact.
 """
 
 from __future__ import annotations
@@ -20,8 +16,6 @@ from dnd_graph_rag.graph.verify import verify
 
 
 class TestNodeQuery:
-    """MERGE on the key, then overwrite the properties."""
-
     def test_given_a_batch_when_built_then_it_merges_on_the_key_alone(self):
         # Given a batch of sections
         batch = NodeBatch(labels=["Section"], key="id")
@@ -44,10 +38,6 @@ class TestNodeQuery:
         assert "SET n:Section:Rule:Equipment" in query
 
     def test_given_a_batch_when_built_then_properties_are_added_not_replaced(self):
-        """
-        ``SET n += row`` so a node written by one batch and enriched by
-        another — a creature's section, then its stat block — keeps both.
-        """
         # Given any batch
         # When the query is built
         query = node_query(NodeBatch(labels=["Section"], key="id"))
@@ -58,13 +48,7 @@ class TestNodeQuery:
 
 
 class TestEdgeQuery:
-    """Both endpoints MATCHed, never MERGEd."""
-
     def test_given_a_batch_when_built_then_neither_endpoint_is_merged(self):
-        """
-        A MERGE would invent an empty node for a target that failed to
-        resolve, and hide exactly the drift stage 2 exists to catch.
-        """
         # Given a relationship batch
         batch = EdgeBatch(type="IMPOSES_CONDITION", start_label="CreatureAbility",
                           start_key="key", end_label="GlossaryTerm",
@@ -80,8 +64,6 @@ class TestEdgeQuery:
 
 
 class TestLoadGraphBatching:
-    """How the rows reach the database, without one to reach."""
-
     def test_given_more_rows_than_a_batch_when_written_then_they_are_chunked(self):
         # Given 5 nodes and a batch size of 2
         batch = NodeBatch(labels=["Section"], key="id")
@@ -99,7 +81,6 @@ class TestLoadGraphBatching:
         assert result["nodes_written"] == 5
 
     def test_given_nodes_and_edges_when_loaded_then_the_nodes_go_first(self):
-        """So every endpoint a relationship matches on already exists."""
         # Given a document with both
         nodes = NodeBatch(labels=["Section"], key="id")
         nodes.add(id="1")
@@ -146,8 +127,6 @@ class TestLoadGraphBatching:
 
 
 class TestWriteEmbeddings:
-    """One vector per section, set onto sections that already exist."""
-
     def test_given_vectors_when_written_then_each_row_carries_its_own(self):
         # Given two sections' vectors
         vectors = Vectors(model="m", dimensions=2, task_type="t",
@@ -164,10 +143,6 @@ class TestWriteEmbeddings:
                                      {"id": "2", "embedding": [0.0, 1.0]}]]
 
     def test_given_more_vectors_than_a_batch_when_written_then_they_are_chunked(self):
-        """
-        Smaller batches than the node loader's: each row carries 1536 floats
-        rather than a paragraph.
-        """
         # Given five vectors and a batch size of two
         vectors = Vectors(model="m", dimensions=1, task_type="t",
                           keys=[str(i) for i in range(5)],
@@ -181,10 +156,6 @@ class TestWriteEmbeddings:
         assert [len(rows) for rows in recorder.written] == [2, 2, 1]
 
     def test_given_the_query_when_read_then_the_section_is_matched_not_merged(self):
-        """
-        A key with no section is a stale file, not a licence to invent a
-        node — the rule ``edge_query`` follows for the same reason.
-        """
         # Given the embedding query
         # When it is read
         # Then it matches an existing section and only sets the property
@@ -192,7 +163,6 @@ class TestWriteEmbeddings:
         assert "MERGE" not in EMBEDDING_QUERY
 
     def test_given_a_load_when_it_finishes_then_the_embeddings_go_in_last(self):
-        """Once there is a section for each of them to land on."""
         # Given a section and a vector for it
         nodes = NodeBatch(labels=["Section"], key="id")
         nodes.add(id="1")
@@ -211,11 +181,8 @@ class TestWriteEmbeddings:
 
 class RecordingSession:
     """
-    A session that records the row writes and performs none of them.
-
-    ``execute_write`` hands the unit of work a transaction to run on, and the
-    recorder is both.  Schema statements arrive through the same ``run`` with
-    no rows, so only the row-carrying calls are recorded as writes.
+    A fake session that records row writes instead of running them.  Schema
+    statements carry no rows and are not recorded.
     """
 
     def __init__(self) -> None:
@@ -239,23 +206,20 @@ class FakeResult:
         })()
 
 
-# The unit tests above are about batching, not about vectors, so they load
-# none: ``load_graph`` requires a set, not a non-empty one.
+# ``load_graph`` requires a ``Vectors``, not a non-empty one.
 NO_VECTORS = Vectors(model="none", dimensions=1, task_type="none", keys=[],
                      digests=[], rows=[])
 
 
 @pytest.fixture(scope="module")
 def loaded(document, vectors, graph_session):
-    """The real artifact, loaded into a real Neo4j."""
+    """The real artifact, loaded into Neo4j."""
     data = mapping.build(document)
     load_graph(data, graph_session, vectors=vectors, reset=True)
     return document, data, vectors, graph_session
 
 
 class TestLoadGraphAgainstNeo4j:
-    """The load itself, against a database.  Skipped when none is running."""
-
     def test_given_the_artifact_when_loaded_then_every_check_passes(self, loaded):
         # Given the artifact loaded into the graph
         document, data, vectors, session = loaded
@@ -282,7 +246,6 @@ class TestLoadGraphAgainstNeo4j:
 
     def test_given_a_loaded_graph_when_loaded_again_then_nothing_doubles(
             self, loaded):
-        """Everything MERGEs on a stable key, so a re-run is a no-op."""
         # Given a graph already loaded
         _, data, vectors, session = loaded
         before = session.run("MATCH (n) RETURN count(n)").single()[0]
@@ -296,10 +259,6 @@ class TestLoadGraphAgainstNeo4j:
 
     def test_given_a_loaded_graph_when_traversed_then_a_question_crosses_types(
             self, loaded):
-        """
-        The point of the graph: one traversal from a creature's action,
-        through the condition it imposes, to the creatures that ignore it.
-        """
         # Given the loaded graph
         *_, session = loaded
 
@@ -318,7 +277,6 @@ class TestLoadGraphAgainstNeo4j:
 
     def test_given_a_loaded_graph_when_read_then_every_node_locates_its_own_text(
             self, loaded):
-        """Retrieval depends on this: a citation must resolve to the book."""
         # Given the loaded graph
         *_, session = loaded
 
@@ -332,8 +290,6 @@ class TestLoadGraphAgainstNeo4j:
 
 
 class TestSession:
-    """A session against the configured database."""
-
     def test_given_a_session_when_it_closes_then_the_driver_closes_with_it(
             self, graph_session):
         # Given a database that is up

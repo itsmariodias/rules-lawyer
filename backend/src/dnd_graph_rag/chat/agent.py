@@ -1,10 +1,4 @@
-"""
-The LangGraph tool-calling agent, and the model it runs on.
-
-The agent itself is stateless: history lives in the checkpointer that
-``api.lifespan`` opens and passes in, addressed by a thread id the caller
-holds, so conversations survive a restart.
-"""
+"""The LangGraph tool-calling agent and its model.  History is in the checkpointer."""
 
 from __future__ import annotations
 
@@ -21,28 +15,19 @@ from .prompts import prompt
 from .stub import ScriptedModel
 from .tools import TOOLS
 
-# What the agent is told before every turn; read and edit it as markdown.
 SYSTEM_PROMPT = prompt("system")
 
 
 class NoApiKey(RuntimeError):
-    """Raised where it can be reported, rather than at settings-load time."""
+    """``GOOGLE_API_KEY`` is unset and the stub is off."""
 
 
 def system_prompt() -> str:
     """
-    The prompt, plus the schema the Cypher tool is written against.
+    ``system.md`` plus the derived graph schema.
 
-    The schema is read off the loaded graph rather than written down here,
-    and it is in the *prompt* rather than behind a tool of its own: the model
-    has to know the labels at the moment it composes a query, and discovering
-    them costs a round trip on every turn that touches the graph and two on
-    every turn that guesses wrong.
-
-    A graph that cannot be reached costs the schema, not the turn.  The tools
-    will fail with their own message, which is the honest thing for a chat
-    whose database is down to say — and much better than a 503 from
-    ``build_agent`` on a question the model could have answered.
+    If the graph is unreachable the schema is omitted rather than failing the
+    agent build; the tools then report the outage themselves.
     """
     try:
         return f"{SYSTEM_PROMPT}\n\n{cypher.schema()}"
@@ -52,11 +37,10 @@ def system_prompt() -> str:
 
 def model() -> BaseChatModel:
     """
-    The model the agent runs on.  There is one, and it is required.
+    The chat model: Gemini, or ``ScriptedModel`` under ``CHAT_STUB``.
 
-    ``CHAT_STUB`` swaps in the scripted model the suites drive; it is never
-    reached by a failure, which is the whole difference between a test seam
-    and a fallback.
+    Raises:
+        NoApiKey: ``GOOGLE_API_KEY`` is unset and the stub is off.
     """
     chat = get_settings().chat
     if chat.stub:
@@ -75,10 +59,16 @@ def model() -> BaseChatModel:
 @lru_cache(maxsize=1)
 def build_agent(checkpointer: BaseCheckpointSaver | None = None):
     """
-    The compiled agent, cached per checkpointer.
+    The compiled agent, cached for the most recent checkpointer.
 
-    The server creates one checkpointer, so this builds one graph per
-    process; a test passing its own saver gets its own agent.
+    Args:
+        checkpointer: Where conversation state is stored.
+
+    Returns:
+        A compiled LangGraph agent.
+
+    Raises:
+        NoApiKey: See ``model``.
     """
     return create_agent(
         model=model(),

@@ -1,12 +1,3 @@
-"""
-The embeddings: what gets embedded, the file it lives in, and the policy that
-decides between generating them and reading them.
-
-None of this needs a network or a database.  ``resolve`` takes its embedder as
-an argument for exactly that reason, so the one branch that would call Google
-is driven by a fake here.
-"""
-
 from __future__ import annotations
 
 import json
@@ -18,7 +9,7 @@ from dnd_graph_rag.graph import embeddings
 
 
 def settings(**overrides) -> EmbeddingSettings:
-    """Settings that never accidentally inherit a real key from ``.env``."""
+    """Embedding settings with no API key, whatever ``.env`` says."""
     values = {"google_api_key": None, "model": "test-model", "dimensions": 3,
               "task_type": "RETRIEVAL_DOCUMENT", "batch": 2, "max_chars": 6000}
     return EmbeddingSettings(**(values | overrides))
@@ -40,13 +31,7 @@ DOCUMENT = {
 
 
 class TestTexts:
-    """One text per section that has prose, keyed by section id."""
-
     def test_given_a_tree_when_walked_then_the_ancestors_lead_the_text(self):
-        """
-        The book has dozens of sections called "Actions"; the tree is the
-        only thing that tells them apart, so a bare heading embeds to noise.
-        """
         # Given a section nested two deep
         # When the texts are built
         built = embeddings.texts(DOCUMENT)
@@ -56,7 +41,6 @@ class TestTexts:
         assert "Scimitar" in built["1.1.1"]
 
     def test_given_a_section_with_no_prose_when_walked_then_it_is_absent(self):
-        """A heading with only children has nothing to embed."""
         # Given a tree in which one section is a container only
         # When the texts are built
         built = embeddings.texts(DOCUMENT)
@@ -66,10 +50,6 @@ class TestTexts:
         assert set(built) == {"1", "1.1.1"}
 
     def test_given_a_long_section_when_walked_then_it_is_cut_at_a_word(self):
-        """
-        The cap bounds what is actually sent, and it is applied before the
-        digest so that the digest describes what was sent.
-        """
         # Given a section whose prose exceeds the cap
         document = {"sections": [{"id": "1", "heading": "Long",
                                   "content": "word " * 400, "subsections": []}]}
@@ -83,8 +63,6 @@ class TestTexts:
 
 
 class TestDigest:
-    """A hash of the embedded text, which is what makes the file a cache."""
-
     def test_given_the_same_text_when_hashed_twice_then_it_agrees(self):
         # Given one text
         # When it is hashed twice
@@ -99,8 +77,6 @@ class TestDigest:
 
 
 class TestWriteAndRead:
-    """The file: magic, a JSON header, then raw little-endian float32."""
-
     def test_given_vectors_when_round_tripped_then_everything_survives(self, tmp_path):
         # Given two vectors with their keys and digests
         vectors = embeddings.Vectors(
@@ -123,7 +99,6 @@ class TestWriteAndRead:
 
     def test_given_a_written_file_when_read_then_the_keys_pair_with_the_rows(
             self, tmp_path):
-        """``keys``, ``digests`` and ``rows`` are parallel by position."""
         # Given a file of three vectors
         vectors = embeddings.Vectors(
             model="m", dimensions=2, task_type="t", keys=["a", "b", "c"],
@@ -138,7 +113,6 @@ class TestWriteAndRead:
         assert by_key["b"] == ("2", [2.0, 2.0])
 
     def test_given_a_file_that_is_not_ours_when_read_then_it_says_so(self, tmp_path):
-        """By name, rather than by reading somebody else's bytes as floats."""
         # Given a file with the wrong magic
         path = tmp_path / "e.idx"
         path.write_bytes(b"NOTOURS\x00" + b"\x00" * 64)
@@ -162,7 +136,6 @@ class TestWriteAndRead:
             embeddings.read(path)
 
     def test_given_a_later_format_when_read_then_it_refuses_by_version(self, tmp_path):
-        """A file from a future build is named, not read as floats."""
         # Given a file whose header claims a format this build does not know
         path = tmp_path / "e.idx"
         embeddings.write(path, embeddings.Vectors(
@@ -179,8 +152,6 @@ class TestWriteAndRead:
 
 
 class TestNormalise:
-    """Unit length, which the API guarantees only at the native 3072."""
-
     def test_given_a_vector_when_normalised_then_its_length_is_one(self):
         # Given an unnormalised vector
         # When it is normalised
@@ -191,7 +162,6 @@ class TestNormalise:
         assert unit == [0.6, 0.8]
 
     def test_given_a_zero_vector_when_normalised_then_it_is_left_alone(self):
-        """Dividing by its length would be a division by zero."""
         # Given a vector of no length
         # When it is normalised
         # Then it comes back unchanged rather than raising
@@ -199,11 +169,8 @@ class TestNormalise:
 
 
 class TestResolve:
-    """Generating what is missing, reading what is not, or failing loudly."""
-
     def test_given_a_complete_file_when_resolved_then_nothing_is_embedded(
             self, tmp_path):
-        """The path most readers take: a downloaded file and no API key."""
         # Given a file covering every section, and no key
         path = tmp_path / "e.idx"
         seed(path, DOCUMENT)
@@ -219,10 +186,6 @@ class TestResolve:
 
     def test_given_a_changed_section_when_resolved_then_only_it_is_embedded(
             self, tmp_path):
-        """
-        The digests are what make the file a cache: a re-parse that changed
-        twelve sections re-embeds twelve sections, not 2156.
-        """
         # Given a file made before one section's prose was edited
         path = tmp_path / "e.idx"
         seed(path, DOCUMENT)
@@ -242,10 +205,6 @@ class TestResolve:
 
     def test_given_a_changed_section_when_resolved_then_the_file_is_rewritten(
             self, tmp_path):
-        """
-        So the reader's own file is always complete, and is itself the
-        artifact worth sharing.
-        """
         # Given a file one section out of date
         path = tmp_path / "e.idx"
         seed(path, DOCUMENT)
@@ -265,8 +224,8 @@ class TestResolve:
     def test_given_a_file_from_another_model_when_resolved_then_it_is_discarded(
             self, tmp_path):
         """
-        Whole, not row by row: two vector spaces mixed in one index would
-        rank nonsense without ever failing.
+        Vectors from two models in one index would rank nonsense without
+        failing.
         """
         # Given a file made at a different width
         path = tmp_path / "e.idx"
@@ -296,12 +255,6 @@ class TestResolve:
         assert sum(len(batch) for batch in calls) == 2
 
     def test_given_no_file_and_no_key_when_resolved_then_it_refuses(self, tmp_path):
-        """
-        Embeddings are required, not an enrichment.  This message is the one
-        thing between a reader and a working graph, so it names both ways
-        out. It is raised before any session is opened, which is what leaves
-        a previously loaded graph standing.
-        """
         # Given neither vectors on disk nor a key to make them with
         # When the vectors are resolved
         # Then it refuses, naming the shortfall and both remedies
@@ -316,7 +269,6 @@ class TestResolve:
 
     def test_given_a_partial_file_and_no_key_when_resolved_then_it_refuses(
             self, tmp_path):
-        """A partial set is never returned: a hole would pass verification."""
         # Given a file covering one of the two sections, and no key
         path = tmp_path / "e.idx"
         seed(path, DOCUMENT, only=["1"])
@@ -329,7 +281,6 @@ class TestResolve:
 
     def test_given_a_resolve_when_it_finishes_then_the_artifact_is_recorded(
             self, tmp_path):
-        """So a file can be held against the parse it was made from."""
         # Given a document with provenance in its meta
         path = tmp_path / "e.idx"
 
@@ -344,7 +295,7 @@ class TestResolve:
 
 
 def read_header(path) -> bytes:
-    """The JSON between the magic and the payload."""
+    """The JSON header of an ``.idx`` file."""
     raw = path.read_bytes()
     start = len(embeddings.MAGIC) + 4
     length = int.from_bytes(raw[len(embeddings.MAGIC):start], "little")
@@ -352,7 +303,7 @@ def read_header(path) -> bytes:
 
 
 def rewrite_header(path, header: bytes) -> None:
-    """Put a different header in front of the same payload."""
+    """Replace an ``.idx`` file's header, keeping its payload."""
     raw = path.read_bytes()
     payload = raw[len(embeddings.MAGIC) + 4 + len(read_header(path)):]
     path.write_bytes(embeddings.MAGIC + len(header).to_bytes(4, "little")
@@ -360,7 +311,7 @@ def rewrite_header(path, header: bytes) -> None:
 
 
 def recorder(calls: list, width: int = 3):
-    """An embedder that records what it was asked for and invents vectors."""
+    """A fake embedder that records its inputs and returns made-up vectors."""
     def embed(batch, config, report=lambda _: None):
         calls.append(list(batch))
         return [embeddings.normalise([float(index + 1)] * width)
@@ -374,7 +325,7 @@ def refuse(batch, config, report=lambda _: None):  # pragma: no cover
 
 
 def seed(path, document, *, dimensions: int = 3, only: list[str] | None = None):
-    """A file as a previous run would have left it."""
+    """Write an ``.idx`` file for ``document``."""
     built = embeddings.texts(document)
     keys = [key for key in built if only is None or key in only]
     embeddings.write(path, embeddings.Vectors(

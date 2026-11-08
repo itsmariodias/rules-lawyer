@@ -1,10 +1,3 @@
-"""
-What a conversation is called in the thread list.
-
-A summary of its first question, written once by the model; the question
-itself, cut to a line, whenever there is no summary to show.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -16,7 +9,7 @@ from dnd_graph_rag.chat import agent, titles
 
 
 class Replying:
-    """A model that answers every prompt with the same reply."""
+    """A model that always replies with the same text."""
 
     def __init__(self, reply: str):
         self.reply = reply
@@ -28,14 +21,14 @@ class Replying:
 
 
 class Failing:
-    """A model that cannot be reached."""
+    """A model whose every call raises."""
 
     async def ainvoke(self, prompt: str) -> AIMessage:
         raise RuntimeError("429 RESOURCE_EXHAUSTED")
 
 
 class Stalling:
-    """A model that never answers."""
+    """A model that never replies."""
 
     async def ainvoke(self, prompt: str) -> AIMessage:
         await asyncio.sleep(60)
@@ -44,13 +37,11 @@ class Stalling:
 
 @pytest.fixture
 def live(settings_env):
-    """The real model path, with the stub switched off."""
+    """Turn the stub off and give the settings a key."""
     settings_env(CHAT_STUB="0")
 
 
 class TestClean:
-    """The model's reply, as a title."""
-
     def test_given_a_plain_reply_when_cleaned_then_it_is_kept(self):
         # Given a reply that is already a title
         # When it is cleaned
@@ -92,12 +83,9 @@ class TestClean:
 
 
 class TestSummarise:
-    """A title for a conversation, from its opening question."""
-
     @pytest.mark.asyncio
     async def test_given_the_stub_when_summarised_then_no_model_is_asked(
             self, stub_model, monkeypatch):
-        """The suites stay deterministic and spend no quota."""
         # Given the scripted model, and a real one that must not be reached
         model = Replying("Should not appear")
         monkeypatch.setattr(agent, "model", lambda: model)
@@ -126,7 +114,6 @@ class TestSummarise:
     @pytest.mark.asyncio
     async def test_given_a_failing_model_when_summarised_then_there_is_no_title(
             self, live, monkeypatch):
-        """A title is a label, not an answer: its failure is not an error."""
         # Given a model with its quota spent
         monkeypatch.setattr(agent, "model", lambda: Failing())
 
@@ -150,7 +137,6 @@ class TestSummarise:
     @pytest.mark.asyncio
     async def test_given_a_stalled_model_when_summarised_then_it_gives_up(
             self, live, monkeypatch):
-        """A label is not worth holding a turn's stream open for."""
         # Given a model that never answers, and a short bound
         monkeypatch.setattr(agent, "model", lambda: Stalling())
         monkeypatch.setattr(titles, "TIMEOUT_SECONDS", 0.05)
@@ -161,8 +147,6 @@ class TestSummarise:
 
 
 class TestTitled:
-    """Every stored title, by thread id."""
-
     @pytest.mark.asyncio
     async def test_given_no_store_when_read_then_there_are_none(self):
         # Given no store at all
@@ -172,7 +156,7 @@ class TestTitled:
 
     @pytest.mark.asyncio
     async def test_given_many_titles_when_read_then_all_come_back(self, store):
-        """``asearch`` defaults to ten, which would drop the eleventh."""
+        """``BaseStore.asearch`` returns ten results by default."""
         # Given more titles than a default page holds
         for n in range(12):
             await titles.remember(store, f"t{n}", f"Title {n}")

@@ -1,12 +1,3 @@
-"""
-The artifact validating the graph.
-
-``meta.counts`` is an independent statement of what should be in the
-database, so verification is a comparison rather than a self-check.  The
-recording of a check is pure; running all of them needs Neo4j and skips
-without it.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -14,14 +5,11 @@ import pytest
 from dnd_graph_rag.graph import mapping
 from dnd_graph_rag.graph.loader import load_graph
 from dnd_graph_rag.graph.schema import VECTOR_NAME
-# Imported from the module rather than the package: ``graph/__init__``
-# re-exports the ``verify`` *function* under the module's own name.
+# Not via the package: ``graph.verify`` there is the function, not the module.
 from dnd_graph_rag.graph.verify import _check, verify
 
 
 class TestCheck:
-    """How one comparison is recorded."""
-
     def test_given_agreement_when_recorded_then_the_check_passes(self):
         # Given a check whose two sides agree
         checks: list[dict] = []
@@ -68,15 +56,13 @@ class TestCheck:
 
 @pytest.fixture(scope="module")
 def verified(document, vectors, graph_session):
-    """The artifact loaded, then verified against itself."""
+    """Load the artifact and verify it."""
     data = mapping.build(document)
     load_graph(data, graph_session, vectors=vectors, reset=True)
     return verify(document, data, graph_session, vectors)
 
 
 class TestVerify:
-    """The whole comparison, against a real load."""
-
     def test_given_a_loaded_graph_when_verified_then_every_check_passes(
             self, verified):
         # Given the artifact loaded into the graph
@@ -96,11 +82,6 @@ class TestVerify:
 
     def test_given_a_loaded_graph_when_verified_then_every_section_with_prose_is_embedded(
             self, verified, vectors, graph_session):
-        """
-        The expected count is derived from the document rather than from the
-        file, so a stale ``.idx`` whose keys no longer match a re-parsed
-        artifact fails here instead of loading a graph with holes in it.
-        """
         # Given the verified graph
         embedded = graph_session.run(
             "MATCH (n:Section) WHERE n.embedding IS NOT NULL "
@@ -114,7 +95,6 @@ class TestVerify:
 
     def test_given_a_loaded_graph_when_verified_then_the_vector_index_is_online(
             self, verified, graph_session):
-        """An index still populating would answer a query with silence."""
         # Given the verified graph
         indexes = {row["name"]: row["state"]
                    for row in graph_session.run("SHOW VECTOR INDEXES").data()}
@@ -126,9 +106,8 @@ class TestVerify:
     def test_given_a_loaded_graph_when_verified_then_the_two_orphan_groups_are_exempt(
             self, verified):
         """
-        Front matter has no subsections and nothing references it; 20 weapon
-        and armour rows are printed only in a table.  Both are facts about
-        the book rather than load failures.
+        Front matter and the 20 table-only weapon and armour rows are orphans
+        in the book itself.
         """
         # Given the verification report
         orphans = verified["orphans_by_label"]

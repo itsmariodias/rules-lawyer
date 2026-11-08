@@ -1,11 +1,3 @@
-/**
- * The graph explorer, drawn.
- *
- * The layout arithmetic is `graph-layout.ts`'s and is tested there; what is
- * left here is the view — what it fetches, what it draws, and what selecting
- * a node answers in place.
- */
-
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -42,7 +34,6 @@ describe('GraphView', () => {
   })
 
   it('given nothing cited, when rendered, then it says so rather than drawing', () => {
-    /** The explorer opens on a citation; with none there is no way in yet. */
     // Given a panel with no citation
     render(<GraphView sectionId={null} depth={1} onOpenPage={vi.fn()} />)
 
@@ -89,7 +80,6 @@ describe('GraphView', () => {
   })
 
   it('given a selected section, when the page is opened, then the panel is told', async () => {
-    /** Only nodes that *are* a section can be opened on the page. */
     // Given a selected node that is a section
     const onOpenPage = vi.fn()
     render(<GraphView sectionId="11.2.114" depth={1} onOpenPage={onOpenPage} />)
@@ -103,10 +93,6 @@ describe('GraphView', () => {
   })
 
   it('given a derived node, when selected, then no page is offered', async () => {
-    /**
-     * Filled is printed, hollow is derived: a node with no `section_id` is
-     * something stage 2 derived from a passage, not a passage.
-     */
     // Given a neighbour that is not a section
     vi.mocked(api.loadNeighbourhood).mockImplementation(() =>
       Promise.resolve(graph({
@@ -136,7 +122,6 @@ describe('GraphView', () => {
   })
 
   it('given a new citation, when it arrives, then the picture is reseeded', async () => {
-    /** A fresh seed is a fresh picture: positions and selection belong to it. */
     // Given one citation drawn
     const { rerender } = render(
       <GraphView sectionId="11.2.114" depth={1} onOpenPage={vi.fn()} />)

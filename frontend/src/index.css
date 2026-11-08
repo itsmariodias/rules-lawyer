@@ -1,28 +1,12 @@
-/*
- * One palette, defined once as tokens, so nothing below this block names a
- * literal colour.
- *
- * Each token carries *both* its values and lets `light-dark()` choose,
- * which means the two themes are one list rather than a block and a copy
- * of it that has to be kept in step. What picks between them is
- * `color-scheme`, so the reader's choice is a single property: `light dark`
- * follows the OS, and the two rules below pin it when App writes
- * `data-theme` onto <html>. Setting `color-scheme` rather than swapping
- * colours ourselves is also what makes the browser's own furniture — form
- * controls, the canvas behind the page — follow the choice.
- */
+/* Colour tokens.  Each pairs light and dark values with `light-dark()`;
+   `color-scheme` picks between them, which also themes native controls. */
 
 :root {
   color-scheme: light dark;
 
-  /* The book's own ink, measured out of the PDF rather than picked by eye:
-     headings #8c2220, small-caps labels #540000, body #231f20, the
-     stat-block panel #e6e7e8 and the hairline between rows #d1d2d4. The
-     page itself is white — the SRD carries no parchment tint. */
-  /* The second value in each pair is the same book by candlelight:
-     #8c2220 on a dark ground is unreadable, so the reds lift while keeping
-     their hue, and the ground is warm rather than the blue-black a neutral
-     dark theme would use. */
+  /* Light values sampled from the PDF: headings #8c2220, small-caps labels
+     #540000, body #231f20, stat-block panel #e6e7e8, rules #d1d2d4. */
+  /* Dark values: the reds lightened at the same hue, on a warm ground. */
   --bg: light-dark(#f4f4f5, #18100f);
   --bg-raised: light-dark(#ffffff, #1f1918);
   --bg-sunken: light-dark(#e6e7e8, #14100f);
@@ -32,10 +16,7 @@
   --text-faint: light-dark(#8e9093, #7d736e);
   --accent: light-dark(#8c2220, #d9736f);
   --accent-deep: light-dark(#540000, #e8a29e);
-  /* A wash of the heading red, not a hint of one: at 7% it was lighter
-     than the sidebar it tints, so a selected conversation read as a pale
-     patch rather than a red one. ~20% of #8c2220 on white, which still
-     takes both the body ink and the accent as text. */
+  /* ~20% #8c2220 on white; at 7% it was lighter than the sidebar. */
   --accent-soft: light-dark(#e9d4d3, #2f1c1b);
   --on-accent: light-dark(#ffffff, #1a1211);
   --highlight: light-dark(#fdf0c9, #3d3520);
@@ -46,50 +27,33 @@
 
   --radius: 10px;
   --sidebar: 260px;
-  /* The collapsed sidebar: one icon wide, plus its padding. */
+  /* Collapsed sidebar width. */
   --rail: 62px;
-  /* A starting value only: App overrides it from the stored width. */
+  /* Default only; App sets it from the stored width. */
   --panel: 660px;
 
-  /* The book sets three faces we cannot ship — Gill Sans for headings,
-     Cambria for body, Optima for the stat blocks — so each has a free
-     stand-in bundled from @fontsource: Cabin, Caladea (metrically
-     compatible with Cambria) and Alegreya Sans. Each stack falls back to
-     the real face first, for anyone who has it. */
+  /* Free stand-ins after the book's own faces: Cabin (Gill Sans), Caladea
+     (Cambria, metric-compatible), Alegreya Sans (Optima). */
   --display: "Cabin", "Gill Sans", "Gill Sans MT", Optima, sans-serif;
   --serif: "Caladea", Cambria, Georgia, "Iowan Old Style", serif;
   --ui: "Alegreya Sans", Optima, "Segoe UI", system-ui, sans-serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
 }
 
-/* The reader's override of the OS, written by App from stored state. There
-   is no third block of colours here: pinning the scheme is the whole
-   change, and every `light-dark()` above follows it. */
+/* Theme override: App sets data-theme on <html>. */
 :root[data-theme="light"] { color-scheme: light; }
 :root[data-theme="dark"] { color-scheme: dark; }
 
 * { box-sizing: border-box; }
 
-/*
- * Scrollbars.
- *
- * Four panes scroll and each was drawing the platform's own bar: a
- * full-height track running edge to edge, ending flat against the header
- * above it and the composer below. These are the same bar everywhere —
- * thin, no track, a rounded thumb held off the ends and the side by a
- * transparent border, so it reads as part of the pane rather than as the
- * window's furniture.
- *
- * Firefox gets `scrollbar-width`/`-color`, which is all it supports;
- * WebKit and Chromium get the inset thumb.
- */
+/* Scrollbars: thin, no track, inset rounded thumb.  Firefox supports only
+   scrollbar-width and scrollbar-color. */
 .messages, .threads, .panel-body, .pdf-page {
   scrollbar-width: thin;
   scrollbar-color: var(--thumb) transparent;
 }
 
-/* Reserved whether or not it is scrolling: a bar that appears when the
-   answer grows past the pane would otherwise shift the text under it. */
+/* Reserve the gutter so text doesn't shift when the bar appears. */
 .messages, .threads, .panel-body { scrollbar-gutter: stable; }
 
 :is(.messages, .threads, .panel-body, .pdf-page)::-webkit-scrollbar {
@@ -98,17 +62,13 @@
 }
 :is(.messages, .threads, .panel-body, .pdf-page)::-webkit-scrollbar-track {
   background: transparent;
-  /* The track is shortened at both ends, so the thumb stops short of the
-     header above and the composer below rather than running flat into
-     them. */
+  /* Inset the track ends from the header and composer. */
   margin: 8px 0;
 }
 .pdf-page::-webkit-scrollbar-track:horizontal { margin: 0 8px; }
 :is(.messages, .threads, .panel-body, .pdf-page)::-webkit-scrollbar-thumb {
   background: var(--thumb);
-  /* Padding by another name: the border is transparent and the background
-     stops at its inside edge, which is what rounds the thumb away from the
-     pane's edges instead of butting it against them. */
+  /* Transparent border insets the thumb from the pane edges. */
   border: 3px solid transparent;
   background-clip: padding-box;
   border-radius: 999px;
@@ -118,8 +78,7 @@
   background: var(--thumb-hover);
   background-clip: padding-box;
 }
-/* The little square where a vertical and a horizontal bar meet, which
-   defaults to a grey block over the page facsimile. */
+/* Otherwise a grey square over the PDF where two bars meet. */
 :is(.messages, .threads, .panel-body, .pdf-page)::-webkit-scrollbar-corner {
   background: transparent;
 }
@@ -129,20 +88,8 @@ body {
   background: var(--bg);
   color: var(--text);
   font: 15px/1.6 var(--ui);
-  /*
-   * Sized by its x-height, not by its em.
-   *
-   * A px size is a promise about the em box, and faces spend wildly
-   * different fractions of it on the lowercase that people actually read:
-   * Alegreya Sans puts 46% of the em into its x-height where the system
-   * face puts 51%, so swapping to it made every number in this file read
-   * ~10% smaller without one of them changing. This restates the target as
-   * the thing the eye measures — x-height at 50.8% of the font size, the
-   * system face's own ratio — so each family is scaled to meet it and the
-   * sizes below mean the same thing in all three of them. It also holds
-   * the apparent size still while a webfont is still loading and a
-   * fallback is on screen.
-   */
+  /* Match the system face's x-height ratio: Alegreya Sans's smaller x-height
+     made every size read ~10% small. */
   font-size-adjust: ex-height 0.508;
   -webkit-font-smoothing: antialiased;
 }
@@ -159,18 +106,13 @@ code { font-family: var(--mono); font-size: 0.87em; }
 
 /* ── shell ─────────────────────────────────────────────────────────── */
 
-/* The thread list, the conversation, then the panel's handle and the
-   panel. The thread list is a fixed width, so it has no handle of its own;
-   the panel's is an `auto` column of its own (see `.resizer`). */
+/* Thread list | conversation | resizer | panel. */
 .app {
   display: grid;
   grid-template-columns: var(--sidebar) minmax(0, 1fr);
   height: 100vh;
-  /* Nothing scrolls the shell itself. Each pane owns its own scroller, and
-     a grid item's `min-height: auto` would otherwise let a 364-page panel
-     stretch the row past the viewport — at which point the *window*
-     scrolls, and the thread list and the conversation ride along with the
-     book. */
+  /* Panes scroll themselves; without min-height: 0 a 364-page panel stretches
+     the row and the window scrolls. */
   overflow: hidden;
 }
 
@@ -178,15 +120,12 @@ code { font-family: var(--mono); font-size: 0.87em; }
   grid-template-columns: var(--sidebar) minmax(0, 1fr) auto var(--panel);
 }
 
-/* Collapsed, the pane becomes a rail of its own controls: the width of two
-   icons. */
 .app.no-sidebar { grid-template-columns: var(--rail) minmax(0, 1fr); }
 .app.no-sidebar.with-panel {
   grid-template-columns: var(--rail) minmax(0, 1fr) auto var(--panel);
 }
 
-/* Below this the panel would leave the conversation unreadably narrow, so
-   the sidebar goes first and the panel becomes a full-width overlay. */
+/* Narrow windows: sidebar hidden, panel as a full-width overlay. */
 @media (max-width: 1100px) {
   .app, .app.with-panel,
   .app.no-sidebar, .app.no-sidebar.with-panel {
@@ -213,15 +152,12 @@ code { font-family: var(--mono); font-size: 0.87em; }
   overflow: hidden;
 }
 
-/* The wordmark. It sits inside the sidebar rather than above the whole
-   shell, so it collapses with it and costs the conversation no height. */
 .brand {
   display: flex;
   align-items: center;
   gap: 8px;
-  /* The left inset is the New conversation card's own, not this row's, so
-     the mark and the plus below it stand in one column — which is the
-     column the collapsed rail is. */
+  /* Left inset matches the New conversation card, so the logo lines up with
+     its plus (and with the collapsed rail). */
   padding: 2px 4px 14px 10px;
   color: var(--accent);
   font-family: var(--display);
@@ -233,19 +169,11 @@ code { font-family: var(--mono); font-size: 0.87em; }
 }
 .brand .logo { flex: none; }
 
-/* The mark is inlined markup rather than an element of its own, so the
-   span around it is what carries the size. The file's own width and height
-   are for the favicon, which needs an SVG to say how big it is; a rule
-   beats a presentation attribute, so these win wherever the mark is
-   inlined. */
+/* The inlined SVG's own width/height are for the favicon; these rules override
+   them. */
 .logo { display: inline-flex; }
 .logo svg { width: var(--logo-size); height: var(--logo-size); }
 
-/* Hides the pane it sits in, so it lives at the far edge of the row that
-   names it. The rail it collapses to carries the one that brings it back. */
-/* One size in both states. The control does not change when the pane it
-   toggles does, so it stays where the eye left it and reads as the same
-   button rather than a different one. */
 .collapse {
   display: flex;
   padding: 11px;
@@ -257,17 +185,11 @@ code { font-family: var(--mono); font-size: 0.87em; }
 
 /* ── the sidebar, collapsed ─────────────────────────────────────────── */
 
-/* Same ground and same edge as the pane it stands in for, so collapsing
-   narrows the sidebar rather than replacing it with something else. */
 .rail {
   display: flex;
   flex-direction: column;
-  /* Not centred: every number here is the open pane's, so that collapsing
-     moves the pane and leaves its contents where they were. The left inset
-     is the sidebar's own padding, which puts both glyphs on x=20 exactly
-     as the pane does; the top pad puts the mark on the wordmark's mark;
-     and the gap is the only figure that is not its own — it answers to the
-     height of the two rows above it, so the plus lands on the plus. */
+  /* Offsets match the open sidebar so icons stay put on collapse: both glyphs
+     at x=20, logo level with the wordmark, plus level with the card's. */
   align-items: flex-start;
   gap: 14px;
   padding: 16px 0 12px 10px;
@@ -276,18 +198,8 @@ code { font-family: var(--mono); font-size: 0.87em; }
   overflow: hidden;
 }
 
-/* The mark stands where it stood in the open pane, and becomes the control
-   that brings the pane back only on hover or focus. Both icons sit in one
-   grid cell, centred, so the swap costs no layout however they differ in
-   size — and each keeps the size it has in the open pane rather than being
-   trimmed to the other. What the padding is for is holding the button at
-   the 42px the rest of the rail is: the mark is wider than the toggle, so
-   this is the one control here whose padding is not `.collapse`'s, and the
-   number is what keeps the button square and the plus below it still.
-
-   The fade is the one the row menus use, for the same reason: the control
-   appears under a pointer that is already there, and arriving instantly
-   reads as a flicker rather than as an answer. */
+/* Logo and pane icon share one grid cell and swap on hover/focus.  Padding
+   keeps the button 42px square around the wider logo. */
 .rail-mark { display: grid; place-items: center; padding: 10px; }
 .rail-mark > * { grid-area: 1 / 1; transition: opacity 120ms ease; }
 .rail-mark > svg { opacity: 0; }
@@ -296,11 +208,7 @@ code { font-family: var(--mono); font-size: 0.87em; }
 .rail-mark:hover .logo,
 .rail-mark:focus-visible .logo { opacity: 0; }
 
-/* The plus keeps the wash it has in the open pane: the same control, drawn
-   at the width there is room for — and drawn to the card's measurements
-   rather than to `.collapse`'s, so it is the card's left end exactly. Its
-   padding, its height and its corner are the card's; only its width is
-   this pane's. */
+/* Padding, height and radius match the New conversation card. */
 .rail-new {
   padding: 10px;
   border-radius: 8px;
@@ -309,22 +217,14 @@ code { font-family: var(--mono); font-size: 0.87em; }
 }
 .rail-new:hover { color: var(--accent); background: color-mix(in srgb, var(--accent) 24%, transparent); }
 
-/* The first card in the list, not a box above it.
-   It takes the rows' shape exactly — their corner, their padding, their
-   hover — so the sidebar is one column of cards rather than a control and
-   then a list. What separates it from a conversation is what it says: the
-   accent, and a plus for the thing it makes. */
+/* Styled as the first row of the list; set apart by accent colour and icon. */
 .new {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
   border-radius: 8px;
-  /* A wash of the accent rather than the row treatment: it should read as
-     the one thing in this column that makes something, and a tint carried
-     at all times says that where a hover cannot. Mixed with `transparent`
-     rather than named outright, so it composites over whichever ground it
-     lands on and needs no second value for dark. */
+  /* Accent mixed with transparent so one value works on both grounds. */
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   color: var(--accent);
   font-weight: 600;
@@ -337,7 +237,7 @@ code { font-family: var(--mono); font-size: 0.87em; }
   flex: 1;
   margin: 2px 0 0;
   overflow-y: auto;
-  /* Reaching the end of one pane must not start scrolling another. */
+  /* No scroll chaining into the next pane. */
   overscroll-behavior: contain;
 }
 
@@ -351,19 +251,11 @@ code { font-family: var(--mono); font-size: 0.87em; }
   letter-spacing: 0.07em;
   color: var(--text-faint);
 }
-/* The first heading still needs air under the button above it — the same
-   air the second heading gets from the section it follows. */
 .thread-group:first-child { margin-top: 14px; }
 
-/*
- * The row is the box, not the title inside it.
- *
- * A button cannot contain a button, so the title and the ⋯ have to be two
- * elements; they must not read as two. The row carries the shape — the
- * padding, the corners, the hover, the selected tint — and the two controls
- * inside it paint nothing of their own, so what the eye gets is one
- * conversation with a menu tucked into its right-hand edge.
- */
+/* The row draws the box (padding, radius, hover, selection).  The title button
+   and the ⋯ button inside it paint nothing, since a button cannot contain a
+   button. */
 .thread {
   display: flex;
   align-items: center;
@@ -371,10 +263,8 @@ code { font-family: var(--mono); font-size: 0.87em; }
   border-radius: 8px;
   color: var(--text-muted);
 }
-/* Darker than the pane, not lighter. `--bg-raised` is white, and white on
-   the sidebar's grey reads as a hole punched in it rather than as the row
-   under the pointer. A tint of the ink instead, which darkens here and
-   lightens on a dark ground, so one value serves both themes. */
+/* Hover tints with the ink colour: --bg-raised (white) on the grey sidebar
+   reads as a hole. */
 .thread:hover { background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--text); }
 .thread.on { background: var(--accent-soft); color: var(--accent); }
 
@@ -382,7 +272,6 @@ code { font-family: var(--mono); font-size: 0.87em; }
   flex: 1;
   min-width: 0;
   padding: 8px 4px 8px 10px;
-  /* Inherited, so the row decides the colour for everything in it. */
   color: inherit;
   text-align: left;
   font-size: 13.5px;
@@ -392,7 +281,6 @@ code { font-family: var(--mono); font-size: 0.87em; }
   white-space: nowrap;
 }
 
-/* A pinned thread wears its pin beside the title. */
 .thread-open .pin {
   flex: none;
   margin-right: 5px;
@@ -400,15 +288,8 @@ code { font-family: var(--mono); font-size: 0.87em; }
   opacity: 0.75;
 }
 
-/*
- * Hidden until the row is hovered or something in it is focused — and while
- * its own menu is open, or it would vanish under the menu it opened.
- * Reading a conversation is what you do to one of these far more often than
- * pinning or deleting it, and a column of ⋯ reads like a list of things to
- * act on rather than a list of conversations. It keeps its width either
- * way, so the title truncates at the same place whether the icon is showing
- * or not and nothing shifts under the pointer as it fades in.
- */
+/* Hidden until row hover/focus or while its menu is open.  Keeps its width
+   either way, so titles truncate at the same point. */
 .more {
   flex: none;
   display: grid;
@@ -423,14 +304,11 @@ code { font-family: var(--mono); font-size: 0.87em; }
 .thread:hover .more,
 .thread.menu-open .more,
 .more:focus-visible { opacity: 1; }
-/* Its own hover sits *inside* the row's, so it reads as a target within the
-   row rather than as a second row. */
 .more:hover, .thread.menu-open .more {
   background: color-mix(in srgb, currentColor 14%, transparent);
 }
 
-/* Fixed rather than absolute: the thread list scrolls and clips, so a menu
-   nested in a row would be cut off by the pane it lives in. */
+/* Fixed so the scrolling thread list cannot clip it. */
 .thread-menu {
   position: fixed;
   z-index: 20;
@@ -457,8 +335,6 @@ code { font-family: var(--mono); font-size: 0.87em; }
 .thread-menu .danger { color: var(--danger); }
 .thread-menu .danger:hover { background: var(--accent-soft); }
 
-/* Fixed rather than absolute: the thread list scrolls and clips, so a menu
-   nested in a row would be cut off by the pane it lives in. */
 .thread-menu {
   position: fixed;
   z-index: 20;
@@ -485,9 +361,6 @@ code { font-family: var(--mono); font-size: 0.87em; }
 .thread-menu .danger { color: var(--danger); }
 .thread-menu .danger:hover { background: var(--accent-soft); }
 
-/* Armed. There is no undo — the checkpointer is the whole store — and the
-   target was an icon that appeared under the pointer a moment ago, which is
-   the shape of an accidental click. */
 .thread.armed {
   gap: 4px;
   padding: 5px 8px;
@@ -519,8 +392,7 @@ code { font-family: var(--mono); font-size: 0.87em; }
   font-variant: small-caps;
   letter-spacing: 0.04em;
   font-size: 12.5px;
-  /* The line is a caption, not a control; it must not stop the theme
-     buttons beside it from being reachable when the sidebar is narrow. */
+  /* May shrink, so the theme buttons stay reachable in a narrow sidebar. */
   min-width: 0;
 }
 .sidebar-foot > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -533,8 +405,7 @@ code { font-family: var(--mono); font-size: 0.87em; }
   border-radius: 50%;
   background: var(--ok);
 }
-/* An empty database is as unusable as an absent one: every question comes
-   back with nothing either way, so both read as the same kind of trouble. */
+/* Empty and unreachable share a style: neither can answer. */
 .graph-status.empty .dot, .graph-status.unreachable .dot {
   background: var(--danger);
 }
@@ -547,8 +418,6 @@ code { font-family: var(--mono); font-size: 0.87em; }
   border-radius: 6px;
   color: var(--text-faint);
 }
-/* A tint of `currentColor` rather than a colour of its own, so the hover
-   sits inside the footer's rather than competing with it. */
 .theme-switch button:hover { color: var(--text); background: color-mix(in srgb, currentColor 10%, transparent); }
 .theme-switch button.on { color: var(--accent); background: var(--accent-soft); }
 
@@ -558,13 +427,11 @@ code { font-family: var(--mono); font-size: 0.87em; }
   display: flex;
   flex-direction: column;
   min-width: 0;
-  /* See `.app`: without this the messages list sizes to its content rather
-     than to the row, and scrolls the window instead of itself. */
+  /* min-height: 0 so the list scrolls itself, not the window. */
   min-height: 0;
 }
 
-/* The panel's controls, kept with the conversation rather than inside the
-   panel: they have to be reachable while it is closed. */
+/* Panel toggles live here so they work while the panel is closed. */
 .chat-head {
   display: flex;
   justify-content: flex-end;
@@ -613,14 +480,8 @@ code { font-family: var(--mono); font-size: 0.87em; }
   gap: 2px;
 }
 
-/*
- * The ellipsis, moving.
- *
- * A static "Thinking…" is indistinguishable from a stalled one, and an
- * agentic turn is quiet for a whole round trip before it says anything. The
- * marks are three elements rather than an animated `content` string, which
- * browsers disagree about.
- */
+/* Animated ellipsis: three elements, since animating `content` is not
+   portable. */
 .thinking .dots { display: inline-flex; font-style: normal; }
 .thinking .dots i {
   animation: blink 1.4s infinite both;
@@ -631,7 +492,6 @@ code { font-family: var(--mono); font-size: 0.87em; }
 
 @keyframes blink { 0%, 80%, 100% { opacity: 0.2; } 40% { opacity: 1; } }
 
-/* The wait, counted up, so a long one reads as work rather than a hang. */
 .elapsed {
   margin-left: 8px;
   font-style: normal;
@@ -640,16 +500,9 @@ code { font-family: var(--mono); font-size: 0.87em; }
   font-size: 12px;
 }
 
-/*
- * When the turn happened, and what it cost. Faint and small: it is
- * reference rather than reading, and it sits under every message.
- */
 .timing {
   display: flex;
-  /* Centred, not on the baseline: the row is a line of text beside a pair of
-     icon buttons, and a glyph's baseline is nowhere near the middle of a
-     22px target. Aligned that way the timestamp sits visibly low against
-     them. */
+  /* Centre, not baseline: the row mixes text with 22px icon buttons. */
   align-items: center;
   gap: 8px;
   margin: 6px 0 0;
@@ -657,17 +510,11 @@ code { font-family: var(--mono); font-size: 0.87em; }
   color: var(--text-faint);
 }
 .timing:empty { display: none; }
-/* What the answer cost, in the stamp's row after how long it took. */
 .usage { font-variant-numeric: tabular-nums; cursor: default; }
 .usage::before { content: '· '; }
 .stamp { font-variant-numeric: tabular-nums; }
 .took::before { content: '· '; }
-/*
- * The stamp under a question used to do its own layout: a block, nudged
- * down, right-aligned. It sits in the timing row now, which centres it
- * against the controls beside it, and a block with a top margin in that row
- * is a stamp 4px lower than the buttons it is lined up with.
- */
+/* A flex child of the centred timing row; no block layout or top margin. */
 
 @media (prefers-reduced-motion: reduce) {
   .thinking .dots i { animation: none; opacity: 0.6; }
@@ -679,9 +526,7 @@ code { font-family: var(--mono); font-size: 0.87em; }
 
 /* ── the answer ────────────────────────────────────────────────────── */
 
-/* The answer is the part of this app that is read rather than operated, so
-   it is set in the book's body face while the chrome around it stays in
-   the book's sans. */
+/* Answers use the body serif; UI chrome stays sans. */
 .prose {
   font-family: var(--serif);
   font-size: 16px;
@@ -689,8 +534,7 @@ code { font-family: var(--mono); font-size: 0.87em; }
 .prose > :first-child { margin-top: 0; }
 .prose > :last-child { margin-bottom: 0; }
 .prose p, .prose li { line-height: 1.68; }
-/* The book sets its headings in Gill Sans red above Cambria body, and the
-   answer repeats spells and creatures verbatim from it. */
+/* Headings follow the book: Gill Sans in heading red. */
 .prose h1, .prose h2, .prose h3 {
   font-family: var(--display);
   font-weight: 600;
@@ -701,8 +545,7 @@ code { font-family: var(--mono); font-size: 0.87em; }
 }
 .prose h2 { border-bottom: 1px solid var(--border); padding-bottom: 3px; }
 
-/* `**_Restricted Movement._**` — the SRD's run-in labels are set in the
-   deeper red, and the model reproduces them. */
+/* Run-in labels (**_Restricted Movement._**) in the deeper red. */
 .prose strong { color: var(--accent-deep); }
 
 .prose table {
@@ -727,7 +570,6 @@ code { font-family: var(--mono); font-size: 0.87em; }
   font-family: var(--serif);
 }
 
-/* An inline citation: readable as a superscript reference, not a link. */
 .cite {
   padding: 0 4px;
   margin: 0 1px;
@@ -777,13 +619,7 @@ code { font-family: var(--mono); font-size: 0.87em; }
 
 .trace ul { list-style: none; margin: 6px 0 0; padding: 0 0 0 4px; }
 
-/*
- * A marker and then the line: label, what was asked for, what came back.
- *
- * The subject is the only part that flexes, so the outcomes finish flush
- * against the right edge and a run of them can be scanned straight down
- * without reading the labels again.
- */
+/* marker | label, subject (flexes), outcome (flush right). */
 .trace li {
   display: grid;
   grid-template-columns: 14px minmax(0, 1fr);
@@ -793,11 +629,6 @@ code { font-family: var(--mono); font-size: 0.87em; }
   color: var(--text-muted);
 }
 
-/*
- * The marker says what kind of lookup it was, which is what separates a
- * fuzzy search from an exact query from a fetch by id. Text rather than a
- * shape, so the four stay distinguishable without relying on colour.
- */
 .trace .mark {
   grid-column: 1;
   font-family: var(--mono);
@@ -821,8 +652,7 @@ code { font-family: var(--mono); font-size: 0.87em; }
   font: inherit;
   padding: 0;
 }
-/* Only a row with more to show is a control, so only that row answers to
-   the pointer. */
+/* Only openable rows get pointer styles. */
 button.line { cursor: pointer; }
 button.line:hover .asked,
 button.line:hover .what { color: var(--text); }
@@ -831,15 +661,9 @@ button.line:hover .what { color: var(--text); }
 .trace .filter { flex: none; color: var(--text-faint); }
 .trace .sep { flex: none; color: var(--text-faint); }
 
-/* The one part that gives way: a long query is cut by the width available
-   rather than at a character count, and the whole of it is a click away. */
+/* Truncated by width; the detail panel shows it in full. */
 .trace .asked {
-  /*
-   * Shrinks but does not grow: growing pushed anything after it, so the
-   * entity-type filter drifted across the row and came to rest beside the
-   * outcome, which is not what it qualifies. The outcome reaches the right
-   * edge on its own margin instead.
-   */
+  /* Shrink only: flex-grow pushed the type filter over beside the outcome. */
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -849,7 +673,6 @@ button.line:hover .what { color: var(--text); }
   font-size: 12px;
   color: var(--text-faint);
 }
-/* A search argument is words somebody chose, so it is set as prose. */
 .trace .asked.prose { font-family: inherit; font-size: 13px; }
 
 .trace .outcome {
@@ -863,25 +686,17 @@ button.line:hover .what { color: var(--text); }
 .trace .is-refused .outcome,
 .trace .is-failed .outcome { color: var(--danger); }
 
-/* The query and what it returned, once someone asks to see them. */
 .trace .detail {
   grid-column: 2;
   margin: 4px 0 8px;
-  /*
-   * A border as well as a fill: in dark the sunken background is within a
-   * few points of the page's own, so the fill alone left the panel floating
-   * in the message with no edge to it.
-   */
+  /* Border as well: in dark, --bg-sunken is too close to the page for the fill
+     alone. */
   background: var(--bg-sunken);
   border: 1px solid var(--border);
   border-radius: 6px;
   overflow: hidden;
 }
 
-/*
- * Which half is which. A query and its result are both monospaced blocks,
- * and unlabelled the second reads as a continuation of the first.
- */
 .trace .detail-label {
   margin: 0;
   padding: 5px 10px 3px;
@@ -901,11 +716,7 @@ button.line:hover .what { color: var(--text); }
   line-height: 1.5;
   color: var(--text-muted);
   white-space: pre-wrap;
-  /*
-   * A result is as long as the tool made it, and a wide query renders a
-   * whole table. It scrolls inside the panel rather than growing the
-   * message past the answer it belongs to.
-   */
+  /* Results can be whole tables; scroll rather than grow the message. */
   max-height: 300px;
   overflow: auto;
 }
@@ -919,24 +730,13 @@ button.line:hover .what { color: var(--text); }
 
 /* ── welcome ───────────────────────────────────────────────────────── */
 
-/*
- * A conversation that has not started is centred, not pinned to the floor.
- *
- * With nothing above it, a composer at the bottom of a tall window leaves a
- * screenful of empty grey over it and reads as something that failed to
- * load. The two auto margins split that free space between them, which
- * centres the welcome and the composer *as a pair* while leaving the
- * header where it is — and the moment there is a message the class goes
- * and the composer is back on the floor where a chat keeps it.
- */
-/* Nothing scrolls here, and a reserved gutter would push the heading half
-   its width off the centre the composer below is using. */
+/* Empty conversation: auto margins centre welcome and composer together. */
+/* No scrollbar gutter: it would push the centred heading off-centre. */
 .chat.empty .messages { flex: 0 0 auto; margin-top: auto; scrollbar-gutter: auto; }
 .chat.empty .examples { margin-bottom: auto; }
 .chat.empty .welcome { margin-top: 0; }
 
-/* The composer's own box: same width, same inset, so the title starts on
-   the same vertical as the edge of the thing it is introducing. */
+/* Same width and inset as the composer. */
 .welcome { max-width: 44rem; padding: 0 24px; margin: 12vh auto 0; }
 .welcome h1 {
   font-family: var(--display);
@@ -945,19 +745,13 @@ button.line:hover .what { color: var(--text); }
   letter-spacing: 0.01em;
   color: var(--accent);
   margin: 0 0 6px;
-  /* The mark reads as part of the name rather than as an image above it,
-     so it sits on the same line. Its own box is square and the letters
-     sit inside theirs, so aligning the two boxes leaves the book low;
-     the baseline nudge is what puts the boards on the letters' feet. */
+  /* Baseline nudge seats the logo on the text baseline. */
   display: flex;
   align-items: center;
   gap: 10px;
 }
 .welcome h1 .logo { flex: none; transform: translateY(1px); }
 
-/* Narrower than the box they feed, and centred under it: they are things
-   you could type, so they read as sitting inside its width rather than
-   competing with it. */
 .examples {
   list-style: none;
   max-width: 34rem;
@@ -978,11 +772,7 @@ button.line:hover .what { color: var(--text); }
 }
 .examples button:hover { border-color: var(--accent); color: var(--accent); }
 
-/* The SRD's required attribution, kept at the floor of the conversation.
-   Quiet enough not to compete with the answer above it and permanent
-   enough to be part of the application rather than a page someone has to
-   go and find. It is the last thing in the column in both states, so the
-   empty screen's auto margins pin it to the bottom the same way. */
+/* Required SRD attribution; last in the column in both layouts. */
 .attribution {
   max-width: 44rem;
   width: 100%;
@@ -994,19 +784,14 @@ button.line:hover .what { color: var(--text); }
   color: var(--text-muted);
   text-wrap: pretty;
 }
-/* The URLs are part of the statement, so they read as its text rather than
-   as links offered to be followed. */
+/* Plain text: the URLs are part of the required statement. */
 .attribution a { color: inherit; text-decoration: underline; }
 .attribution a:hover { color: var(--text); }
 
 /* ── composer ──────────────────────────────────────────────────────── */
 
-/* Send sits inside the box, at its bottom-right.
-   The box is the object; a button beside it made the pair asymmetric —
-   nothing else on the page could line up with both edges — and gave the
-   composer two outlines where it means to be one. Bottom-anchored rather
-   than centred, so it stays put as the textarea grows with what is being
-   typed. */
+/* Send sits inside the box at the bottom right, so it stays put as the
+   textarea grows. */
 .composer {
   position: relative;
   max-width: 44rem;
@@ -1021,7 +806,7 @@ button.line:hover .what { color: var(--text); }
   field-sizing: content;
   display: block;
   width: 100%;
-  /* Room for the button; the text must never run under it. */
+  /* Room for the Send button. */
   padding: 13px 96px 13px 16px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -1029,16 +814,9 @@ button.line:hover .what { color: var(--text); }
   color: inherit;
   font: inherit;
   font-size: 16px;
-  /* Whole pixels, not a ratio — and after the `font` shorthand, which
-     resets line-height and would otherwise put this back to 1.6. 1.6 of
-     16px is 25.6, which left the box 53.59 tall and the 36px button 1.6px
-     nearer the floor than the ceiling. 24 + 26 + 2 is exactly 52, sixteen
-     more than the button, so the same 8px sits on all three sides. */
+  /* After `font`, which resets it.  24px line + 26px padding + 2px border =
+     52px, leaving 8px around the 36px button. */
   line-height: 24px;
-  /* The one thing on the page you are meant to use. Everything else here
-     is drawn flat into its ground, so lifting only this reads as the page
-     having a subject — a close shadow for the edge and a wide, faint one
-     for the lift. */
   box-shadow: 0 1px 2px rgb(0 0 0 / 5%), 0 14px 34px rgb(0 0 0 / 11%);
 }
 .composer textarea:focus { outline: 2px solid var(--accent); border-color: transparent; }
@@ -1047,8 +825,7 @@ button.line:hover .what { color: var(--text); }
   position: absolute;
   right: 32px;
   bottom: 30px;
-  /* Height stated rather than derived, so the border on `.stop` cannot
-     make it a different size from Send. */
+  /* Explicit height so .stop's border cannot make it differ from Send. */
   display: flex;
   align-items: center;
   height: 36px;
@@ -1064,10 +841,8 @@ button.line:hover .what { color: var(--text); }
 
 /* ── side panel ────────────────────────────────────────────────────── */
 
-/* A real column of its own, not a negative-margin overlay: an `auto` track
-   holding an item with a negative margin resolves to 0px while the item
-   still paints 13px wide, which over-constrains the row and squeezes the
-   pane beside it. */
+/* A real grid column: in an auto track, a negative margin resolves to 0px
+   while still painting 13px. */
 .resizer {
   display: flex;
   align-items: center;
@@ -1093,8 +868,7 @@ body.resizing .grip {
   height: 72px;
 }
 
-/* While dragging, the pointer sweeps across the conversation; without this
-   it selects the text it crosses. */
+/* No text selection while dragging. */
 body.resizing { user-select: none; cursor: col-resize; }
 
 .panel {
@@ -1149,8 +923,6 @@ body.resizing { user-select: none; cursor: col-resize; }
 .panel-body .meta { margin: 0 0 10px; font-size: 12.5px; color: var(--text-muted); }
 
 .zooms { display: flex; gap: 2px; margin-left: auto; margin-right: 8px; }
-/* Two auto margins would split the slack between them; the jump keeps its
-   place beside the zooms. */
 .page-jump + .zooms { margin-left: 10px; }
 .zooms button { padding: 4px 8px; border-radius: 6px; font-size: 12px; color: var(--text-muted); }
 .zooms button.on { background: var(--accent-soft); color: var(--accent); }
@@ -1159,8 +931,6 @@ body.resizing { user-select: none; cursor: col-resize; }
 
 .pdf { margin-top: 14px; display: grid; gap: 18px; }
 
-/* 364 pages is more than anyone scrolls, and the book's own contents and
-   index are printed in page numbers. */
 .page-jump {
   display: flex;
   align-items: center;
@@ -1169,11 +939,8 @@ body.resizing { user-select: none; cursor: col-resize; }
   font-size: 12.5px;
 }
 .page-jump label { color: var(--text-muted); }
-/* The jump only shows on the Page tab with nothing cited, so it must not be
-   what sets the header's height — a taller control here than the tabs makes
-   the whole panel shift by a pixel on every tab switch. The tabs are the one
-   thing present in every state, so they are the row's height and everything
-   else stays inside it. */
+/* The tabs set the header height: the page-jump appears on one tab only and
+   would shift it by a pixel. */
 .page-jump input {
   width: 4.5em;
   padding: 4px 8px;
@@ -1192,20 +959,14 @@ body.resizing { user-select: none; cursor: col-resize; }
 .page-jump button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .page-jump button:disabled { opacity: 0.5; }
 
-/* Above fit-to-width the page is wider than the panel, so it scrolls in its
-   own box rather than pushing the panel's own layout sideways. */
-/* `-x` only: the page scrolls sideways in its own box, but a wheel over it
-   is meant to scroll the *book*, which is the panel body above it. */
+/* Horizontal overflow scrolls inside the figure. */
+/* x only, so the wheel scrolls the panel body. */
 .pdf-page { overflow: auto; overscroll-behavior-x: contain; }
 
-/* Holding Space arms the hand, so the cursor has to say so before anything
-   is dragged. The text layer covers the page and sets `cursor: text` on
-   every span of it, so saying it once on the figure is not enough. */
+/* Spans set cursor: text, so they need it too. */
 .pdf.grabbable :is(.pdf-page, .textLayer :is(span, br)) { cursor: grab; }
 
-/* While panning, the pointer sweeps across the page it is moving; without
-   this it selects the text under it. Set on the body, like `.resizing`,
-   because the drag outlives the element it started on. */
+/* On body, since the drag outlives its element; also blocks selection. */
 body.panning, body.panning .textLayer :is(span, br) {
   user-select: none;
   cursor: grabbing;
@@ -1220,27 +981,20 @@ body.panning, body.panning .textLayer :is(span, br) {
   text-align: center;
 }
 
-/* Canvas, selectable text, and highlight rectangles are three layers in
-   one coordinate space; the stack is what keeps them registered. */
+/* Canvas, text layer and boxes share one coordinate space. */
 .pdf-stack {
   position: relative;
-  /* Confines the highlights' blending to the page they mark. Without it the
-     nearest stacking context is further up and they would multiply against
-     whatever the panel is sitting on. */
+  /* Confines the boxes' mix-blend-mode to the page. */
   isolation: isolate;
-  /* Sized to the canvas, not to the panel: above fit-to-width the page is
-     wider than the panel, and a stack that took the container's width would
-     clip the overflow instead of letting .pdf-page scroll it. */
+  /* Sized to the canvas, so overflow scrolls in .pdf-page rather than
+     clipping. */
   width: max-content;
   overflow: hidden;
-  /* A shadow, not a border: the stack is sized by `max-content`, so a
-     border would add 2px to a canvas already exactly as wide as its
-     container and put a scrollbar under every fitted page. Shadows do not
-     contribute to scroll width. */
+  /* box-shadow, not border: with max-content sizing a border adds 2px and a
+     scrollbar at Fit. */
   box-shadow: 0 0 0 1px var(--border);
   border-radius: 6px;
-  /* The page is printed on white; a dark theme must not invert it, or the
-     facsimile stops being a facsimile. */
+  /* The page stays white in dark mode. */
   background: #fff;
 }
 
@@ -1248,20 +1002,9 @@ body.panning, body.panning .textLayer :is(span, br) {
 
 .pdf-boxes { position: absolute; inset: 0; pointer-events: none; }
 
-/* Literal, like `.pdf-stack`'s white and for the same reason: these are
-   drawn over the printed page, which never inverts, so they cannot take a
-   token that does. The rule is the book's own heading red, so the box
-   round a cited passage matches everything else pointing at it.
-
-   `multiply` is what makes it a highlighter rather than a veil. The boxes
-   are painted over the canvas the page was rendered into, so a translucent
-   fill composites with the glyphs underneath and lifts black ink towards
-   the fill's own colour: at 62% a word came out barely more than a third
-   as dark as the words either side of it, so marking a passage made it
-   harder to read than leaving it alone. Multiplied, white paper takes the
-   tint and black ink stays black, which is how a real highlighter behaves.
-   The fill can be fully opaque for the same reason, and is, so the tint no
-   longer depends on what it happens to be sitting on. */
+/* Literal colours: drawn over the page, which never inverts.  multiply keeps
+   ink black (a 62% translucent fill cut word contrast to about a third), so
+   the fill can be opaque. */
 .pdf-boxes span {
   position: absolute;
   background: rgb(253 240 201);
@@ -1270,15 +1013,9 @@ body.panning, body.panning .textLayer :is(span, br) {
   mix-blend-mode: multiply;
 }
 
-/* The text layer, transcribed from pdf.js's own rules and scoped to the
-   page we render.
-   The library ships these in `web/pdf_viewer.css`, but that file is the
-   entire viewer: it defines its own `.sidebar`, `.resizer` and `.error`,
-   and 376 custom properties on `:root` — one of which is `--bg`. Importing
-   it silently restyled this app the first time a citation was opened. We
-   use only `TextLayer`, so we carry only what `TextLayer` needs.
-   pdf.js positions each span itself; these rules make it transparent,
-   correctly scaled, and selectable. */
+/* Text layer rules from pdf.js, scoped here.  Not imported from
+   pdf_viewer.css, which brings the whole viewer: .sidebar, .error and 376
+   :root variables including --bg. */
 .pdf-stack .textLayer {
   position: absolute;
   inset: 0;
@@ -1293,12 +1030,8 @@ body.panning, body.panning .textLayer :is(span, br) {
   forced-color-adjust: none;
   transform-origin: 0 0;
   caret-color: CanvasText;
-  /* Set per render by PdfPage; the fallback keeps a partly-rendered layer
-     from collapsing to font-size 0. */
-  /* The one place the em box is the point: pdf.js sizes every span from
-     the glyph metrics it measured and corrects the remainder with a
-     per-span `scaleX`, so normalising x-heights here would slide the
-     selectable text out from under the ink it belongs to. */
+  /* Set by PdfPage; the fallback avoids font-size 0 before first render. */
+  /* No font-size-adjust: pdf.js sizes spans from measured glyph metrics. */
   font-size-adjust: none;
   --total-scale-factor: 1;
   --min-font-size: 1;
@@ -1330,35 +1063,19 @@ body.panning, body.panning .textLayer :is(span, br) {
 
 .pdf-stack .textLayer span[role="img"] { user-select: none; cursor: default; }
 
-/* A selection tints the page; it must not repaint it.
-   The spans are transparent ink laid over the canvas, and the browser's
-   default selection sets a solid background *and* `color: HighlightText` —
-   which turns text that is meant to be invisible into white glyphs on a
-   blue block, appearing and vanishing as the selection changes. Keeping
-   the colour transparent and the background a tint leaves the book's own
-   ink showing through, which is what a marked passage should look like.
-   The same argument as `.pdf-boxes span`, one layer up. */
+/* Spans are transparent over the canvas; the default HighlightText colour
+   would show them as white glyphs.  Keep text transparent and tint the
+   background. */
 .pdf-stack .textLayer ::selection {
   background: color-mix(in srgb, AccentColor, transparent 60%);
   color: transparent;
 }
-/* A line break has no glyphs, so a tint on one is a block of colour in the
-   margin marking nothing. */
+/* No tint on line breaks. */
 .pdf-stack .textLayer br::selection { background: transparent; }
 
-/* The catch-all at the end of the text layer, and the reason a drag across
-   a page selects the lines it crossed rather than everything from there to
-   the foot of the page.
-   Most of a page is *gap* — between lines, down the gutter, out in the
-   margins — and a pointer in a gap is over no span at all, so the browser
-   extends the selection to the nearest text in *DOM order*, which on a
-   two-column page is somewhere else entirely. This is a block that covers
-   the whole layer for the duration of a drag and sits last among its
-   children, so a pointer in a gap lands on it instead of reaching through
-   to a distant line. It selects nothing itself.
-   It is pdf.js's own mechanism; it lives in `TextLayerBuilder`, which is
-   viewer chrome we do not use, so like the rules above it is carried here
-   rather than imported. */
+/* pdf.js's .endOfContent (from TextLayerBuilder): covers the layer while
+   selecting, so a pointer in a gap does not extend the selection to distant
+   text in DOM order. */
 .pdf-stack .textLayer .endOfContent {
   display: block;
   position: absolute;
@@ -1377,12 +1094,7 @@ body.panning, body.panning .textLayer :is(span, br) {
 
 /* ── the graph explorer ────────────────────────────────────────────── */
 
-/*
- * A colour per kind of node, paired light and dark the same way the rest
- * of the palette is, so the theme switch reaches them too. Nodes are
- * multi-label by design, so the kind is a priority — `kindOf` in
- * GraphView — and this is only where each one is painted.
- */
+/* Node colours per kind; see `KINDS` in graph-layout.ts. */
 :root {
   --n-section: light-dark(#8e9093, #a49a94);
   --n-creature: light-dark(#8a5a2c, #d9915d);
@@ -1395,16 +1107,12 @@ body.panning, body.panning .textLayer :is(span, br) {
   --edge: light-dark(#d1d2d4, #3a2f2d);
 }
 
-/* The graph fills the panel and is panned rather than scrolled: two ways to
-   move the same picture, one of them with no scrollbar to fight. */
 .panel-body.graph-pane { padding: 0; overflow: hidden; }
 
 .graph { position: relative; height: 100%; display: flex; }
 
 .graph-canvas {
-  /* The layout's padding for a label (`LABEL` in GraphView) is a measured
-     constant in graph units; scaling the labels out from under it would
-     make the fit optimistic by exactly as much. */
+  /* No font-size-adjust: graph-layout's LABEL padding assumes these sizes. */
   font-size-adjust: none;
   flex: 1;
   min-width: 0;
@@ -1461,20 +1169,15 @@ path.edge-on { fill: var(--accent); }
   stroke-width: 1.5px;
 }
 
-/* Filled is a passage the book printed; hollow is a node stage 2 derived
-   from one — a glossary term beside its glossary section, an ability beside
-   its stat block. Two identical circles there read as a duplicate. */
+/* Filled: a section.  Hollow: a derived node. */
 .dot[data-node='derived'] circle {
   fill: var(--bg-raised);
   stroke: currentColor;
   stroke-width: 2.5px;
 }
-/* The seed keeps a ring of its own, so it stays findable in a picture that
-   has grown three expansions past it — see the rules at the end of this
-   block, which come after the per-kind colours so they win. */
+/* The seed's ring; its rules come last here to beat the kind colours. */
 
-/* A node with edges the server sampled rather than sent: a dashed halo,
-   which reads as "there is more here" without needing a number. */
+/* Dashed halo: edges not yet fetched. */
 .dot circle.more {
   fill: none;
   stroke: var(--text-muted);
@@ -1499,7 +1202,7 @@ path.edge-on { fill: var(--accent); }
 .dot[data-kind='glossary'] { color: var(--n-glossary); }
 .dot[data-kind='class'] { color: var(--n-class); }
 .dot[data-kind='rule'] { color: var(--n-rule); }
-/* The halo and the rings are drawn over the fill, so they come last. */
+/* After the kind fills, so these win. */
 .dot circle.more { fill: none; }
 .dot.on circle { stroke: var(--accent); stroke-width: 2.5px; }
 .dot.root circle { stroke: var(--text); stroke-width: 2.5px; }
@@ -1526,8 +1229,7 @@ path.edge-on { fill: var(--accent); }
 }
 .graph-legend .note { margin-top: 3px; }
 
-/* Both overlays float over the picture rather than taking width from it:
-   the panel is already the narrow half of the window. */
+/* Overlays, not columns: the panel is already narrow. */
 .graph-details {
   position: absolute;
   left: 12px;
@@ -1580,9 +1282,6 @@ path.edge-on { fill: var(--accent); }
   pointer-events: none;
 }
 
-/* One row per kind of connection, which is how a hub stays readable: the
-   picture can honestly show 8 of Poison's 121 references, but only a count
-   can say that it is 121. */
 .graph-edges {
   margin: 8px 0 0;
   padding: 0;
@@ -1605,8 +1304,6 @@ path.edge-on { fill: var(--accent); }
 }
 .graph-edges .count { margin-left: auto; color: var(--text-muted); }
 
-/* A way back to the fitted framing. The picture is the reader's once they
-   pan or drag it, so this is how they hand it back rather than reloading. */
 .graph-refit {
   position: absolute;
   top: 10px;
@@ -1621,8 +1318,7 @@ path.edge-on { fill: var(--accent); }
 }
 .graph-refit:hover { color: var(--text); background: var(--bg-raised); }
 
-/* What the selected node says. Three lines: enough to recognise the passage
-   by, and the Page tab is where it is read as the book set it. */
+/* Clamped to three lines. */
 .graph-summary {
   margin: 6px 0 8px;
   font-size: 12.5px;
@@ -1634,8 +1330,6 @@ path.edge-on { fill: var(--accent); }
   overflow: hidden;
 }
 
-/* A weapon has no prose anywhere in the book, so its row of the table is
-   what it has to say for itself. */
 .graph-facts {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -1646,8 +1340,6 @@ path.edge-on { fill: var(--accent); }
 .graph-facts dt { color: var(--text-muted); }
 .graph-facts dd { margin: 0; color: var(--text); }
 
-/* A turn the model could not answer.  The model is required, so the error
-   is the whole of the reply rather than a note over a substitute for one. */
 .failed {
   display: flex;
   align-items: center;
@@ -1662,14 +1354,8 @@ path.edge-on { fill: var(--accent); }
 }
 .failed .error { margin: 0; }
 
-/*
- * Asking the last question again.
- *
- * Two weights of the one control. Beside an error it is the whole way
- * forward and is drawn as a button that says so; under an answer somebody
- * is reading it is the quiet icon, which must still be reachable from the
- * keyboard, so the focus rule matters as much as the hover one.
- */
+/* Retry: a labelled button beside an error, a faint icon elsewhere; both need
+   a visible focus state. */
 .retry, .copy {
   flex: none;
   display: inline-flex;
@@ -1690,8 +1376,7 @@ path.edge-on { fill: var(--accent); }
 .retry:not(.plain):hover, .copy:hover {
   background: color-mix(in srgb, currentColor 14%, transparent);
 }
-/* Said rather than shown until it has happened: the tick is the whole of the
-   confirmation, so it is the one state of this button that is not faint. */
+/* The tick is not faint. */
 .copy.copied, .copy.copied:hover {
   opacity: 1;
   color: var(--accent);
@@ -1707,17 +1392,12 @@ path.edge-on { fill: var(--accent); }
 }
 .retry.plain:hover { color: var(--text); border-color: var(--text-faint); }
 
-/* The bubble is right-aligned, so what sits under it follows it. */
 .message.user .timing { justify-content: flex-end; margin-top: 4px; }
 
 /* ── the delete confirmation ───────────────────────────────────────── */
 
-/*
- * A native `<dialog>`, so `showModal` handles the top layer, the focus
- * trap, the inert background and Escape. The padding lives on the inner
- * element rather than here, so that a click landing on the dialog itself is
- * unambiguously a click on the backdrop.
- */
+/* Padding is on the inner element, so a click on the <dialog> itself is a
+   backdrop click. */
 .modal {
   margin: auto;
   padding: 0;
@@ -1755,8 +1435,6 @@ path.edge-on { fill: var(--accent); }
 }
 .modal-actions .no { color: var(--text); }
 .modal-actions .no:hover { background: var(--bg-sunken); }
-/* The destructive one is the one that looks destructive, and it is not the
-   one holding the focus. */
 .modal-actions .yes {
   border-color: transparent;
   background: var(--danger);

@@ -1,12 +1,3 @@
-"""
-The PDF's geometry, and the markdown it becomes.
-
-The functions that need a real page are exercised through the pipeline; what
-is tested here is everything decided from numbers and strings alone — the
-column grid, a line's rectangle, small-caps repair, and the reflow that heals
-words and emphasis runs broken across a line break.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -16,7 +7,7 @@ from dnd_graph_rag.srd.layout import Line
 
 
 def make_line(**overrides) -> Line:
-    """A line with plausible geometry, overridden field by field."""
+    """A ``Line`` with plausible defaults, overridden by keyword."""
     defaults = dict(page=1, x0=57.0, y0=100.0, x1=300.0, y1=120.0,
                     baseline=112.0, column=0, text="text", markup="text",
                     max_size=10.0)
@@ -24,8 +15,6 @@ def make_line(**overrides) -> Line:
 
 
 class TestLine:
-    """The record every later stage works on."""
-
     def test_given_a_heading_level_when_asked_then_the_line_is_a_heading(self):
         # Given a line the extractor gave a heading level
         line = make_line(heading_level=2)
@@ -42,10 +31,8 @@ class TestLine:
 
 
 class TestTitlecase:
-    """Repairing a small-caps heading."""
-
     def test_given_a_meaningless_casing_when_recased_then_the_words_are_titled(self):
-        """The small-caps subset extracts as "rEstinG"; only casing is lost."""
+        """The small-caps font extracts as "rEstinG"."""
         # Given a heading as the subset font extracts it
         # When it is recased
         # Then the letters, which were right, are cased sensibly
@@ -65,8 +52,6 @@ class TestTitlecase:
 
 
 class TestIsSmallCapsHeading:
-    """Telling a small-caps sidebar heading from a stat block's ability grid."""
-
     def test_given_all_bold_words_when_asked_then_it_is_a_heading(self):
         # Given a run of bold words and no digits
         spans = [{"text": "rEstinG", "font": "GillSans-Bold-SC700"}]
@@ -76,7 +61,6 @@ class TestIsSmallCapsHeading:
         assert layout._is_small_caps_heading("rEstinG", spans) is True
 
     def test_given_digits_when_asked_then_it_is_an_ability_grid(self):
-        """The grid uses the same subset but is mostly plain-font digits."""
         # Given text carrying numbers
         spans = [{"text": "Str 14 +2 +2", "font": "GillSans-Bold-SC700"}]
 
@@ -104,8 +88,6 @@ class TestIsSmallCapsHeading:
 
 
 class TestSpanMarkup:
-    """A span wrapped in emphasis according to its font."""
-
     def test_given_a_bold_font_when_wrapped_then_the_span_is_bold(self):
         # Given a bold span
         # When it is wrapped
@@ -125,7 +107,6 @@ class TestSpanMarkup:
         assert layout._span_markup("Bite", "GillSans-BoldItalic") == "**_Bite_**"
 
     def test_given_surrounding_spaces_when_wrapped_then_they_stay_outside(self):
-        """Markers inside the spaces would not be emphasis in markdown."""
         # Given a span padded with spaces
         # When it is wrapped
         # Then the markers hug the word and the padding survives
@@ -139,8 +120,6 @@ class TestSpanMarkup:
 
 
 class TestMergeMarkup:
-    """Collapsing the emphasis runs produced span by span."""
-
     def test_given_two_adjacent_bold_runs_when_merged_then_they_become_one(self):
         # Given bold emitted as two spans
         # When the markup is merged
@@ -156,10 +135,8 @@ class TestMergeMarkup:
 
 
 class TestDocumentGrid:
-    """The column grid the book as a whole is laid out on."""
-
     def test_given_most_pages_agreeing_when_measured_then_that_is_the_grid(self):
-        """342 of 364 pages are the standard two columns."""
+        """342 of 364 pages use the standard two columns."""
         # Given the frames measured on each page, most of them agreeing
         frames = [[57.0, 310.0]] * 5 + [[57.0, 210.0, 400.0]]
 
@@ -169,13 +146,7 @@ class TestDocumentGrid:
 
 
 class TestSnapToGrid:
-    """Discarding the frames the book's grid does not know about."""
-
     def test_given_every_frame_on_the_grid_when_snapped_then_the_grid_is_adopted(self):
-        """
-        A table laid across the gutter hides the empty strip, so a page whose
-        frames are all grid columns takes the whole grid back.
-        """
         # Given a page where only one column was measured
         # When it is snapped
         # Then the missing column is restored from the book's own grid
@@ -189,7 +160,7 @@ class TestSnapToGrid:
                                    [57.0, 310.0]) == [57.0, 310.0]
 
     def test_given_a_genuinely_different_layout_when_snapped_then_it_is_kept(self):
-        """The contents run three and four columns and are not misreadings."""
+        """The contents pages run three and four columns."""
         # Given a page matching at most one grid column
         measured = [57.0, 150.0, 240.0, 330.0]
 
@@ -201,8 +172,6 @@ class TestSnapToGrid:
 
 
 class TestColumnOf:
-    """Assigning a line to a frame, or calling it full width."""
-
     def test_given_a_line_inside_one_frame_when_assigned_then_it_takes_that_column(self):
         # Given a line sitting wholly in the right-hand column
         # When it is assigned
@@ -216,7 +185,6 @@ class TestColumnOf:
         assert layout._column_of(57.0, 500.0, [57.0, 310.0]) == -1
 
     def test_given_a_line_starting_just_left_of_its_frame_when_assigned_then_it_still_fits(self):
-        """A frame's measured x is the leftmost thing that happened to sit in it."""
         # Given a line beginning a few points left of the measured frame
         # When it is assigned
         # Then the same slack that matches a page to the grid applies here
@@ -224,13 +192,8 @@ class TestColumnOf:
 
 
 class TestBox:
-    """One line's rectangle, derived from its baseline."""
-
     def test_given_a_line_when_boxed_then_the_height_comes_from_the_type_size(self):
-        """
-        PyMuPDF reports 95 of 107 lines on a page as 56pt tall, which is the
-        same inflation that makes the pipeline sort by baseline.
-        """
+        """PyMuPDF reports 95 of 107 lines on a typical page as 56pt tall."""
         # Given a line whose reported bbox is far taller than its type
         line = make_line(y0=60.0, y1=116.0, baseline=112.0, max_size=10.0)
 
@@ -260,8 +223,6 @@ class TestBox:
 
 
 class TestReflow:
-    """Joining wrapped lines back into a paragraph."""
-
     def test_given_two_lines_when_joined_then_a_space_separates_them(self):
         # Given a paragraph broken across two lines
         # When they are reflowed
@@ -277,9 +238,8 @@ class TestReflow:
 
     def test_given_an_emphasis_run_broken_across_lines_when_joined_then_it_stays_one_run(self):
         """
-        A spell subtitle set over two lines closes its run at the end of one
-        and reopens it at the start of the next; left alone every parser
-        downstream sees a subtitle it cannot match.
+        Two-line spell subtitles close and reopen their italic run at the
+        break.
         """
         # Given a subtitle wrapped mid-run
         chunk = ["_Level 2 Abjuration (Bard, Cleric,_", "_Ranger)_"]
@@ -304,7 +264,6 @@ class TestReflow:
             "The creature moves."
 
     def test_given_two_genuinely_separate_runs_when_joined_then_they_stay_separate(self):
-        """Only the join between two lines is examined."""
         # Given one line already carrying two adjacent runs
         # When it is reflowed with another
         joined = layout.reflow(["**Bite** and", "**Claw**"])
@@ -314,8 +273,6 @@ class TestReflow:
 
 
 class TestNormalizeWs:
-    """Collapsing the whitespace inside a table cell."""
-
     def test_given_runs_of_spaces_and_tabs_when_normalised_then_one_space_remains(self):
         # Given a cell padded by the extractor
         # When it is normalised

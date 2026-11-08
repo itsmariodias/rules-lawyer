@@ -1,9 +1,5 @@
 """
-The FastAPI app: one router per stage, plus the conversation stores.
-
-Each package owns its routes; this module only assembles them.  Routes are
-never imported by a package's ``__init__``, so importing a pipeline pulls in
-no web framework.
+The FastAPI app: each package's router, plus the conversation stores.
 
     uv run uvicorn dnd_graph_rag.api:app --reload
 """
@@ -27,11 +23,15 @@ from .srd import routes as srd_routes
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
-    Hold the checkpointer (conversation turns) and the store (pins) open for
-    the life of the process.
+    Open the checkpointer and the pin/title store for the process lifetime.
 
-    Both own a SQLite connection, so they are opened once here rather than
-    per request; the routes reach them through ``request.app.state``.
+    Routes reach them through ``request.app.state``.
+
+    Args:
+        app: The application whose ``state`` receives both.
+
+    Yields:
+        Control to the running server, with both connections open.
     """
     settings = get_settings()
     settings.chat_dir.mkdir(parents=True, exist_ok=True)
@@ -52,8 +52,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# For the Vite dev server, which is a different origin.  A built frontend is
-# served from here, so this matches nothing in production.
+# The Vite dev server's origins.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],

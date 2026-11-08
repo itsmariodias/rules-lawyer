@@ -1,10 +1,6 @@
 /**
- * State that outlives a reload.
- *
- * Reading and writing are both guarded: a private window, cleared site data
- * or a browser set to block storage makes `localStorage` throw on access
- * rather than return null, and a reading preference is never worth a blank
- * page.
+ * `useState` persisted to `localStorage` as JSON.  Access is wrapped in
+ * try/catch because blocked storage throws rather than returning null.
  */
 
 import { useEffect, useState } from 'react'
@@ -23,7 +19,7 @@ export function useStored<T>(key: string, fallback: T) {
     try {
       localStorage.setItem(key, JSON.stringify(value))
     } catch {
-      // Nothing to do and nothing worth telling the reader about.
+      // Storage blocked; the value lives for this session only.
     }
   }, [key, value])
 
@@ -33,14 +29,9 @@ export function useStored<T>(key: string, fallback: T) {
 export type Theme = 'system' | 'light' | 'dark'
 
 /**
- * The reader's theme, remembered and applied to the document.
- *
- * `system` is the absence of a choice rather than a third palette, so it
- * removes the attribute entirely and leaves the stylesheet's
- * `color-scheme: light dark` to follow the machine — which is also why
- * nothing here listens for the OS changing: the browser re-resolves every
- * `light-dark()` on its own, and a listener could only arrive at the same
- * answer later.
+ * The stored theme, applied as `data-theme` on `<html>`.  `system` removes
+ * the attribute so `color-scheme: light dark` follows the OS without a
+ * listener.
  */
 export function useTheme() {
   const [theme, setTheme] = useStored<Theme>('theme', 'system')

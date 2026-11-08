@@ -1,11 +1,3 @@
-/**
- * Whether the graph behind the answers is up.
- *
- * The retry is the part worth testing: a database that comes up after the
- * app did must stop being labelled unreachable, and one that is already up
- * must not be polled for the rest of the session.
- */
-
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -21,7 +13,7 @@ beforeEach(() => {
 
 afterEach(() => vi.useRealTimers())
 
-/** Let the pending request resolve. `waitFor` polls on real timers. */
+/** Let the pending request resolve.  `waitFor` polls on real timers. */
 const settle = () => act(async () => { await vi.advanceTimersByTimeAsync(0) })
 const wait = (ms: number) =>
   act(async () => { await vi.advanceTimersByTimeAsync(ms) })
@@ -41,7 +33,6 @@ describe('useGraphStatus', () => {
   })
 
   it('given a graph that is up but empty, when asked, then it says empty', async () => {
-    /** Every question returns nothing, so "connected" would mislead. */
     // Given a database nothing has been loaded into
     vi.mocked(api.graphStatus).mockResolvedValue('empty')
 
@@ -69,10 +60,6 @@ describe('useGraphStatus', () => {
   })
 
   it('given a database that comes up late, when it does, then the label follows', async () => {
-    /**
-     * A label that is wrong for the rest of the session is worse than no
-     * label, and starting Neo4j after the app is the ordinary case.
-     */
     // Given a database that is down when the app starts
     vi.mocked(api.graphStatus).mockResolvedValue('unreachable')
     const { result } = renderHook(() => useGraphStatus())

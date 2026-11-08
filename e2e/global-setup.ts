@@ -1,15 +1,7 @@
 /**
- * Bring up the database, fill it from the artifact, and hand the workers a
- * verdict on whether there is anything to test.
- *
- * Nothing here fails the run. The pytest suite skips cleanly when Neo4j is
- * absent and so does this: no Docker, or no artifact, is a skip with a line
- * saying what to do about it — not a wall of red for someone who has just
- * cloned the repository.
- *
- * The container is stopped by the function this returns, which Playwright
- * runs as global teardown. If the process dies before that, Testcontainers'
- * own reaper collects it.
+ * Start a Neo4j container and load the artifact into it.  Without Docker or an
+ * artifact the run is skipped, not failed.  The returned function is the
+ * global teardown; Testcontainers' reaper covers a crash.
  */
 
 import type { StartedNeo4jContainer } from '@testcontainers/neo4j'
@@ -60,19 +52,9 @@ export default async function globalSetup() {
 }
 
 /**
- * Say something if the development database is also running.
- *
- * Two Neo4j JVMs is more memory than a laptop has to spare, and what gives
- * way is not the database: macOS suspends the browser's network service
- * under pressure, which kills whichever streamed turn was open at the time
- * and fails the test waiting on it — measured at four to six of thirty-three
- * with the development instance up, and none at all with it stopped, in half
- * the wall-clock time. The suite brings its own database, so the other one
- * is only in the way for the few minutes this takes.
- *
- * A warning rather than a refusal: it is the reader's machine, the retry
- * covers it, and a run that works slowly is better than one that will not
- * start.
+ * Warn if the development Neo4j is also running.  Two JVMs exhaust a laptop's
+ * memory and macOS suspends the browser's network service, killing streamed
+ * turns: 4 to 6 of 33 tests failed with it up, none without, in half the time.
  */
 async function warnAboutCompany() {
   if (!(await listening(7687))) return
@@ -94,7 +76,10 @@ function listening(port: number): Promise<boolean> {
   })
 }
 
-/** The API answers this without a database or a key, so it answers early. */
+/**
+ * Needs neither the database nor a key, so it answers as soon as the API is
+ * up.
+ */
 async function artifactExists(): Promise<boolean> {
   try {
     const health = await fetch(`${API}/health`).then((r) => r.json())

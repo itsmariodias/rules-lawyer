@@ -1,12 +1,3 @@
-/**
- * What the agent looked up, shown while it looks it up.
- *
- * During a slow first token this is the only sign the thing is alive, so a
- * call must appear the moment it starts. Past that, what the trace owes a
- * reader is the three things one muted line could not carry: which kind of
- * lookup it was, how it went, and what came back.
- */
-
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -30,7 +21,7 @@ const call = (overrides: Partial<ToolCall> = {}): ToolCall => ({
 
 const row = () => screen.getByRole('listitem')
 
-/** A trace in a conversation, which is what makes its rows openable. */
+/** Render with a thread id, which makes rows openable. */
 const trace = (tools: ToolCall[], props = {}) =>
   render(<ToolTrace tools={tools} threadId="t" {...props} />)
 
@@ -55,11 +46,6 @@ describe('ToolTrace', () => {
   })
 
   it('given a finished call, when rendered, then what came back is shown', () => {
-    /**
-     * The trace used to stop at "a call happened". Three passages and none
-     * drew the same line, which is the difference between seeing the
-     * retrieval and being told that it occurred.
-     */
     // Given a search that found three passages
     render(<ToolTrace tools={[call()]} />)
 
@@ -79,12 +65,6 @@ describe('ToolTrace', () => {
   })
 
   it('given a section read, when rendered, then the heading is what is shown', () => {
-    /**
-     * A dotted id says nothing to a reader, and the id alone was all the row
-     * used to carry. Only the graph knows what `10.3.165` names, so the
-     * server sends it; the id stays on the right, since it is what a
-     * citation uses.
-     */
     // Given the tool that fetches one section
     render(<ToolTrace tools={[call({ name: 'get_srd_section',
                                      args: { section_id: '10.3.165' },
@@ -126,11 +106,6 @@ describe('ToolTrace', () => {
   })
 
   it('given a replayed turn, when rendered, then the trace starts folded away', async () => {
-    /**
-     * Watching the retrieval happen is the point of it during a turn.
-     * Coming back to a conversation you want the answer, with the working
-     * still a click away.
-     */
     // Given a conversation read back rather than watched
     trace([call()], { replayed: true })
 
@@ -154,10 +129,6 @@ describe('ToolTrace', () => {
   })
 
   it('given a graph query, when rendered, then the cypher is flat and unquoted', () => {
-    /**
-     * Quotes imply prose. Cypher is not prose, and a multi-line query would
-     * otherwise make the trace as tall as the answer.
-     */
     // Given a multi-line Cypher query, as the model writes it
     render(<ToolTrace tools={[call({ name: 'query_srd_graph', args: {
       cypher_query: 'MATCH (c:Creature)\n  -[:HAS_ABILITY]->(a)\nRETURN c.id',
@@ -171,11 +142,6 @@ describe('ToolTrace', () => {
   })
 
   it('given a query row, when clicked, then the whole query is shown as written', async () => {
-    /**
-     * The one argument too long to read inline and the one most worth
-     * reading in full. The snippet is cut by the width available, so the
-     * only place the whole of it exists is here.
-     */
     // Given a query whose inline form is only as much as fits
     const cypher = 'MATCH (c:Creature)\n  -[:HAS_ABILITY]->(a)\nRETURN c.id'
     trace([call({ name: 'query_srd_graph', args: { cypher_query: cypher } })])
@@ -207,10 +173,6 @@ describe('ToolTrace', () => {
   })
 
   it('given a finished row, when clicked, then it shows what came back', async () => {
-    /**
-     * The retrieval inspector the whole project implies: the counts say a
-     * search found three passages, and this says which three.
-     */
     // Given a finished search in a conversation
     trace([call()])
 
@@ -224,7 +186,6 @@ describe('ToolTrace', () => {
   })
 
   it('given a query row, when opened, then the query leads and the result follows', async () => {
-    /** A result only means something beside the question that produced it. */
     // Given a finished query
     trace([call({ name: 'query_srd_graph',
                   args: { cypher_query: 'MATCH (n)\nRETURN n' } })])
@@ -256,10 +217,6 @@ describe('ToolTrace', () => {
   })
 
   it('given a result that cannot be read back, when opened, then it says so', async () => {
-    /**
-     * The lookup happened; only reading it back failed. An empty panel would
-     * read as "it returned nothing", which is a different claim.
-     */
     // Given a server that will not return the result
     vi.mocked(api.loadLookup).mockRejectedValueOnce(new Error('404'))
     trace([call()])
@@ -282,7 +239,6 @@ describe('ToolTrace', () => {
   })
 
   it('given no conversation yet, when rendered, then rows do not offer to open', () => {
-    /** There is nowhere to fetch a result from until a thread exists. */
     // Given a trace with no thread behind it
     render(<ToolTrace tools={[call()]} />)
 
@@ -292,11 +248,6 @@ describe('ToolTrace', () => {
   })
 
   it('given the four tools, when rendered, then each carries its own marker', () => {
-    /**
-     * A ranked fuzzy search, an exact query over the whole graph and a fetch
-     * of one section are different operations. Drawn identically they hide
-     * that the agent is reasoning rather than repeating itself.
-     */
     // Given one call to each tool
     render(<ToolTrace tools={[
       call({ id: 'a', name: 'search_srd' }),
@@ -314,7 +265,6 @@ describe('ToolTrace', () => {
   })
 
   it('given a refused call, when rendered, then it does not read as success', () => {
-    /** A banned procedure and a perfect query drew the same grey dot. */
     // Given a query the guard refused
     render(<ToolTrace tools={[call({ name: 'query_srd_graph',
                                      args: { cypher_query: 'CALL dbms.listConfig()' },
@@ -327,7 +277,6 @@ describe('ToolTrace', () => {
   })
 
   it('given a call that found nothing, when rendered, then it is not a failure', () => {
-    /** Matching nothing is an answer about the book, not a broken tool. */
     // Given a query that ran and matched nothing
     render(<ToolTrace tools={[call({ name: 'query_srd_graph',
                                      args: { cypher_query: 'MATCH (n:Nope) RETURN n' },

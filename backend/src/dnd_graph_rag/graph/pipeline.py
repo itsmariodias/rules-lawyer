@@ -1,9 +1,4 @@
-"""
-Orchestration: artifact on disk -> mapped batches -> Neo4j -> verification.
-
-``build_graph`` is the whole run; it reports progress through an injected
-callable and returns a report rather than the data.
-"""
+"""Stage 2 orchestration: artifact -> batches -> Neo4j -> verification."""
 
 from __future__ import annotations
 
@@ -24,12 +19,23 @@ def build_graph(input_path: Path | None = None, *, reset: bool = True,
                 refresh_embeddings: bool = False,
                 report: Report = lambda _: None) -> dict:
     """
-    Load ``srd_hierarchy.json`` into the configured Neo4j database.
+    Load the artifact and its vectors into the configured Neo4j database.
 
-    Raises ``FileNotFoundError`` when the artifact has not been generated,
-    which is the same failure ``srd-parse`` reports for a missing PDF, and
-    ``MissingEmbeddings`` when there are neither vectors on disk nor a key to
-    generate them with.
+    Args:
+        input_path: Defaults to ``settings.output_path``.
+        reset: Delete the existing graph first.
+        skip_verify: Skip ``verify``; ``validation.ok`` is then None.
+        embeddings_path: Defaults to ``settings.embeddings_path``.
+        refresh_embeddings: Re-embed every section.
+        report: Receives progress lines.
+
+    Returns:
+        ``load_graph``'s report, plus ``validation`` and ``input``.
+
+    Raises:
+        FileNotFoundError: The artifact does not exist.
+        MissingEmbeddings: Vectors are incomplete and there is no key.
+        BadEmbeddingsFile: The ``.idx`` cannot be read.
     """
     settings = get_settings()
     input_path = input_path or settings.output_path
@@ -45,10 +51,7 @@ def build_graph(input_path: Path | None = None, *, reset: bool = True,
     for warning in data.warnings:
         report(f"WARNING: {warning}")
 
-    # Resolved before a session is opened, so a missing key or a long
-    # generation run never holds a half-loaded database open, and so a
-    # failure here leaves the previous graph standing rather than resetting
-    # it and then giving up.
+    # Before opening a session, so a failure leaves the old graph unreset.
     vectors = embeddings.resolve(
         document, path=embeddings_path or settings.embeddings_path,
         settings=settings.embedding, refresh=refresh_embeddings,
@@ -75,11 +78,20 @@ def build_embeddings(input_path: Path | None = None, *,
                      refresh: bool = False,
                      report: Report = lambda _: None) -> dict:
     """
-    The ``.idx`` on its own, with no database involved.
+    Generate or update the ``.idx`` file without touching the database.
 
-    This is the one-time run that produces the file a reader without an API
-    key is given, which is why it is a command of its own rather than only a
-    side effect of loading the graph.
+    Args:
+        input_path: Defaults to ``settings.output_path``.
+        embeddings_path: Defaults to ``settings.embeddings_path``.
+        refresh: Re-embed every section.
+        report: Receives progress lines.
+
+    Returns:
+        Paths, vector count, model, dimensions and task type.
+
+    Raises:
+        FileNotFoundError: The artifact does not exist.
+        MissingEmbeddings: Vectors are incomplete and there is no key.
     """
     settings = get_settings()
     input_path = input_path or settings.output_path
@@ -103,7 +115,15 @@ def build_embeddings(input_path: Path | None = None, *,
 
 
 def counts(report: Report = lambda _: None) -> dict:
-    """Node and relationship totals, for the health endpoint."""
+    """
+    Node counts per label and relationship counts per type.
+
+    Returns:
+        ``uri``, ``database``, ``nodes`` and ``relationships``.
+
+    Raises:
+        neo4j.exceptions.ServiceUnavailable: The database is unreachable.
+    """
     settings = get_settings()
     with session(settings.neo4j) as open_session:
         labels = open_session.run(

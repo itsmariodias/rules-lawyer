@@ -1,13 +1,6 @@
 """
-Stage 1 over HTTP.
-
-The API is a remote trigger for the same run the CLI makes, not a query
-layer, so what is worth asserting is that ``/parse`` returns the report and
-the paths rather than the document, and that a missing file is a status code
-rather than a traceback.
-
-The client is built without the app's lifespan: these routes hold no state,
-and opening the conversation stores would write into the real ``data/chat``.
+Stage 1 route tests.  The client skips the app lifespan, which would open
+stores in the real ``data/chat``.
 """
 
 from __future__ import annotations
@@ -25,8 +18,6 @@ def client() -> TestClient:
 
 
 class TestHealth:
-    """Whether the input and the output are where they are expected."""
-
     def test_given_the_configured_paths_when_asked_then_they_are_reported(
             self, client):
         # Given the running app
@@ -51,8 +42,6 @@ class TestHealth:
 
 
 class TestParse:
-    """The pipeline, triggered remotely."""
-
     def test_given_a_missing_pdf_when_parsed_then_it_is_a_not_found(self, client,
                                                                      tmp_path):
         # Given a PDF path nothing has been written to
@@ -68,10 +57,6 @@ class TestParse:
 
     def test_given_a_run_when_it_finishes_then_the_document_is_not_in_the_body(
             self, client, monkeypatch, tmp_path):
-        """
-        The artifact on disk is the interface — it is several megabytes, and
-        the graph loader reads it from there.
-        """
         # Given a pipeline that reports a run without doing one
         from dnd_graph_rag.srd import routes
 
@@ -111,8 +96,6 @@ class TestParse:
 
 
 class TestPdf:
-    """The source PDF, for the facsimile the chat shows beside a citation."""
-
     def test_given_the_pdf_when_fetched_then_it_is_served_as_a_pdf(self, client):
         # Given the checked-in source document
         if not get_settings().pdf_path.exists():
@@ -126,7 +109,6 @@ class TestPdf:
         assert response.headers["content-type"] == "application/pdf"
 
     def test_given_the_pdf_when_fetched_then_it_is_cacheable(self, client):
-        """The one checked-in input never changes, and it is 5.8 MB."""
         # Given the source document
         if not get_settings().pdf_path.exists():
             pytest.skip("no PDF checked out")

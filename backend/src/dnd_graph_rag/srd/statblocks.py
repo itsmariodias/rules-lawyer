@@ -1,11 +1,5 @@
 """
-Extract D&D stat blocks from the SRD as self-contained records.
-
-A stat block is a *card* in the book, not a section of the heading tree: its
-title, defence line, ability grid, trait list and action list are one visual
-unit that the surrounding H2/H3 headings only loosely describe.  Parsing it
-as a unit — rather than assembling it from whatever prose happened to land
-under a heading — is what makes the result safe to turn into graph nodes.
+Stat blocks parsed as units, keyed off the 14.8pt card title.
 
 Each record is flat and complete::
 
@@ -42,10 +36,8 @@ _SIGN = r"[+\-−]"
 # "Initiative" and "Passive Perception").
 ADVANTAGE_BONUS = 5
 
-# Score, then modifier, then saving throw.  The saving throw's sign is
-# optional: the book drops it on a handful of stat blocks (Young White
-# Dragon prints "Int 6 −2 2"), and refusing those would lose all six
-# abilities over one missing character.
+# Score, modifier, save.  The save's sign is optional because the book drops
+# it in places (Young White Dragon prints "Int 6 −2 2").
 _ABILITY_RE = re.compile(
     rf"\b(Str|Dex|Con|Int|Wis|Cha)\b\s*(\d+)\s*({_SIGN}\d+)\s*({_SIGN}?\d+)",
     re.IGNORECASE,
@@ -82,16 +74,26 @@ def _to_int(text: str) -> int:
 
 
 def ability_modifier(score: int) -> int:
-    """Standard D&D modifier: floor((score - 10) / 2)."""
+    """
+    Args:
+        score: An ability score.
+
+    Returns:
+        ``floor((score - 10) / 2)``.
+    """
     return (score - 10) // 2
 
 
 def average_hp(formula: str) -> int | None:
     """
-    Expected hit points for a dice expression such as ``20d10 + 40``.
+    Average of a hit point dice expression such as ``20d10 + 40``.
 
-    Returns None when the formula is not a dice expression — some summoned
-    creatures scale with the caster and print prose there instead.
+    Args:
+        formula: The parenthesised part of an HP line.
+
+    Returns:
+        The floored average, or None when the formula is not dice (summoned
+        creatures print prose that scales with the caster).
     """
     f = _norm_minus(formula).replace(" ", "")
     if not re.fullmatch(r"(\d+d\d+)([+-]\d+)*", f):
@@ -110,7 +112,13 @@ def average_hp(formula: str) -> int | None:
 # ---------------------------------------------------------------------------
 
 def parse_speed(raw: str) -> dict[str, int]:
-    """``30 ft., Swim 40 ft.`` → ``{'walk': 30, 'swim': 40}``."""
+    """
+    Args:
+        raw: A Speed value, e.g. ``30 ft., Swim 40 ft.``.
+
+    Returns:
+        Feet per movement mode, e.g. ``{'walk': 30, 'swim': 40}``.
+    """
     speeds: dict[str, int] = {}
     for m in re.finditer(r"(?:([A-Za-z]+)\s+)?(\d+)\s*ft", raw, re.IGNORECASE):
         speeds[(m.group(1) or "walk").lower()] = int(m.group(2))
@@ -118,7 +126,13 @@ def parse_speed(raw: str) -> dict[str, int]:
 
 
 def parse_bonus_list(raw: str) -> dict[str, int]:
-    """``Perception +10, Stealth +5`` → ``{'perception': 10, 'stealth': 5}``."""
+    """
+    Args:
+        raw: A Skills value, e.g. ``Perception +10, Stealth +5``.
+
+    Returns:
+        Lowercased name to bonus, e.g. ``{'perception': 10, 'stealth': 5}``.
+    """
     out: dict[str, int] = {}
     for m in re.finditer(rf"([A-Za-z][A-Za-z ]*?)\s*({_SIGN}\d+)", raw):
         key = m.group(1).strip().lower()
@@ -128,6 +142,7 @@ def parse_bonus_list(raw: str) -> dict[str, int]:
 
 
 def split_list(raw: str) -> list[str]:
+    """Comma-separated values, stripped, empties dropped."""
     return [x.strip() for x in raw.split(",") if x.strip()]
 
 
@@ -135,9 +150,12 @@ def parse_defenses(raw: str) -> tuple[list[str], list[str]]:
     """
     Split an Immunities line into damage types and conditions.
 
-    The SRD writes ``Poison; Charmed, Exhaustion, Poisoned`` — damage types
-    first, then a semicolon, then conditions.  Without the semicolon the
-    whole line is damage types.
+    Args:
+        raw: e.g. ``Poison; Charmed, Exhaustion, Poisoned``.  Damage types
+            precede the semicolon; with no semicolon all are damage types.
+
+    Returns:
+        ``(damage_types, conditions)``.
     """
     if ";" in raw:
         damage, conditions = raw.split(";", 1)
@@ -146,9 +164,16 @@ def parse_defenses(raw: str) -> tuple[list[str], list[str]]:
 
 
 def parse_abilities(raw: str) -> dict[str, dict] | None:
-    """Parse the six ability scores out of a flattened ability grid."""
-    # The grid arrives as "**Str** 21 +5 +5 **Dex** …"; emphasis markers sit
-    # between the label and its score, so drop them before matching.
+    """
+    Parse the six ability scores out of a flattened ability grid.
+
+    Args:
+        raw: e.g. ``**Str** 21 +5 +5 **Dex** …``.
+
+    Returns:
+        Per ability: score, modifier, save, ``modifier_valid`` and
+        ``save_has_proficiency``.  None unless all six are found.
+    """
     raw = re.sub(r"[*_]+", " ", _norm_minus(raw))
     abilities: dict[str, dict] = {}
     for m in _ABILITY_RE.finditer(raw):
@@ -168,15 +193,21 @@ def parse_abilities(raw: str) -> dict[str, dict] | None:
 
 
 _CR_RE = re.compile(r"\*\*CR\*\*\s*([\d/]+|None)\s*(?:\(([^)]*)\))?", re.IGNORECASE)
-# The book writes "XP 2,300" almost everywhere but "2,300 XP" in a couple of
-# places, so accept the number on either side of the label.
+# Usually "XP 2,300", occasionally "2,300 XP".
 _XP_RE = re.compile(r"(?:XP\s*([\d,]+)|([\d,]+)\s*XP)", re.IGNORECASE)
 _XP_LAIR_RE = re.compile(r"or\s+([\d,]+)\s+in\s+lair", re.IGNORECASE)
 _PB_RE = re.compile(r"PB\s*\+?(\d+)", re.IGNORECASE)
 
 
 def parse_challenge(raw: str) -> dict:
-    """``**CR** 21 (XP 33,000, or 41,000 in lair; PB +7)`` → its parts."""
+    """
+    Args:
+        raw: e.g. ``**CR** 21 (XP 33,000, or 41,000 in lair; PB +7)``.
+
+    Returns:
+        Whichever of ``cr``, ``xp``, ``xp_in_lair`` and
+        ``proficiency_bonus`` are present; empty if no CR label matches.
+    """
     m = _CR_RE.search(raw)
     if not m:
         return {}
@@ -199,7 +230,16 @@ def parse_challenge(raw: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def parse_entries(text: str) -> list[dict]:
-    """Split a stat block section into its named traits or actions."""
+    """
+    Split a stat block section into its named entries.
+
+    Args:
+        text: Reflowed section markup, entries opening ``**_Name._**``.
+
+    Returns:
+        ``{"name", "description"}`` per entry.  Text with no entry markers
+        is one entry with ``name`` None.
+    """
     matches = list(_ENTRY_RE.finditer(text))
     if not matches:
         body = text.strip()
@@ -230,13 +270,17 @@ def _flatten(line: Line) -> str:
 
 def iter_blocks(lines: list[Line]) -> list[tuple[int, Line, list[Line]]]:
     """
-    Slice the document into (index, title line, body lines) triples, one per
-    stat block.  The index is the title's position in *lines*, which ties the
-    record back to its offset in the rendered markdown.
+    Find every stat block in the document.
 
-    A block runs from its title until the next heading of any level — stat
-    block sections ("Traits", "Actions") are not headings, so they stay
-    inside their block.
+    A block runs from its title to the next heading.  "Traits", "Actions"
+    and the like are not headings, so they stay inside.
+
+    Args:
+        lines: Output of ``layout.extract_lines``.
+
+    Returns:
+        ``(index, title, body)`` per block, where ``index`` is the title's
+        position in ``lines`` (the key into ``lines_to_markdown``'s offsets).
     """
     blocks: list[tuple[int, Line, list[Line]]] = []
     for i, line in enumerate(lines):
@@ -247,11 +291,9 @@ def iter_blocks(lines: list[Line]) -> list[tuple[int, Line, list[Line]]]:
         for nxt in lines[i + 1:]:
             if nxt.is_heading:
                 break
-            # A stat block printed inside another entry (the Giant Fly inside
-            # Figurine of Wondrous Power) is followed by that entry's prose
-            # under no heading of its own.  Challenge Rating closes the
-            # header, so a named entry appearing after it with no section
-            # open belongs to the surrounding text, not to this creature.
+            # A block printed inside another entry (Giant Fly in Figurine of
+            # Wondrous Power) is followed by that entry's prose with no
+            # heading.  A named entry after CR with no section open ends it.
             if nxt.is_statblock_section:
                 in_section = True
             elif seen_challenge and not in_section and nxt.markup.lstrip().startswith("**_"):
@@ -280,7 +322,19 @@ def _split_labels(text: str) -> list[tuple[str, str]]:
 
 def parse_stat_block(title: Line, body: list[Line], pdf_name: str,
                      char_start: int | None = None) -> dict:
-    """Turn one stat block's lines into a flat creature record."""
+    """
+    Turn one stat block's lines into a flat creature record.
+
+    Args:
+        title: The 14.8pt title line.
+        body: Lines from ``iter_blocks``.
+        pdf_name: Recorded in ``source``.
+        char_start: The title's offset in the markdown, if known.
+
+    Returns:
+        The record described in the module docstring.  Inconsistencies
+        (HP, modifiers, Initiative, passive Perception) go to ``warnings``.
+    """
     record: dict = {
         "name": title.text.strip(),
         "entity_type": "creature",
@@ -350,7 +404,7 @@ def parse_stat_block(title: Line, body: list[Line], pdf_name: str,
     if "Initiative" in fields:
         m = re.match(rf"({_SIGN}?\d+)\s*\((\d+)\)", _norm_minus(fields["Initiative"]))
         if m:
-            # Resolved once the traits are known — see _resolve_initiative.
+            # Validated in _resolve_initiative, which needs the traits.
             record["initiative"] = {"bonus": _to_int(m.group(1)),
                                     "score": int(m.group(2))}
 
@@ -394,7 +448,6 @@ def parse_stat_block(title: Line, body: list[Line], pdf_name: str,
     if "CR" in fields:
         record.update(parse_challenge(f"**CR** {fields['CR']}"))
 
-    # --- cross-check passive Perception against Wisdom ----------------------
     _check_passive_perception(record, warnings)
 
     # --- traits / actions ---------------------------------------------------
@@ -409,21 +462,23 @@ def parse_stat_block(title: Line, body: list[Line], pdf_name: str,
     return record
 
 
-# A trait that simply states the creature has the Invisible condition, with no
-# action or condition attached.  This is the only thing in the SRD that gives a
-# monster standing Advantage on Initiative.
+# The only source of standing Advantage on Initiative in the SRD.
 _INVISIBLE_TRAIT_RE = re.compile(r"\bhas the Invisible condition\b", re.IGNORECASE)
 
 
 def has_initiative_advantage(record: dict) -> bool:
     """
-    Whether anything in the stat block grants Advantage on Initiative rolls.
+    Whether a trait makes the creature permanently Invisible.
 
-    The Invisible condition says "If you're Invisible when you roll Initiative,
-    you have Advantage on the roll", so a creature that is simply always
-    Invisible qualifies.  It has to be a *trait*: the Will-o'-Wisp turns
-    Invisible with a Bonus Action, which is not true when Initiative is rolled,
-    and its printed score reflects that.
+    Invisible grants Advantage on Initiative.  Only traits count: the
+    Will-o'-Wisp turns Invisible as a Bonus Action, which does not apply when
+    Initiative is rolled, and its printed score agrees.
+
+    Args:
+        record: A creature record with ``traits`` parsed.
+
+    Returns:
+        True if any trait states the creature has the Invisible condition.
     """
     return any(_INVISIBLE_TRAIT_RE.search(t.get("description") or "")
                for t in record.get("traits", []))
@@ -431,19 +486,14 @@ def has_initiative_advantage(record: dict) -> bool:
 
 def _resolve_initiative(record: dict, warnings: list[str]) -> dict | None:
     """
-    Reconcile a stat block's Initiative modifier with its Initiative score.
+    Check the Initiative score is 10 + bonus, +5 with Advantage.
 
-    Per the Rules Glossary, "Your Initiative score equals 10 plus your
-    Dexterity modifier.  If you have Advantage on Initiative rolls, increase
-    your Initiative score by 5.  If you have Disadvantage on those rolls,
-    decrease that score by 5."  So a score sitting 5 above the modifier is how
-    the book records a creature that rolls Initiative with Advantage.
+    A mismatched score is replaced by the computed one and kept as
+    ``printed_score``.  The Gray Ooze prints +5 with nothing granting
+    Advantage (it lost False Appearance in the 2024 revision).
 
-    The +5 is only honoured when the stat block actually grants Advantage.
-    The Gray Ooze prints a score 5 too high with nothing to justify it — it
-    lost the False Appearance trait in the 2024 revision, and the score looks
-    to have been left behind — so the rules-correct value is used and the
-    printed one is kept alongside it under ``printed_score``.
+    Returns:
+        The updated ``initiative`` entry, or None if the record has none.
     """
     entry = record.get("initiative")
     if not entry:
@@ -475,13 +525,10 @@ def _resolve_initiative(record: dict, warnings: list[str]) -> dict | None:
 
 def _check_passive_perception(record: dict, warnings: list[str]) -> None:
     """
-    Cross-check Passive Perception against the ability grid.
+    Warn when Passive Perception is not 10 + Wis (+PB or 2xPB) (±5).
 
-    It is 10 + the creature's Wisdom (Perception) bonus — so plus proficiency
-    where the creature is proficient, or twice it with Expertise — and ±5 for
-    Advantage or Disadvantage, the same adjustment the Initiative score uses.
-    A value outside that set means the senses line and the ability grid came
-    from different stat blocks, which is what column bleed looks like.
+    A mismatch usually means column bleed: the senses line and the ability
+    grid came from different stat blocks.
     """
     senses = record.get("senses")
     abilities = record.get("abilities")
@@ -507,9 +554,15 @@ def extract_stat_blocks(lines: list[Line], pdf_name: str,
     """
     Extract every stat block in the document, in page order.
 
-    *offsets* maps a line's index to its character offset in the rendered
-    markdown; passing it lets each record point at exactly where it was
-    printed, which is how a creature is matched to its section.
+    Args:
+        lines: Output of ``layout.extract_lines``.
+        pdf_name: Recorded in each record's ``source``.
+        offsets: Line index to markdown offset, from ``lines_to_markdown``.
+            Sets ``source.char_start``, which matches a creature to its
+            section.
+
+    Returns:
+        One record per stat block.
     """
     offsets = offsets or {}
     return [parse_stat_block(title, body, pdf_name, offsets.get(i))

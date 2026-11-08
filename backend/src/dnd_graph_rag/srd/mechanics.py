@@ -1,23 +1,13 @@
 """
-Parse the mechanical grammar of attacks, saving throws and effects.
+Attacks, saving throws, damage and imposed conditions, from entry text.
 
-Stat block entries in the 2024 SRD follow a fixed shape::
+Stat block entries use fixed labels::
 
     _Melee Attack Roll:_ +9, reach 10 ft. _Hit:_ 12 (2d6 + 5) Bludgeoning damage.
     _Constitution Saving Throw:_ DC 16, each creature in a 60-foot Cone.
         _Failure:_ 22 (4d10) Poison damage. _Success:_ Half damage.
 
-That regularity is what makes "what deals Thunder damage" or "what forces a
-Constitution save" answerable as queries rather than as full-text search.
-
-Spells state the same things in prose ("Each creature in a 20-foot-radius
-Sphere makes a Dexterity saving throw, taking 8d6 Fire damage"), so they get
-a lighter reader that picks out the same facts without assuming the labels.
-
-Both share one job that matters more than the rest: telling a condition a
-creature *inflicts* from one it merely mentions.  "The target has the
-Poisoned condition" imposes it; "if the target has the Incapacitated
-condition" and "is immune to the Charmed condition" do not.
+Spells say the same in prose, so ``parse_spell_mechanics`` reads less.
 """
 
 from __future__ import annotations
@@ -43,7 +33,16 @@ _USES_RE = re.compile(r"\((Recharge[^)]*|\d+/Day[^)]*)\)", re.IGNORECASE)
 
 
 def parse_uses(name: str) -> dict | None:
-    """Read the limit printed after an entry's name, if any."""
+    """
+    Read a usage limit such as ``(Recharge 5–6)`` or ``(2/Day)``.
+
+    Args:
+        name: An entry name as printed.
+
+    Returns:
+        ``{"type": "recharge" | "per_day" | "other", "printed", ...}`` with
+        ``recharge_on`` or ``times`` as applicable; None without a limit.
+    """
     m = _USES_RE.search(name or "")
     if not m:
         return None
@@ -60,6 +59,7 @@ def parse_uses(name: str) -> dict | None:
 
 
 def strip_uses(name: str) -> str:
+    """An entry name with its usage limit removed."""
     return _clean(_USES_RE.sub("", name or "")) or (name or "").strip()
 
 
@@ -76,7 +76,18 @@ _SPELL_DAMAGE_RE = re.compile(r"(\d+d\d+(?:\s*[+\-]\s*\d+)?)\s+([A-Z]\w+)\s+dama
 
 
 def parse_damage(text: str, with_average: bool = True) -> list[dict]:
-    """Every damage instance in a piece of text, in order."""
+    """
+    Every damage instance in a piece of text, in order.
+
+    Args:
+        text: Entry or spell text.
+        with_average: Try the stat block form ``12 (2d6 + 5) Fire damage``
+            first.  The dice-only form is used when it finds nothing.
+
+    Returns:
+        ``{"average", "dice", "type"}`` per instance; ``average`` is None for
+        the dice-only form.
+    """
     out: list[dict] = []
     if with_average:
         for m in _STATBLOCK_DAMAGE_RE.finditer(text or ""):
@@ -95,24 +106,12 @@ def parse_damage(text: str, with_average: bool = True) -> list[dict]:
 # Conditions
 # ---------------------------------------------------------------------------
 
-# Stat blocks state the outcome ("the target has the Prone condition");
-# spells state it as the alternative to a successful save ("succeed on a
-# Wisdom saving throw or have the Paralyzed condition").
-#
-# One effect routinely imposes several at once, and the book writes that as a
-# list: "the Deafened and Frightened conditions", "the Blinded, Deafened, and
-# Poisoned conditions".  19 entries are phrased that way, and a pattern
-# matching a single capitalised word before a singular "condition" reads none
-# of them — the Tarrasque's Thunderous Bellow and the Rakshasa's Baleful
-# Command came out imposing nothing at all.
-#
-# Conditions joined by *or* are deliberately not read here.  They are two
-# different sentences wearing the same shape: "a creature that has the
-# Grappled, Incapacitated, or Restrained condition" is target eligibility,
-# which the negation below already refuses, while "it has the Blinded or
-# Deafened condition" is a choice between them.  Telling those apart needs
-# more than this regex, and guessing would put the false positives into the
-# graph, which is the one thing this stage exists to prevent.
+# "has the X condition" (stat blocks) or "have the X condition" (spells).
+# X may be an *and* list ("the Blinded, Deafened, and Poisoned conditions");
+# 19 entries use one, including the Tarrasque's Thunderous Bellow.  *Or*
+# lists are not read: "has the Grappled, Incapacitated, or Restrained
+# condition" is usually target eligibility, and this regex cannot tell that
+# from a choice of outcomes.
 _CONDITION_NAME = r"[A-Z]\w+"
 _CONDITION_RE = re.compile(
     rf"\bha(?:s|ve) the ({_CONDITION_NAME}(?:,\s+{_CONDITION_NAME})*"
@@ -120,10 +119,8 @@ _CONDITION_RE = re.compile(
 )
 _CONDITION_SPLIT_RE = re.compile(r",\s+and\s+|,\s+|\s+and\s+")
 
-# A page marker lands wherever the page broke, which is sometimes between a
-# condition and the one it is joined to: the Remorhaz's swallowed creature
-# "has the Blinded <!-- PAGE:320 --> and Restrained conditions".  Cut before
-# matching rather than complicating the pattern, which has enough to do.
+# Page markers can fall inside a condition list: the Remorhaz's swallowed
+# creature "has the Blinded <!-- PAGE:320 --> and Restrained conditions".
 _PAGE_MARKER_RE = re.compile(r"<!--\s*PAGE:\d+\s*-->")
 
 # Words that turn "has the X condition" from something inflicted into a
@@ -140,18 +137,18 @@ def conditions_imposed(text: str) -> list[str]:
     """
     The conditions a piece of text inflicts, as opposed to mentions.
 
-    Only "has the X condition" counts — with X being one condition or several
-    joined by *and*, since one effect routinely imposes a pair — and only when
-    its own clause does not turn it into something else.  The clause is what
-    follows the last comma, semicolon or full stop, which is what separates
-    the two readings:
+    A match is skipped when ``_NEGATION_RE`` hits in its own clause, i.e.
+    after the last ``.``, ``;`` or ``,`` before it:
 
-    * "While Charmed, the target has the Incapacitated condition" inflicts it
-      — "While Charmed" is a scope that ends at the comma;
-    * "while the vampire has the Incapacitated condition" does not, because
-      the qualifier governs the clause the phrase sits in;
-    * "one creature within 5 feet that has the Prone condition" describes
-      which targets are eligible, not what happens to them.
+    * "While Charmed, the target has the Incapacitated condition": inflicts
+    * "while the vampire has the Incapacitated condition": does not
+    * "one creature within 5 feet that has the Prone condition": does not
+
+    Args:
+        text: Entry or spell text, possibly containing page markers.
+
+    Returns:
+        Condition names in order of first appearance, without duplicates.
     """
     text = _PAGE_MARKER_RE.sub(" ", text or "")
     found: list[str] = []
@@ -202,8 +199,13 @@ def parse_entry_mechanics(name: str, description: str) -> dict:
     """
     Read one stat block entry into structured mechanics.
 
-    Returns any of ``uses``, ``attack``, ``save``, ``outcomes``, ``damage``
-    and ``conditions_imposed`` that the entry actually states.
+    Args:
+        name: The entry name, which carries any usage limit.
+        description: The entry text.
+
+    Returns:
+        Whichever of ``uses``, ``attack``, ``save``, ``outcomes``,
+        ``damage`` and ``conditions_imposed`` the entry states.
     """
     text = description or ""
     result: dict = {}
@@ -256,7 +258,15 @@ def parse_entry_mechanics(name: str, description: str) -> dict:
 
 
 def annotate_creatures(creatures: list[dict]) -> int:
-    """Attach parsed mechanics to every entry of every stat block."""
+    """
+    Merge ``parse_entry_mechanics`` into every entry of every creature.
+
+    Args:
+        creatures: Records from ``statblocks.extract_stat_blocks``; mutated.
+
+    Returns:
+        The number of entries that gained any mechanics.
+    """
     parts = ("traits", "actions", "bonus_actions", "reactions", "legendary_actions")
     annotated = 0
     for creature in creatures:
@@ -286,9 +296,12 @@ def parse_spell_mechanics(text: str) -> dict:
     """
     Read what a spell does from its prose.
 
-    Spells do not use the stat block's labels, but they are just as
-    consistent about naming a save's ability, an attack's kind and the type
-    of damage dealt, which is enough for the same queries.
+    Args:
+        text: The spell's description.
+
+    Returns:
+        Whichever of ``saving_throw``, ``attack``, ``damage`` and
+        ``conditions_imposed`` the text states.
     """
     result: dict = {}
 

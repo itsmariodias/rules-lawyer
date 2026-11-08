@@ -1,11 +1,8 @@
 """
-Turn the SRD's equipment tables into flat item records.
+Weapons, armour and adventuring gear as flat item records.
 
-Weapons and armour are printed as tables, not as sections, so without this
-they exist only as rows of markdown inside a section's prose — a graph would
-have to re-parse them out of text.  Adventuring gear is the other way round:
-each item has its own section carrying the rules text, while its weight and
-price live in a table elsewhere, so the two halves are joined here.
+Weapons and armour exist only as table rows.  Gear has a section per item
+for its rules text, joined here with its row in the gear table.
 
 Each record is flat::
 
@@ -21,8 +18,7 @@ Each record is flat::
       "source": {"pdf": ..., "page_start": 91, "page_end": 91}
     }
 
-Prices are also normalised to gold pieces so that items can be compared and
-ordered without every consumer reimplementing the coin table.
+``cost_gp`` normalises every price to gold pieces.
 """
 
 from __future__ import annotations
@@ -48,7 +44,14 @@ _PROPERTY_RE = re.compile(r"[^,(]+(?:\([^)]*\))?")
 
 
 def parse_cost(text: str) -> tuple[str | None, float | None]:
-    """``"4 CP"`` → ``("4 CP", 0.04)``.  Returns (printed, gold) or (None, None)."""
+    """
+    Args:
+        text: A cost cell, e.g. ``"4 CP"``.
+
+    Returns:
+        ``(printed, gold_pieces)``, e.g. ``("4 CP", 0.04)``.  Gold is None
+        when no coin amount is found; printed is None for an empty cell.
+    """
     text = (text or "").strip()
     m = _COST_RE.search(text)
     if not m:
@@ -58,7 +61,13 @@ def parse_cost(text: str) -> tuple[str | None, float | None]:
 
 
 def parse_weight(text: str) -> float | None:
-    """``"1½ lb."`` → ``1.5``.  Returns None for "—" and "Varies"."""
+    """
+    Args:
+        text: A weight cell, e.g. ``"1½ lb."``.
+
+    Returns:
+        Pounds, or None for "—" and "Varies".
+    """
     m = _WEIGHT_RE.search(text or "")
     if not m:
         return None
@@ -67,13 +76,27 @@ def parse_weight(text: str) -> float | None:
 
 
 def parse_damage(text: str) -> dict[str, str] | None:
-    """``"1d8 Slashing"`` → ``{"dice": "1d8", "type": "Slashing"}``."""
+    """
+    Args:
+        text: A damage cell, e.g. ``"1d8 Slashing"`` or the Blowgun's ``"1 Piercing"``.
+
+    Returns:
+        ``{"dice", "type"}``, or None if the cell is not damage.
+    """
     m = _DAMAGE_RE.match((text or "").strip())
     return {"dice": m.group(1), "type": m.group(2)} if m else None
 
 
 def split_properties(text: str) -> list[str]:
-    """Split a Properties cell, keeping parenthesised ranges intact."""
+    """
+    Split a Properties cell, keeping parenthesised commas intact.
+
+    Args:
+        text: e.g. ``"Ammunition (Range 80/320; Bolt), Loading"``.
+
+    Returns:
+        One string per property; empty for "—".
+    """
     text = (text or "").strip()
     if not text or text == "—":
         return []
@@ -90,10 +113,15 @@ def _strip_markup(text: str) -> str:
 
 def read_tables(content: str, keep_markup: bool = False) -> list[list[list[str]]]:
     """
-    Read every markdown table in *content* as rows of cells.
+    Read every markdown pipe table in a section's content.
 
-    Set *keep_markup* to keep the bold and italic markers, which is how a
-    label can still be told from its value when the two share a cell.
+    Args:
+        content: Section markdown.
+        keep_markup: Keep ``**``/``_`` markers, for cells where only the
+            emphasis separates a label from its value.
+
+    Returns:
+        One list of rows per table, each row a list of cell strings.
     """
     tables: list[list[list[str]]] = []
     rows: list[list[str]] = []
@@ -115,15 +143,18 @@ def read_tables(content: str, keep_markup: bool = False) -> list[list[list[str]]
 
 def find_table(nodes, header: tuple[str, ...]) -> tuple[list[list[str]], dict] | None:
     """
-    Collect every table whose header row starts with *header*, as one table.
+    Concatenate every table whose header starts with ``header``.
 
-    Within a section, a table is located by its own header rather than by
-    position, because the book sometimes prints one a subsection away from
-    the prose that introduces it.  A long table is continued on the following
-    page under a repeat of its header — the Adventuring Gear table runs to 81
-    items that way — so the pieces are concatenated, keeping one header.
-    Callers scope *nodes* to a section: "Item | Weight | Cost" is generic
-    enough that Mounts and Vehicles would otherwise be swept in too.
+    Long tables repeat their header on each page (Adventuring Gear runs to 81
+    items), so continuations are merged under the first header.
+
+    Args:
+        nodes: Sections to search.  Scope this with ``subtree``: "Item |
+            Weight | Cost" also matches Mounts and Vehicles.
+        header: Lowercased leading header cells to match.
+
+    Returns:
+        ``(rows, first_matching_section)``, or None if nothing matches.
     """
     merged: list[list[str]] = []
     source: dict | None = None
@@ -140,7 +171,14 @@ def find_table(nodes, header: tuple[str, ...]) -> tuple[list[list[str]], dict] |
 
 
 def subtree(nodes, heading: str) -> list[dict]:
-    """The node with *heading* and everything under it, flattened."""
+    """
+    Args:
+        nodes: Section trees to search at the top level.
+        heading: Exact heading to find.
+
+    Returns:
+        That section and all its descendants, flattened; empty if absent.
+    """
     def flatten(node):
         yield node
         for child in node["subsections"]:
@@ -167,7 +205,16 @@ def _source(node: dict) -> dict:
 
 
 def extract_weapons(nodes) -> list[dict]:
-    """Read the Weapons table, carrying each category row down onto its rows."""
+    """
+    Read the Weapons table.
+
+    Args:
+        nodes: Root sections of the document tree.
+
+    Returns:
+        One weapon record per row, ``category`` taken from the preceding
+        group row ("Simple Melee Weapons" -> "Simple Melee").
+    """
     found = find_table(subtree(nodes, "Weapons"), ("name", "damage", "properties"))
     if not found:
         return []
@@ -177,7 +224,6 @@ def extract_weapons(nodes) -> list[dict]:
 
     for row in rows[1:]:
         if _is_group_row(row):
-            # "Simple Melee Weapons" → "Simple Melee"
             category = re.sub(r"\s*Weapons$", "", row[0]).strip()
             continue
         if len(row) < 6 or not row[0]:
@@ -199,7 +245,15 @@ def extract_weapons(nodes) -> list[dict]:
 
 
 def extract_armor(nodes) -> list[dict]:
-    """Read the Armor table, including the Shield row."""
+    """
+    Read the Armor table, including the Shield row.
+
+    Args:
+        nodes: Root sections of the document tree.
+
+    Returns:
+        One armour record per row.
+    """
     found = find_table(subtree(nodes, "Armor"), ("armor", "armor class (ac)"))
     if not found:
         return []
@@ -238,8 +292,15 @@ def extract_gear(nodes, gear_sections: list[dict]) -> list[dict]:
     """
     Join each Adventuring Gear section with its row in the gear table.
 
-    The section carries the rules text and prints the price in its heading
-    ("Acid (25 GP)"); the table carries weight and price for every item.
+    Args:
+        nodes: Root sections of the document tree.
+        gear_sections: Sections for individual items, headed e.g.
+            "Acid (25 GP)".  The heading price is used when the table has
+            no row for the item.
+
+    Returns:
+        One gear record per section, with ``section_id`` so the loader can
+        fold it into that section.
     """
     found = find_table(subtree(nodes, "Adventuring Gear"), ("item", "weight", "cost"))
     table: dict[str, list[str]] = {}
@@ -271,7 +332,16 @@ def extract_gear(nodes, gear_sections: list[dict]) -> list[dict]:
 
 
 def extract_equipment(nodes, gear_sections: list[dict]) -> list[dict]:
-    """Every weapon, suit of armour and piece of adventuring gear, in one list."""
+    """
+    Every weapon, armour and gear record.
+
+    Args:
+        nodes: Root sections of the document tree.
+        gear_sections: Passed through to ``extract_gear``.
+
+    Returns:
+        Weapons, then armour, then gear.
+    """
     return (extract_weapons(nodes)
             + extract_armor(nodes)
             + extract_gear(nodes, gear_sections))

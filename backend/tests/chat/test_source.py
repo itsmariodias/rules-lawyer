@@ -1,11 +1,3 @@
-"""
-A citation resolved to the book's own words, and to its place on the page.
-
-This is the payoff of carrying ``char_start``/``char_end`` on every node:
-``/source`` slices the markdown at those offsets, and the anchors map the same
-range to the rectangles the UI draws over a render of the page.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -14,8 +6,6 @@ from dnd_graph_rag.chat import source
 
 
 class TestExcerpt:
-    """The source text of one section, with the graph's own view of it."""
-
     def test_given_a_citation_when_excerpted_then_it_resolves_to_the_markdown(
             self, graph, document):
         # Given a cited section
@@ -39,10 +29,6 @@ class TestExcerpt:
 
     def test_given_context_when_excerpted_then_the_slice_widens_but_not_the_highlight(
             self, graph, document):
-        """
-        Which is what lets the panel show a citation in its surroundings and
-        still dim everything that is not it.
-        """
         # Given the same citation excerpted twice
         tight = source.excerpt("11.2.114", context=0)
         wide = source.excerpt("11.2.114", context=300)
@@ -96,14 +82,8 @@ class TestExcerpt:
 
 
 class TestMarkdown:
-    """The intermediate markdown, read once and cached."""
-
     def test_given_the_artifact_when_read_then_it_is_the_same_object_each_time(
             self, markdown):
-        """
-        Together the two files are about 4 MB, and every citation in every
-        conversation slices the same two.
-        """
         # Given the markdown has been read once
         first = source.markdown()
 
@@ -115,8 +95,6 @@ class TestMarkdown:
 
 
 class TestAnchors:
-    """Page geometry per emitted part, in document order."""
-
     def test_given_the_anchors_when_read_then_they_are_ordered_by_offset(
             self, anchors):
         # Given the anchors on disk
@@ -130,10 +108,6 @@ class TestAnchors:
 
     def test_given_no_anchors_when_read_then_a_citation_still_resolves(
             self, settings_env, tmp_path):
-        """
-        Missing on an artifact generated before the anchors existed, which is
-        a re-parse away rather than an error worth failing a citation over.
-        """
         # Given an output directory with no anchors file in it
         settings_env(DND_GRAPH_RAG_DATA=str(tmp_path))
         source.anchors.cache_clear()

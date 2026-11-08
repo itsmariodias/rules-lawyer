@@ -1,11 +1,3 @@
-"""
-Stage 2 over HTTP.
-
-The Neo4j driver is synchronous, so both endpoints run in a worker thread;
-what is worth asserting is that an unreachable database is a 503 rather than
-a traceback, and that a missing artifact is a 404 as it is for stage 1.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -22,8 +14,6 @@ def client() -> TestClient:
 
 
 class TestGraphHealth:
-    """Whether the graph is reachable, and what is currently in it."""
-
     def test_given_a_reachable_graph_when_asked_then_the_counts_come_back(
             self, client, monkeypatch):
         # Given a database that answers
@@ -43,7 +33,6 @@ class TestGraphHealth:
 
     def test_given_an_unreachable_graph_when_asked_then_it_is_unavailable(
             self, client, monkeypatch):
-        """The driver raises a family of connection errors, not one type."""
         # Given a database that cannot be reached
         def refuse():
             raise ConnectionError("connection refused")
@@ -69,8 +58,6 @@ class TestGraphHealth:
 
 
 class TestGraphLoad:
-    """The same run ``srd-graph-load`` makes, triggered remotely."""
-
     def test_given_a_load_when_requested_then_the_verification_report_comes_back(
             self, client, monkeypatch):
         # Given a pipeline that reports a completed load
@@ -144,11 +131,6 @@ class TestGraphLoad:
 
     def test_given_no_embeddings_when_requested_then_it_is_a_conflict(
             self, client, monkeypatch):
-        """
-        409 rather than 404: the file may well be there, and the problem is
-        that it does not cover this artifact and there is no key to finish it
-        with.  Either way the detail names both ways out.
-        """
         # Given a pipeline with neither vectors on disk nor a key
         def missing(input_path, **kwargs):
             raise MissingEmbeddings(

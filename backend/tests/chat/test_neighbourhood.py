@@ -1,11 +1,3 @@
-"""
-One node and what surrounds it, for the graph explorer.
-
-``assemble`` is pure, so the budget arithmetic — which is where the
-off-by-one lives — is tested without a database.  The summary and fact
-readers are pure too.  What is left needs the graph and skips with it.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -15,7 +7,7 @@ from dnd_graph_rag.chat import neighbourhood, retrieval
 
 def row(anchor, uid, type_="REFERENCES_SPELL", outgoing=True, total=1,
         edge=None) -> dict:
-    """One row of ``_NEIGHBOURS``, as the query returns it."""
+    """One ``_NEIGHBOURS`` row."""
     return {"anchor": anchor, "uid": uid, "type": type_, "outgoing": outgoing,
             "total": total, "edge": edge or f"{anchor}->{uid}",
             "labels": ["Section", "Spell"], "entity_type": "spell",
@@ -28,10 +20,7 @@ def seed(uid="root") -> dict:
 
 
 class TestSummarise:
-    """The opening of a passage, as a node's card shows it."""
-
     def test_given_the_books_own_emphasis_when_summarised_then_it_is_stripped(self):
-        """The card shows plain text; the markers are typography, not words."""
         # Given content carrying markdown emphasis mid-sentence
         content = "While Prone, **_Restricted Movement._** You crawl."
 
@@ -41,10 +30,7 @@ class TestSummarise:
             "While Prone, Restricted Movement. You crawl."
 
     def test_given_a_section_that_is_only_a_table_when_summarised_then_it_says_nothing(self):
-        """
-        The Mysterious Deck's content is a hundred-row draw table; read as a
-        sentence it begins "1d100 1d100 | (13-Card | (22-Card |".
-        """
+        """The Mysterious Deck's content is a hundred-row table."""
         # Given a section whose content is a table
         content = ("**1d100** **1d100**\n\n| **(13-Card** | **Card** |\n"
                    "|---|---|\n| 01–05 | Balance |\n| 06–10 | Comet |")
@@ -65,9 +51,7 @@ class TestSummarise:
 
     def test_given_a_short_line_with_no_table_under_it_when_summarised_then_it_stays(self):
         """
-        A stat block opens with "Medium Undead, Neutral evil" — short, no full
-        stop, and the most useful line it has.  What marks an orphan is the
-        table beneath it, not its length.
+        Stat blocks open with short lines like "Medium Undead, Neutral evil".
         """
         # Given a short opening line followed by more prose
         content = "_Medium Undead, Neutral evil_\n\n**AC** 20 **Initiative** +3"
@@ -94,10 +78,7 @@ class TestSummarise:
 
 
 class TestFacts:
-    """What to show for a node with no prose at all."""
-
     def test_given_a_table_row_when_read_then_it_says_what_it_does_carry(self):
-        """A Dagger is a cost, a die and a weight, and not one sentence."""
         # Given the properties of a node that has no description
         pairs = [["name", "Dagger"], ["damage_dice", "1d4"],
                  ["page_start", 71], ["damage_type", "Piercing"],
@@ -111,10 +92,6 @@ class TestFacts:
         assert facts[0]["value"] == "1d4"
 
     def test_given_parallel_resource_arrays_when_read_then_they_are_recombined(self):
-        """
-        The mapper splits a ``resources`` map into two lists because Neo4j
-        stores no nested maps; side by side they read as noise.
-        """
         # Given the two lists as the graph holds them
         pairs = [["resource_names", ["Rages", "Rage Damage"]],
                  ["resource_values", ["3", "+2"]]]
@@ -127,7 +104,6 @@ class TestFacts:
                           "value": "Rages 3, Rage Damage +2"}]
 
     def test_given_a_long_value_when_read_then_it_is_a_line_not_a_paragraph(self):
-        """The Rogue's starting equipment is 180 characters of either/or."""
         # Given a property longer than a card's line
         pairs = [["starting_equipment", "Choose " + "x " * 200]]
 
@@ -146,8 +122,6 @@ class TestFacts:
 
 
 class TestAssemble:
-    """Rows folded into a drawable graph, within the budget."""
-
     def test_given_a_seed_when_assembled_then_it_is_the_only_node_at_depth_zero(self):
         # Given one hop of neighbours
         # When the graph is assembled
@@ -190,7 +164,6 @@ class TestAssemble:
         assert [n["labels"] for n in graph["nodes"]] == [[], ["Spell"]]
 
     def test_given_more_nodes_than_the_budget_when_assembled_then_no_edge_dangles(self):
-        """An edge to a node that was never returned draws as a line into nothing."""
         # Given eight neighbours and room for three
         rows = [row("root", letter) for letter in "abcdefgh"]
 
@@ -226,10 +199,6 @@ class TestAssemble:
         assert graph["truncated"] == []
 
     def test_given_a_fan_that_cut_edges_when_assembled_then_the_count_is_reported(self):
-        """
-        So a reader is told "121 creatures reference Poison damage, here are
-        8" rather than being shown 8 and left to assume that is all.
-        """
         # Given a group the database counted at 121 and sampled at two
         rows = [row("root", letter, total=121) for letter in "ab"]
 
@@ -254,8 +223,6 @@ class TestAssemble:
 
 
 class TestNeighbourhood:
-    """The graph around one node, bounded on every side."""
-
     def test_given_no_seed_when_asked_then_it_is_refused(self):
         # Given neither a section nor a node
         # When the neighbourhood is asked for
@@ -296,10 +263,6 @@ class TestNeighbourhood:
 
     def test_given_a_hub_when_asked_then_it_is_sampled_and_says_what_it_hid(
             self, graph):
-        """
-        Poison damage is referenced from all over the book, so the fan cap is
-        what stands between one click and a hundred and twenty nodes.
-        """
         # Given the most-referenced node in the graph
         poison = retrieval.query(
             "MATCH (n:DamageType {name: 'Poison'}) RETURN elementId(n) AS uid",
@@ -316,11 +279,6 @@ class TestNeighbourhood:
 
     def test_given_a_node_with_no_section_id_when_asked_then_it_can_still_expand(
             self, graph):
-        """
-        The reason a node is addressed by ``uid``: an ability is keyed on
-        ``key`` and a damage type on ``name``, and both are things a reader
-        clicks.
-        """
         # Given a drawn node that is not a section
         found = neighbourhood.neighbourhood(section_id="11.2.114", depth=2)
         term = next(n for n in found["nodes"] if n["section_id"] is None)
@@ -343,10 +301,6 @@ class TestNeighbourhood:
 
     def test_given_the_same_request_twice_when_asked_then_the_sample_is_the_same(
             self, graph):
-        """
-        Sampled by degree with the name breaking ties, so a repeated request
-        returns the same nodes rather than a different picture.
-        """
         # Given the same request made twice
         first = neighbourhood.neighbourhood(section_id="11.2.114", depth=1)
         second = neighbourhood.neighbourhood(section_id="11.2.114", depth=1)

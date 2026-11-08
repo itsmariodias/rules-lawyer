@@ -1,10 +1,4 @@
-"""
-Write the mapped batches into Neo4j.
-
-``mapping`` has already decided what every node and relationship is, so all
-that is left is batching, transactions and progress reporting.  Progress goes
-to an injected callable: the CLI passes ``print``, the API passes nothing.
-"""
+"""Batched ``UNWIND`` writes of mapped batches and vectors into Neo4j."""
 
 from __future__ import annotations
 
@@ -23,7 +17,15 @@ Report = Callable[[str], None]
 
 @contextmanager
 def session(settings: Neo4jSettings | None = None) -> Iterator[Session]:
-    """A session against the configured database, closed on the way out."""
+    """
+    A session on a driver opened for this call and closed with it.
+
+    Args:
+        settings: Defaults to ``get_settings().neo4j``.
+
+    Yields:
+        An open session on the configured database.
+    """
     settings = settings or get_settings().neo4j
     driver: Driver = GraphDatabase.driver(settings.uri, auth=settings.auth)
     try:
@@ -35,11 +37,9 @@ def session(settings: Neo4jSettings | None = None) -> Iterator[Session]:
 
 def node_query(batch: NodeBatch) -> str:
     """
-    MERGE on the key, then overwrite the properties.
+    Cypher that MERGEs each row on its key and sets labels and properties.
 
-    ``SET n += row`` rather than ``SET n = row`` so a node written by one
-    batch and enriched by another — a creature's section, then its stat
-    block — keeps both halves.
+    ``+=`` so properties from an earlier batch on the same node survive.
     """
     labels = "".join(f":{label}" for label in batch.labels)
     return (
@@ -52,11 +52,10 @@ def node_query(batch: NodeBatch) -> str:
 
 def edge_query(batch: EdgeBatch) -> str:
     """
-    Both endpoints are MATCHed, never MERGEd.
+    Cypher that MATCHes both endpoints and MERGEs the relationship.
 
-    An edge whose endpoint is missing is silently skipped here because
-    ``mapping`` has already resolved every one of them and reported anything
-    it could not; a MERGE would instead invent an empty node and hide it.
+    A row with a missing endpoint is skipped silently; ``mapping`` already
+    reported it as unresolved.
     """
     return (
         "UNWIND $rows AS row "
@@ -67,13 +66,8 @@ def edge_query(batch: EdgeBatch) -> str:
     )
 
 
-# A pass of its own rather than a property folded into the mapped rows, for
-# three reasons: ``mapping`` stays a pure function of the document with no
-# knowledge of a vector, ``clean()`` does not walk 1536 floats on every
-# ``add``, and vectors can be refreshed without reloading the graph.
-#
-# MATCH, never MERGE, for the reason ``edge_query`` gives: a key with no
-# section is a stale file, not a licence to invent a node.
+# Separate from the node rows so ``clean()`` never walks 1536 floats per row.
+# MATCH: a key with no section is a stale file and is skipped.
 EMBEDDING_QUERY = (
     "UNWIND $rows AS row "
     "MATCH (n:Section {id: row.id}) "
@@ -96,10 +90,16 @@ def write_embeddings(vectors: Vectors, open_session: Session, *,
                      batch_size: int = 200,
                      report: Report = lambda _: None) -> int:
     """
-    Set one vector per section, in transactions small enough to be sane.
+    Set ``embedding`` on each section in ``vectors``.
 
-    Smaller batches than the node loader's, because each row carries 1536
-    floats rather than a paragraph.
+    Args:
+        vectors: Vectors keyed by section id.
+        open_session: An open session.
+        batch_size: Rows per transaction.
+        report: Receives a progress line.
+
+    Returns:
+        The number of rows sent.
     """
     rows = [{"id": key, "embedding": row}
             for key, row in zip(vectors.keys, vectors.rows)]
@@ -113,11 +113,20 @@ def load_graph(data: GraphData, open_session: Session, *,
                embedding_batch_size: int = 200,
                report: Report = lambda _: None) -> dict:
     """
-    Apply the schema, optionally empty the graph, then write every batch.
+    Apply the schema, optionally reset, then write nodes, edges and vectors.
 
-    Nodes go in before relationships so that every endpoint a relationship
-    matches on already exists, and the embeddings go in last, once there is a
-    section for each of them to land on.
+    Args:
+        data: Output of ``mapping.build``.
+        open_session: An open session.
+        vectors: A vector per section; sets the vector index width.
+        reset: Delete everything first.
+        batch_size: Rows per node or edge transaction.
+        embedding_batch_size: Rows per vector transaction.
+        report: Receives progress lines.
+
+    Returns:
+        Counts written, counts by label and type, unresolved references and
+        mapper warnings.
     """
     statements = schema.apply_schema(open_session,
                                      dimensions=vectors.dimensions)

@@ -1,12 +1,3 @@
-/**
- * State that outlives a reload.
- *
- * Every read and every write is guarded, because `localStorage` does not
- * merely return null in a private window or with site data blocked — the
- * accessor itself throws — and a reading preference is never worth a blank
- * page.  Those are the cases worth the tests.
- */
-
 import { act, renderHook } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -97,11 +88,6 @@ describe('useStored', () => {
 
 describe('useTheme', () => {
   it('given no choice, when rendered, then the machine decides', () => {
-    /**
-     * `system` is the absence of a choice rather than a third palette, so
-     * the attribute is removed and the stylesheet's `color-scheme` follows
-     * the machine.
-     */
     // Given a document carrying an earlier choice
     document.documentElement.dataset.theme = 'dark'
 

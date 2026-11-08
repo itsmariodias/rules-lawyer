@@ -1,12 +1,3 @@
-/**
- * Conversation state for one thread.
- *
- * The server owns the history; this owns only what is on screen.  The
- * streaming assistant message is always the last element of `messages`, and
- * every event folds into it, so that is what these tests drive: events in,
- * rendered conversation out.
- */
-
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -40,7 +31,7 @@ function retrying(...events: ChatEvent[]) {
   })
 }
 
-/** One answered turn, which is what there is to retry. */
+/** One answered turn, to retry. */
 async function answered(result: { current: ReturnType<typeof useChat> }) {
   replying({ type: 'start', thread_id: 'held' },
            { type: 'token', text: 'The first answer.' })
@@ -122,7 +113,6 @@ describe('apply', () => {
   })
 
   it('given a tool call, when it starts and ends, then it is shown then marked done', async () => {
-    /** A graph RAG answer is only trustworthy if you can see the retrieval. */
     // Given a turn that searches
     replying(
       { type: 'tool_start', id: 't1', name: 'search_srd', args: { query: 'Prone' } },
@@ -169,10 +159,6 @@ describe('apply', () => {
   })
 
   it('given a failed turn, when the error arrives, then it is the answer', async () => {
-    /**
-     * The model is required, so nothing stands in for it: the failure is
-     * what the reader is given, not a banner over a substitute answer.
-     */
     // Given a turn the model could not answer
     replying({ type: 'error', message: 'The Gemini quota is spent' })
     const { result } = renderHook(() => useChat())
@@ -188,7 +174,6 @@ describe('apply', () => {
 
 describe('open', () => {
   it('given a stored conversation, when opened, then it is fetched, not cached', async () => {
-    /** The server owns the history, which is why switching is a fetch. */
     // Given a conversation on the server
     vi.mocked(api.loadThread).mockResolvedValue([
       { role: 'user', content: 'Prone?' },
@@ -224,10 +209,6 @@ describe('reset', () => {
 
 describe('forget', () => {
   it('given the conversation being read, when deleted, then it leaves the screen too', async () => {
-    /**
-     * Leaving its turns up with nothing behind them would invite a reply
-     * into a thread that no longer exists.
-     */
     // Given the open conversation
     replying({ type: 'start', thread_id: 'abc' })
     const { result } = renderHook(() => useChat())
@@ -259,10 +240,6 @@ describe('forget', () => {
 
 describe('pin', () => {
   it('given a conversation, when pinned, then the list is refetched', async () => {
-    /**
-     * The order is the server's: there is one answer to where a thread sits
-     * and it is not the browser's.
-     */
     // Given the thread list has been loaded once
     const { result } = renderHook(() => useChat())
     await waitFor(() => expect(api.listThreads).toHaveBeenCalled())
@@ -293,12 +270,6 @@ describe('threads', () => {
 
 describe('retry', () => {
   it('given an answered turn, when retried, then the answer is replaced', async () => {
-    /**
-     * The whole point of a retry: the conversation must hold one question
-     * where the reader asked one, on screen and in the checkpoint both.
-     * Appending would leave the question twice over the moment it is
-     * reopened.
-     */
     // Given an answered conversation
     const { result } = renderHook(() => useChat())
     await answered(result)
@@ -317,11 +288,6 @@ describe('retry', () => {
   })
 
   it('given a turn that failed, when retried, then the error goes with it', async () => {
-    /**
-     * The error is the reply, so it has to be cleared by the reply that
-     * replaces it. Left behind, the failure would sit above an answer that
-     * contradicts it.
-     */
     // Given a turn the model could not answer
     const { result } = renderHook(() => useChat())
     replying({ type: 'start', thread_id: 'held' },

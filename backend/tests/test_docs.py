@@ -1,10 +1,5 @@
 """
-Keep GRAPH.md — and the graph explorer's palette — honest.
-
-Neither is code, and both go stale the moment the mapper gains or loses a
-label.  They are checked against ``mapping`` rather than against a live
-database, so they run without Docker: the mapper is what decides the graph's
-shape anyway.
+Holds GRAPH.md and ``graph-layout.ts``'s ``KINDS`` table against ``mapping``.
 """
 
 from __future__ import annotations
@@ -23,7 +18,7 @@ PALETTE = ROOT / "frontend" / "src" / "components" / "graph-layout.ts"
 
 @pytest.fixture(scope="module")
 def documented() -> tuple[set[str], set[str]]:
-    """The labels and relationship types GRAPH.md has an entry for."""
+    """Labels and relationship types with an entry in GRAPH.md."""
     if not GRAPH_MD.exists():
         pytest.skip(f"{GRAPH_MD} is missing")
     text = GRAPH_MD.read_text(encoding="utf-8")
@@ -36,16 +31,14 @@ def documented() -> tuple[set[str], set[str]]:
 
 @pytest.fixture(scope="module")
 def coloured() -> set[str]:
-    """The labels ``graph-layout``'s ``KINDS`` table gives a colour to."""
+    """Labels with a colour in ``graph-layout.ts``'s ``KINDS`` table."""
     if not PALETTE.exists():
         pytest.skip(f"{PALETTE} is missing")
     text = PALETTE.read_text(encoding="utf-8")
     table = re.search(r"KINDS: \[string, string\[\]\]\[\] = \[.*?\n\]", text, re.S)
     assert table, "graph-layout.ts no longer has a KINDS table to read"
     quoted = re.findall(r"'([\w]+)'", table.group(0))
-    # A row is `['kind', ['Label', …]]`, so the kind name is the quoted
-    # string followed by a comma and the opening of the label list — which
-    # is what tells it apart from the first label inside that list.
+    # Rows are `['kind', ['Label', …]]`; a kind is followed by `, [`.
     kinds = set(re.findall(r"\[\s*'([\w]+)'\s*,\s*\[", table.group(0)))
     return set(quoted) - kinds
 
@@ -61,8 +54,6 @@ def built_labels(built) -> set[str]:
 
 
 class TestGraphMd:
-    """The document describing every label and relationship the loader builds."""
-
     def test_given_the_mapper_when_compared_then_every_label_is_documented(
             self, built_labels, documented):
         # Given the labels the mapper actually builds
@@ -115,20 +106,11 @@ class TestGraphMd:
 
 
 class TestGraphViewPalette:
-    """
-    The explorer's colours, which are a priority list rather than a lookup.
-
-    A label missing from it is not an error anywhere: the node draws, and
-    only someone who knows the graph notices it is the wrong colour.  So the
-    table is read out of ``graph-layout.ts`` and held against the mapper.
-    """
-
     def test_given_the_mapper_when_compared_then_every_label_has_a_colour(
             self, built_labels, coloured):
         # Given the labels the mapper builds
         # When they are held against the palette
-        # ``:Section`` is the fallback itself — it is on 2368 nodes and says
-        # nothing about which one this is.
+        # ``:Section`` is deliberately uncoloured (the grey fallback).
         missing = built_labels - coloured - {"Section"}
 
         # Then no node falls through to the bare-section grey by accident
@@ -147,15 +129,8 @@ class TestGraphViewPalette:
 
 
 class TestTheArtifactsOwnClaims:
-    """The assertion ``srd-parse`` makes, held against the artifact on disk."""
-
     def test_given_the_artifact_when_checked_then_every_section_has_geometry(
             self, document, anchors):
-        """
-        Character offsets and page rectangles are derived by different routes
-        — one from the ``<!-- PAGE:n -->`` markers, the other from the lines
-        themselves — so agreeing means both describe the same passage.
-        """
         # Given the artifact and the anchors beside it
         from dnd_graph_rag.srd.pipeline import section_boxes, walk
 

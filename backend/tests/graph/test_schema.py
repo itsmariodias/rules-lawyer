@@ -1,10 +1,3 @@
-"""
-Constraints, indexes and the reset.
-
-The statement builders are pure strings, so they are checked here; applying
-them needs a database and lives in ``test_loader.py``.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -13,8 +6,6 @@ from dnd_graph_rag.graph import mapping, schema
 
 
 class TestConstraintStatements:
-    """One uniqueness constraint per key the mapper merges on."""
-
     def test_given_the_node_keys_when_built_then_each_becomes_a_constraint(self):
         # Given the keys nodes are identified by
         # When the statements are built
@@ -35,10 +26,6 @@ class TestConstraintStatements:
         assert "REQUIRE n.id IS UNIQUE" in section
 
     def test_given_the_mapper_when_compared_then_every_merged_key_is_constrained(self):
-        """
-        These mirror the keys ``mapping`` merges on; adding a label there
-        means adding it here.
-        """
         # Given the labels and keys the mapper actually merges on
         built = {(batch.primary, batch.key)
                  for batch in mapping.build(EMPTY_DOCUMENT).nodes}
@@ -49,8 +36,6 @@ class TestConstraintStatements:
 
 
 class TestIndexStatements:
-    """Secondary indexes, plus the two indexes retrieval reaches through."""
-
     def test_given_the_declared_indexes_when_built_then_each_becomes_a_statement(self):
         # Given the secondary indexes
         # When the statements are built
@@ -60,7 +45,6 @@ class TestIndexStatements:
         assert len(statements) == len(schema.INDEXES) + 2
 
     def test_given_the_statements_when_read_then_the_full_text_index_is_there(self):
-        """It is what ``retrieval.search`` queries by name."""
         # Given the statements
         # When the full-text one is found
         fulltext = next(s for s in schema.index_statements(1536)
@@ -70,10 +54,6 @@ class TestIndexStatements:
         assert "n.heading, n.content" in fulltext
 
     def test_given_a_dimension_when_built_then_the_vector_index_carries_it(self):
-        """
-        The width is baked into the index, so it has to come from the same
-        settings the vectors were generated under.
-        """
         # Given the statements built for 1536-wide vectors
         # When the vector one is found
         vector = next(s for s in schema.index_statements(1536)
@@ -87,8 +67,6 @@ class TestIndexStatements:
 
 
 class TestVectorStatement:
-    """The vector index, alone."""
-
     def test_given_a_different_dimension_when_built_then_the_statement_differs(self):
         # Given two widths
         # When each is built
@@ -101,13 +79,7 @@ class TestVectorStatement:
 
 
 class TestReset:
-    """Emptying the graph, in batches."""
-
     def test_given_nothing_left_to_delete_when_reset_then_it_stops(self):
-        """
-        A full reload is the default: the artifact is the whole truth, and
-        merging alone would leave behind nodes a re-parse has since dropped.
-        """
         # Given a session that reports one batch deleted and then none
         session = FakeSession([3, 0])
 

@@ -1,16 +1,9 @@
 """
-Structured records for the character-building half of the SRD: classes,
-species, backgrounds and feats.
+Classes, species, backgrounds, feats, poisons and damage types as records.
 
-These are printed as sections rather than stat blocks, but their shape is
-just as regular.  A class states its core traits in a two-column table, its
-level progression in a wide one, and its features as headings that carry the
-level in their text ("Level 9: Brutal Strike").  A species, background or
-feat opens with a run of bold labels.  All of that survives as prose unless
-it is read out deliberately, which is what this module does.
-
-The level a feature is gained at is the useful part: it turns a class from a
-page of text into a progression a graph can answer questions about.
+A class has a Core Traits table, a level progression table, and feature
+headings of the form "Level 9: Brutal Strike".  Species, backgrounds and
+feats open with a run of bold labels.
 """
 
 from __future__ import annotations
@@ -37,11 +30,14 @@ def _key(label: str) -> str:
 
 def parse_labeled_fields(text: str) -> dict[str, str]:
     """
-    Read a run of bold labels into a dict.
+    Read a run of ``**Label:** value`` pairs.
 
-    Species, backgrounds and class core traits all open the same way — a
-    sequence of "**Label:** value" on one line — so one reader serves them
-    all.  A value runs until the next label or the end of the paragraph.
+    Args:
+        text: Section markdown.  A value ends at the next label or the end
+            of its paragraph.
+
+    Returns:
+        snake_case label to plain-text value.
     """
     matches = list(_LABEL_RE.finditer(text or ""))
     fields: dict[str, str] = {}
@@ -63,15 +59,9 @@ def _normalise_trait_rows(rows: list[list[str]]) -> list[tuple[str, str]]:
     """
     Repair the label/value pairs of a Core Traits table.
 
-    Three things go wrong when these two-column tables are rebuilt from the
-    page, and all three are visible in the cells themselves:
-
-    * a label and the start of its value share the first cell, with the rest
-      of the value in the second ("**Weapon Proficiencies** Simple weapons
-      and Martial" | "weapons that have the Light property");
-    * a value lands one row above its label, leaving each of them half empty
-      (the Monk's Primary Ability);
-    * "Proficiencies" is a bare sub-heading with no value at all.
+    Handles three extraction faults: a label sharing its cell with the start
+    of its value; a value one row above its label (the Monk's Primary
+    Ability); and "Proficiencies" as a bare sub-heading with no value.
     """
     pairs: list[tuple[str, str]] = []
     pending_value: str | None = None
@@ -98,12 +88,10 @@ def _normalise_trait_rows(rows: list[list[str]]) -> list[tuple[str, str]]:
 
 def _core_traits(nodes) -> dict[str, str]:
     """
-    Read a class's "Core <Class> Traits" table, plus the labelled paragraphs
-    printed beside it.
+    Read a class's Core Traits table.
 
-    Starting Equipment sits outside the table for several classes, as a bold
-    label in the running text, so both sources are read and the table wins
-    where they overlap.
+    Several classes print Starting Equipment as a bold label outside the
+    table, so that is read from prose too; the table wins on overlap.
     """
     traits: dict[str, str] = {}
     for node in nodes:
@@ -125,10 +113,9 @@ def _progression(nodes, class_name: str) -> list[dict]:
     """
     Read a "<Class> Features" table into one record per level.
 
-    Its header wraps onto two printed lines ("Proficiency" above "Bonus"), so
-    every row before the one starting "Level" is folded into the header.
-    Columns beyond level, proficiency bonus and features differ per class —
-    Rages, Sneak Attack, Spell Slots — and are kept as named resources.
+    The header wraps over two rows ("Proficiency" / "Bonus"), so rows up to
+    the one containing "Level" are folded into it.  Class-specific columns
+    (Rages, Sneak Attack, Spell Slots) go into ``resources``.
     """
     found = find_table(subtree(nodes, f"{class_name} Class Features"), ("",))
     tables = [rows for node in subtree(nodes, class_name)
@@ -186,7 +173,16 @@ def _features_of(node: dict, subclass: str | None) -> list[dict]:
 
 
 def extract_classes(tree) -> list[dict]:
-    """Every class, with its core traits, level progression and features."""
+    """
+    Every class, with its core traits, level progression and features.
+
+    Args:
+        tree: Root sections of the document tree.
+
+    Returns:
+        One record per child of "Classes"; ``features`` includes subclass
+        features, each tagged with its ``subclass``.
+    """
     classes_section = next((n for n in tree if n["heading"] == "Classes"), None)
     if not classes_section:
         return []
@@ -238,9 +234,8 @@ def _entity_from_section(node: dict, kind: str) -> dict:
     }
     record.update(parse_labeled_fields(node["content"]))
 
-    # A table printed mid-entry splits the rest of the traits into a child
-    # section (the Draconic Ancestors table does this to the Dragonborn), so
-    # named entries are gathered from the whole subtree, not just the top.
+    # A mid-entry table pushes later traits into a child section (Draconic
+    # Ancestors in Dragonborn), so collect entries from the whole subtree.
     traits = [
         {"name": e["name"], "description": e["description"]}
         for n in _flatten(node) for e in n.get("entries", [])
@@ -264,11 +259,25 @@ def _children_of(nodes, heading: str) -> list[dict]:
 
 
 def extract_species(nodes) -> list[dict]:
+    """
+    Args:
+        nodes: Sections to search for "Species Descriptions".
+
+    Returns:
+        One record per species, with labelled fields and ``traits``.
+    """
     return [_entity_from_section(n, "species")
             for n in _children_of(nodes, "Species Descriptions")]
 
 
 def extract_backgrounds(nodes) -> list[dict]:
+    """
+    Args:
+        nodes: Sections to search for "Background Descriptions".
+
+    Returns:
+        One record per background, with its labelled fields.
+    """
     return [_entity_from_section(n, "background")
             for n in _children_of(nodes, "Background Descriptions")]
 
@@ -278,11 +287,15 @@ _FEAT_CATEGORY_RE = re.compile(r"^_([A-Za-z ]*?Feat)_", re.MULTILINE)
 
 def extract_feats(nodes) -> list[dict]:
     """
-    Every feat, with the category the book prints under its name.
+    Every feat, with its category.
 
-    Feats are grouped into "Origin Feats", "General Feats" and so on; the
-    category is also italicised under each feat, which is the more reliable
-    of the two because a feat keeps it wherever it is reprinted.
+    Args:
+        nodes: Sections to search for "Feat Descriptions".
+
+    Returns:
+        One record per feat.  ``category`` comes from the italic line under
+        the feat's name, falling back to its group heading; ``group`` is the
+        heading it was printed under.
     """
     out: list[dict] = []
     for group in _children_of(nodes, "Feat Descriptions"):
@@ -311,16 +324,14 @@ _POISON_TYPE_LABEL_RE = re.compile(r"\*\*([A-Z][A-Za-z ]+?)\.\*\*\s*")
 
 def extract_poison_types(nodes) -> list[dict]:
     """
-    The four delivery types, from the paragraph that introduces them.
+    The four poison delivery types, as glossary terms.
 
-    A closed vocabulary printed the same way the damage types are: one
-    passage defining all of them, so they are not 1:1 with a section and
-    belong in the glossary beside the other typed terms rather than in the
-    tree.  Each poison names one, which is what makes the pairing useful —
-    a poison can be read together with what its type actually does.
+    Args:
+        nodes: Flattened sections; the "Poison" section is searched.
 
-    Returns nothing if the book stops introducing them this way, rather than
-    guessing at the labels.
+    Returns:
+        One glossary record per type, all sharing the defining section's id.
+        Empty if the introducing sentence is not found.
     """
     for node in nodes:
         if node["heading"] != "Poison":
@@ -348,10 +359,14 @@ def extract_poison_types(nodes) -> list[dict]:
 
 def extract_poisons(nodes) -> list[dict]:
     """
-    The Sample Poisons, which are priced items like any other equipment.
+    The Sample Poisons, as equipment records.
 
-    Their heading carries the price and their first line the delivery type
-    ("Ingested", "Inhaled", "Contact", "Injury").
+    Args:
+        nodes: Sections to search for "Sample Poisons".
+
+    Returns:
+        One record per poison; price from the heading, ``poison_type`` from
+        the first italic line, ``section_id`` for folding into the section.
     """
     from .equipment import parse_cost
 
@@ -383,11 +398,14 @@ def extract_poisons(nodes) -> list[dict]:
 
 def extract_damage_types(nodes) -> list[dict]:
     """
-    The damage types, from the glossary's Damage Types table.
+    The damage types, from the Damage Types table.
 
-    They are a closed vocabulary that resistances, immunities and every
-    attack refer to, so they belong in the graph as nodes rather than as
-    repeated strings.  The book prints the table in two halves side by side.
+    Args:
+        nodes: Flattened sections; "Damage Types" is searched.  The table is
+            printed in two side-by-side halves, so duplicates are skipped.
+
+    Returns:
+        One glossary record per damage type.
     """
     out: list[dict] = []
     seen: set[str] = set()

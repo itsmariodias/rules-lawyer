@@ -1,12 +1,3 @@
-"""
-Stage 3 over HTTP: the chat stream, its threads, and what a citation opens.
-
-The routes hold no state — the checkpointer and the store are opened by the
-app's lifespan and reached through ``request.app.state`` — so the client here
-runs the lifespan, with the conversation files pointed at a temporary
-directory.
-"""
-
 from __future__ import annotations
 
 import json
@@ -18,7 +9,7 @@ from dnd_graph_rag.api import app
 
 
 def events_of(response) -> list[dict]:
-    """The SSE body, back into the dicts ``service`` yielded."""
+    """Parse an SSE body back into event dicts."""
     return [json.loads(line[len("data: "):])
             for line in response.text.splitlines()
             if line.startswith("data: ")]
@@ -27,13 +18,9 @@ def events_of(response) -> list[dict]:
 @pytest.fixture
 def client(settings_env, tmp_path):
     """
-    A client whose conversations live in a temporary directory.
-
-    Only ``chat/`` is temporary — ``/source`` reads the real markdown and
-    anchors, so ``source/`` and ``output/`` are linked through to the
-    checkout rather than copied.  ``CHAT_STUB=1`` so a turn runs the scripted
-    model rather than reaching Gemini: the agent loop, the tools and the
-    citations are the live ones, and every event a real turn emits arrives.
+    A test client with ``CHAT_STUB=1`` and conversation stores in a temporary
+    directory.  ``source/`` and ``output/`` are symlinked to the checkout for
+    ``/source``.
     """
     from dnd_graph_rag.chat import source
     from dnd_graph_rag.chat.agent import build_agent
@@ -56,12 +43,8 @@ def client(settings_env, tmp_path):
 
 
 class TestChat:
-    """One turn, streamed as server-sent events."""
-
     def test_given_a_message_when_posted_then_the_stream_opens_with_a_thread_id(
             self, client, graph):
-        """Minted here when the browser sends none, and reported so it can
-        keep using it."""
         # Given a first message with no thread
         response = client.post("/chat", json={"message": "Prone condition"})
 
@@ -75,8 +58,6 @@ class TestChat:
 
     def test_given_a_turn_when_streamed_then_it_is_not_buffered_by_a_proxy(
             self, client, graph):
-        """Without these a reverse proxy delivers the answer in one piece,
-        which defeats the point."""
         # Given a turn
         response = client.post("/chat", json={"message": "Prone condition"})
 
@@ -100,11 +81,6 @@ class TestChat:
 
     def test_given_no_api_key_when_posted_then_the_turn_is_refused_outright(
             self, client, settings_env, monkeypatch):
-        """
-        The model is required, and a missing key is the one failure knowable
-        before the response is committed — so it is an HTTP error rather than
-        an event buried in a stream that had already opened as a turn.
-        """
         # Given a server with the key blanked out and no stub
         from dnd_graph_rag.chat.agent import build_agent
 
@@ -143,8 +119,6 @@ class TestChat:
 
 
 class TestChatThreads:
-    """Stored conversations, pinned first and newest first within that."""
-
     def test_given_no_conversations_when_listed_then_the_list_is_empty(self, client):
         # Given a fresh store
         # When the threads are listed
@@ -168,11 +142,6 @@ class TestChatThreads:
 
     def test_given_a_new_conversation_when_listed_then_its_summary_is_the_title(
             self, client, graph, monkeypatch):
-        """
-        Written beside the opening turn and stored before its stream ends,
-        which is when the browser refreshes the list.  Only the opening turn
-        asks for one: a follow-up does not retitle the conversation.
-        """
         # Given a model that titles every question it is asked about
         from dnd_graph_rag.chat import titles
 
@@ -197,8 +166,6 @@ class TestChatThreads:
 
 
 class TestChatThread:
-    """One conversation's turns, for reopening it in the UI."""
-
     def test_given_a_stored_conversation_when_fetched_then_its_turns_come_back(
             self, client, graph):
         # Given a conversation with one turn in it
@@ -214,7 +181,6 @@ class TestChatThread:
 
     def test_given_a_stored_conversation_when_fetched_then_its_cost_matches_the_live_one(
             self, client, graph):
-        """Both read the stored messages, so reopening shows what was shown."""
         # Given a turn, and what it reported as it streamed
         live = next(e for e in events_of(client.post(
             "/chat", json={"message": "Prone condition", "thread_id": "kept"}))
@@ -229,10 +195,6 @@ class TestChatThread:
 
     def test_given_a_stored_conversation_when_fetched_then_its_turns_are_dated(
             self, client, graph):
-        """
-        Taken from the checkpoint that stored each message, which is the one
-        thing that survives a reload and a restart.
-        """
         # Given an answered conversation
         client.post("/chat", json={"message": "Prone condition",
                                    "thread_id": "dated"})
@@ -248,14 +210,8 @@ class TestChatThread:
     def test_given_a_reopened_conversation_when_fetched_then_the_lookups_survive(
             self, client, graph):
         """
-        The retrieval used to be dropped on the way back, so a conversation
-        reopened from the list showed its answers with nothing under them and
-        the trace read as something that had never happened.
-
-        This is the test that has to go through the real checkpointer: the
-        status and summary ride on the tool result as an artifact, and an
-        artifact that does not survive being written to SQLite and read back
-        would fail here and nowhere else.
+        Uses the real SQLite checkpointer: the tool artifact must survive
+        serialisation.
         """
         # Given a conversation whose answer came from a search
         client.post("/chat", json={"message": "Prone condition",
@@ -282,8 +238,6 @@ class TestChatThread:
 
 
 class TestPinThread:
-    """Pinning, which decides where a conversation sits in the list."""
-
     def test_given_a_conversation_when_pinned_then_it_sorts_above_the_rest(
             self, client, graph):
         # Given two conversations, the older one pinned
@@ -318,7 +272,6 @@ class TestPinThread:
 
     def test_given_a_thread_that_does_not_exist_when_pinned_then_it_is_a_not_found(
             self, client):
-        """A pin on a thread that does not exist is a row nothing would read."""
         # Given an id nothing was stored under
         # When it is pinned
         response = client.put("/chat/threads/never-used/pin",
@@ -329,15 +282,8 @@ class TestPinThread:
 
 
 class TestChatLookup:
-    """What one lookup in a conversation returned."""
-
     def test_given_a_stored_lookup_when_fetched_then_its_result_comes_back(
             self, client, graph):
-        """
-        Its own request rather than part of the conversation: one turn of a
-        real question stores a hundred kilobytes of table, almost none of
-        which anyone opens.
-        """
         # Given an answered conversation
         client.post("/chat", json={"message": "Prone condition",
                                    "thread_id": "kept"})
@@ -370,8 +316,6 @@ class TestChatLookup:
 
 
 class TestForgetThread:
-    """Deleting one conversation: its turns, its tool calls and its pin."""
-
     def test_given_a_conversation_when_deleted_then_it_leaves_the_listing(
             self, client, graph):
         # Given a stored conversation
@@ -388,7 +332,6 @@ class TestForgetThread:
 
     def test_given_an_id_nobody_used_when_deleted_then_it_is_a_not_found(
             self, client):
-        """So the UI can tell a delete from a no-op."""
         # Given an id nothing was stored under
         # When it is deleted
         # Then the absence is reported
@@ -396,17 +339,11 @@ class TestForgetThread:
 
 
 class TestRetryTurn:
-    """Asking the last question again, in place of the answer it got."""
-
     def test_given_an_answered_turn_when_retried_then_it_is_replaced(
             self, client, graph):
         """
-        The property the whole feature rests on.  Re-sending the text would
-        append, and a conversation holding the same question twice is what a
-        reader would find the next time they opened it.
-
-        Through the real checkpointer, because the rewind is a branch in it
-        and nothing else would catch a fork that left the old turn standing.
+        Uses the real checkpointer, which is where a fork that left the old
+        turn reachable would show.
         """
         # Given a conversation of two answered turns
         client.post("/chat", json={"message": "Prone condition",
@@ -430,9 +367,8 @@ class TestRetryTurn:
     def test_given_the_only_turn_of_a_thread_when_retried_then_it_is_alone(
             self, client, graph):
         """
-        The first question has no checkpoint before it to branch from, so it
-        rewinds by clearing the thread.  The id has to survive that: it is
-        what the browser is holding and what a pin would be keyed on.
+        The thread id must survive: the browser holds it and pins are keyed on
+        it.
         """
         # Given a conversation of one turn
         client.post("/chat", json={"message": "Prone condition",
@@ -452,8 +388,6 @@ class TestRetryTurn:
 
     def test_given_a_retried_turn_when_reopened_then_the_new_lookups_are_under_it(
             self, client, graph):
-        """A retry re-runs the retrieval, so the trace under the answer has
-        to be the one that produced it."""
         # Given a retried conversation
         client.post("/chat", json={"message": "Prone condition",
                                    "thread_id": "traced"})
@@ -468,8 +402,6 @@ class TestRetryTurn:
 
     def test_given_an_id_nobody_used_when_retried_then_it_is_a_not_found(
             self, client):
-        """Raised before the response is committed, so a 404 never arrives
-        inside a stream that has already announced itself as a turn."""
         # Given an id nothing was stored under
         # When it is retried
         response = client.post("/chat/threads/never-used/retry")
@@ -480,8 +412,6 @@ class TestRetryTurn:
 
 
 class TestSource:
-    """The SRD text behind a citation."""
-
     def test_given_a_citation_when_fetched_then_the_book_and_its_geometry_arrive(
             self, client, graph):
         # Given a cited section
@@ -515,8 +445,6 @@ class TestSource:
 
 
 class TestNeighbourhood:
-    """The graph around one node."""
-
     def test_given_a_citation_when_asked_then_the_nodes_and_edges_come_back(
             self, client, graph):
         # Given a cited section
@@ -530,10 +458,6 @@ class TestNeighbourhood:
 
     def test_given_a_drawn_node_when_asked_then_it_expands_by_its_own_id(
             self, client, graph):
-        """
-        A citation names a section, but the interesting neighbours are not
-        all sections — so a drawn node is addressed by the uid it came with.
-        """
         # Given a node from an earlier answer
         first = client.get("/neighbourhood",
                            params={"section": "11.2.114"}).json()
@@ -568,7 +492,6 @@ class TestNeighbourhood:
 
     def test_given_a_fan_of_zero_when_asked_then_it_is_raised_to_one(
             self, client, graph):
-        """A fan of zero would return a seed and nothing at all."""
         # Given caps below what draws anything
         # When the neighbourhood is asked for
         body = client.get("/neighbourhood",

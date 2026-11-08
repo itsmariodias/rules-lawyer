@@ -1,17 +1,10 @@
-/**
- * What an answer cost in tokens, in the row that says when it was.
- *
- * One number in the row, the total, because that is what counts against a
- * quota. How it divides is on hover: an agentic turn re-reads the system
- * prompt and every result on each call, so the total is mostly reading, and
- * saying that out loud on every answer would be noise.
- */
+/** An answer's total token count, with the in/out/calls split on hover. */
 
 import type { Usage as Counts } from '../api'
 
 const grouped = (n: number) => n.toLocaleString('en-US')
 
-/** `18240` → `18,240 tokens`; one is a token. */
+/** `18240` -> `18,240 tokens`. */
 export function formatTokens(n: number): string {
   return `${grouped(n)} ${n === 1 ? 'token' : 'tokens'}`
 }

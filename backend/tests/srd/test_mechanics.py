@@ -1,11 +1,3 @@
-"""
-Attacks, saves, damage and the conditions an entry imposes.
-
-Every function here is pure text-in, structure-out, so the whole module is
-tested without the PDF.  The distinction that costs real debugging time —
-a condition *inflicted* versus one merely mentioned — has a class of its own.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -14,8 +6,6 @@ from dnd_graph_rag.srd import mechanics
 
 
 class TestParseUses:
-    """The limit printed after an entry's name."""
-
     def test_given_a_recharge_range_when_parsed_then_both_faces_are_kept(self):
         # Given an entry named with a recharge range
         name = "Fire Breath (Recharge 5–6)"
@@ -57,8 +47,6 @@ class TestParseUses:
 
 
 class TestStripUses:
-    """The entry's own name, with the printed limit removed."""
-
     def test_given_a_name_carrying_a_limit_when_stripped_then_only_the_name_is_left(self):
         # Given a name with a recharge printed after it
         # When the limit is stripped
@@ -73,8 +61,6 @@ class TestStripUses:
 
 
 class TestParseDamage:
-    """Every damage instance in a piece of text, in order."""
-
     def test_given_a_stat_blocks_average_and_dice_when_parsed_then_both_are_read(self):
         # Given the form a stat block prints
         text = "_Hit:_ 12 (2d6 + 5) Bludgeoning damage."
@@ -97,7 +83,6 @@ class TestParseDamage:
         assert [d["type"] for d in damage] == ["Piercing", "Poison"]
 
     def test_given_a_spells_bare_dice_when_parsed_then_the_average_is_absent(self):
-        """A sentinel average would read as a number the book never printed."""
         # Given the form a spell prints, with no average
         # When the damage is parsed
         damage = mechanics.parse_damage("takes 8d6 Fire damage")
@@ -106,11 +91,6 @@ class TestParseDamage:
         assert damage == [{"average": None, "dice": "8d6", "type": "Fire"}]
 
     def test_given_averages_are_not_wanted_when_parsed_then_only_the_spell_form_matches(self):
-        """
-        A spell prints its dice against the damage type directly.  A stat
-        block puts the dice in parentheses after the average, so asking for
-        the spell form alone deliberately does not match it.
-        """
         # Given a caller reading a spell
         # When spell-shaped and stat-block-shaped text are each parsed
         spell = mechanics.parse_damage("8d6 Fire damage", with_average=False)
@@ -137,19 +117,8 @@ class TestParseDamage:
 
 
 class TestConditionsImposed:
-    """
-    Which conditions a piece of text *inflicts*, as opposed to mentions.
-
-    Typography only says two things appear together; the direction comes from
-    the clause the phrase sits in.
-    """
-
     def test_given_a_pair_joined_by_and_when_scanned_then_both_are_imposed(self):
-        """
-        One effect routinely imposes several at once.  Reading only the
-        singular form left the Tarrasque's Thunderous Bellow and the
-        Rakshasa's Baleful Command imposing nothing at all.
-        """
+        """Regression: the Tarrasque's Thunderous Bellow imposed nothing."""
         # Given an outcome inflicting two conditions at once
         text = ("_Failure:_ 78 (12d12) Thunder damage, and the target has "
                 "the Deafened and Frightened conditions until the end of "
@@ -171,8 +140,7 @@ class TestConditionsImposed:
     def test_given_a_page_marker_inside_a_pair_when_scanned_then_it_is_ignored(
             self):
         """
-        A page marker lands wherever the page broke, which for the Remorhaz's
-        swallowed creature is between the two conditions it gets.
+        The Remorhaz's swallow has a page break between its two conditions.
         """
         # Given a pair split by the marker the markdown carries
         text = ("A swallowed creature has the Blinded\n\n<!-- PAGE:320 -->"
@@ -184,11 +152,7 @@ class TestConditionsImposed:
 
     def test_given_conditions_joined_by_or_when_scanned_then_none_is_imposed(
             self):
-        """
-        Two different sentences wearing the same shape: this one is target
-        eligibility, and guessing would put false positives in the graph,
-        which is the one thing this stage exists to prevent.
-        """
+        """An *or* list is usually target eligibility, not an effect."""
         # Given a list of conditions describing which targets are eligible
         text = ("you can wrap a Chain around an unwilling creature within 5 "
                 "feet of yourself that has the Grappled, Incapacitated, or "
@@ -207,7 +171,6 @@ class TestConditionsImposed:
         assert mechanics.conditions_imposed(text) == ["Prone"]
 
     def test_given_a_scope_that_ends_at_a_comma_when_scanned_then_it_is_imposed(self):
-        """"While Charmed" is a scope that closes at the comma."""
         # Given a qualifier in a clause of its own
         text = "While Charmed, the target has the Incapacitated condition."
 
@@ -260,8 +223,6 @@ class TestConditionsImposed:
 
 
 class TestParseEntryMechanics:
-    """One stat block entry, read into structured mechanics."""
-
     def test_given_a_melee_attack_when_parsed_then_kind_bonus_and_reach_are_read(self):
         # Given an ordinary melee attack
         description = ("_Melee Attack Roll:_ +5, reach 5 ft. _Hit:_ 7 (1d8 + 3) "
@@ -349,8 +310,6 @@ class TestParseEntryMechanics:
 
 
 class TestAnnotateCreatures:
-    """Mechanics attached to every entry of every stat block."""
-
     def test_given_creatures_with_entries_when_annotated_then_each_entry_gains_them(self):
         # Given a creature with one parseable action
         creatures = [{"actions": [
@@ -387,8 +346,6 @@ class TestAnnotateCreatures:
 
 
 class TestParseSpellMechanics:
-    """What a spell does, read from prose rather than from labels."""
-
     def test_given_a_save_in_prose_when_parsed_then_the_ability_is_read(self):
         # Given a spell describing its save the way the book writes it
         text = "Each creature must succeed on a Dexterity saving throw."

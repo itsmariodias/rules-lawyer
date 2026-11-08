@@ -1,21 +1,11 @@
 """
-Turn the SRD's cross-references into graph edges, and its glossary into nodes.
+Glossary terms, and cross-reference edges between extracted entities.
 
-The book marks every cross-reference typographically: a spell or magic item
-is printed in italics (*Dispel Magic*), a creature in bold (**Treant**).  The
-layout pass preserves that as markdown emphasis, which makes the references
-recoverable — but only if they are resolved against the entities that were
-actually extracted.  Italic is also used for ordinary emphasis and for book
-titles, so a span becomes an edge only when it names something known.
-
-Conditions, actions and areas of effect are not marked up.  They are matched
-instead on the phrasing the rules always use — "the Prone condition", "the
-Utilize action", "a 20-foot Cone" — which is what keeps common words like
-"Cover" or "Attack" from matching as bare nouns.
-
-Edges say *references*, never *imposes*.  Typography records that two things
-are mentioned together; whether a creature inflicts the Poisoned condition or
-is immune to it is a question about the sentence, not about the markup.
+Spells and magic items are italicised, creatures bold; a span becomes an edge
+only if it resolves to an extracted entity, since italics also mark emphasis
+and book titles.  Conditions, actions, damage types and areas are unmarked
+and match on fixed phrasing ("the Prone condition", "a 20-foot Cone") so that
+"Cover" or "Attack" never match as bare nouns.
 """
 
 from __future__ import annotations
@@ -50,9 +40,15 @@ def extract_glossary(nodes) -> list[dict]:
     """
     Read the Rules Glossary into typed term records.
 
-    The book does the typing itself, bracketed after the term, so a condition
-    is a condition because the SRD says so rather than because of a list kept
-    here.  Untagged entries are plain definitions.
+    The type is the book's own bracketed tag ("Blinded [Condition]");
+    untagged entries become ``"definition"``.
+
+    Args:
+        nodes: Flattened sections, after ``mark_glossary_nodes``.  Each
+            glossary node gains ``term``, ``term_type`` and ``entity_type``.
+
+    Returns:
+        One record per glossary entry.
     """
     glossary: list[dict] = []
     for node in nodes:
@@ -78,7 +74,12 @@ def extract_glossary(nodes) -> list[dict]:
 
 
 def mark_glossary_nodes(nodes) -> None:
-    """Flag the children of "Rules Definitions" so they can be read as terms."""
+    """
+    Flag the children of "Rules Definitions" for ``extract_glossary``.
+
+    Args:
+        nodes: Flattened sections; matching children are mutated.
+    """
     for node in nodes:
         if node["heading"] == "Rules Definitions":
             for child in node["subsections"]:
@@ -93,23 +94,31 @@ _TRAILING_PUNCT = " .,;:!?’'\"()"
 
 
 def normalise(name: str) -> str:
-    """Strip emphasis and trailing punctuation from a captured span."""
+    """
+    Args:
+        name: A captured emphasis span.
+
+    Returns:
+        The span without emphasis markers or surrounding punctuation.
+    """
     return re.sub(r"[*_]+", "", name).strip(_TRAILING_PUNCT).strip()
 
 
 class NameIndex:
-    """
-    Resolve a captured span to a known entity name.
-
-    The book pluralises references freely ("two **Ghasts**"), so a lookup
-    falls back to the singular.  Matching is case-insensitive because a few
-    references appear mid-sentence in lower case.
-    """
+    """Case-insensitive lookup of a span against known names."""
 
     def __init__(self, names) -> None:
         self._by_key = {n.lower(): n for n in names}
 
     def resolve(self, span: str) -> str | None:
+        """
+        Args:
+            span: A captured span, possibly plural ("two **Ghasts**").
+
+        Returns:
+            The canonical name, trying the singular if the span is not
+            found; None if neither resolves.
+        """
         key = normalise(span).lower()
         if not key:
             return None
@@ -129,8 +138,7 @@ class NameIndex:
 # Reference scanning
 # ---------------------------------------------------------------------------
 
-# The separators a list of names is written with.  The longest first, so
-# ", and " is one boundary rather than a comma and a stray "and".
+# Longest first, so ", and " is one boundary.
 _NAME_SPLIT_RE = re.compile(r",\s+(?:and|or)\s+|,\s+|\s+and\s+|\s+or\s+")
 
 
@@ -154,19 +162,15 @@ class ReferenceScanner:
     @staticmethod
     def _phrase_re(names: list[str], noun: str) -> re.Pattern | None:
         """
-        The phrasing the rules always use, for one name or for a list of them.
+        Match ``<name> <noun>`` or a list such as ``the Deafened and
+        Frightened conditions``.
 
-        The book routinely names several at once — "the Deafened and
-        Frightened conditions", "Bludgeoning, Piercing, and Slashing damage"
-        — and a pattern built for a single name before a singular noun reads
-        none of them: 43 such phrases across conditions, actions and damage
-        types went unlinked, which is how the Tarrasque came to reference no
-        condition at all.
+        *Or* lists are accepted: every listed name is mentioned.  Whether a
+        condition is inflicted is ``mechanics.conditions_imposed``'s job.
 
-        A list is read generously here, *or* included, because these are
-        mentions: the text does name every one of them.  Whether a condition
-        is inflicted rather than mentioned is a separate and stricter
-        question, answered by ``mechanics.conditions_imposed``.
+        Returns:
+            The pattern, with the whole name list in group 1; None if
+            ``names`` is empty.
         """
         if not names:
             return None
@@ -176,7 +180,13 @@ class ReferenceScanner:
             rf"\b({one}(?:(?:,|\s+and|\s+or)\s+{one})*)\s+{noun}s?\b")
 
     def scan(self, text: str) -> list[tuple[str, str]]:
-        """Return (target_type, name) pairs, deduplicated, in a stable order."""
+        """
+        Args:
+            text: Any SRD markdown.
+
+        Returns:
+            ``(target_type, name)`` pairs, deduplicated in order found.
+        """
         found: list[tuple[str, str]] = []
 
         for m in _ITALIC_RE.finditer(text):
@@ -212,10 +222,10 @@ class ReferenceScanner:
 def _edges(scanner: ReferenceScanner, text: str, source: dict,
            imposed: list[str] | None = None) -> list[dict]:
     """
-    Turn one piece of text into edges.
+    Reference edges for one piece of text.
 
-    A condition the caller has determined is actually inflicted gets the
-    stronger ``imposes_condition`` relation; everything else stays a mention.
+    Conditions in ``imposed`` get ``imposes_condition`` instead of
+    ``references_condition``.
     """
     imposed = set(imposed or ())
     edges = []
@@ -236,9 +246,17 @@ def extract_references(nodes, creatures, equipment, glossary) -> list[dict]:
     """
     Build the reference edges for the whole document.
 
-    Sections, creature stat blocks and equipment descriptions are all scanned,
-    so a spell is linked from the monster that casts it, the item that casts
-    it and the rule that mentions it alike.
+    Args:
+        nodes: Flattened, typed sections.
+        creatures: Stat block records with mechanics annotated.
+        equipment: Item records; those with a ``section_id`` are skipped,
+            since their section is already scanned.
+        glossary: Term records, for the phrase matchers.
+
+    Returns:
+        ``{"source", "target", "relation"}`` per edge.  Creature sources
+        carry ``part`` (e.g. ``"actions/Bite"``), which the loader keys
+        abilities on.
     """
     spells = [n["heading"] for n in nodes if n.get("entity_type") == "spell"]
     magic_items = [n["heading"] for n in nodes if n.get("entity_type") == "magic_item"]
@@ -265,9 +283,7 @@ def extract_references(nodes, creatures, equipment, glossary) -> list[dict]:
                 }, entry.get("conditions_imposed"))
 
     for item in equipment:
-        # Gear and poisons print their rules as a section of their own, which
-        # the loop above has already scanned.  Scanning the description too
-        # would emit every edge twice, once under each identity.
+        # Gear and poisons with a section were scanned above.
         if item.get("description") and not item.get("section_id"):
             edges += _edges(scanner, item["description"], {
                 "type": item["kind"], "name": item["name"],

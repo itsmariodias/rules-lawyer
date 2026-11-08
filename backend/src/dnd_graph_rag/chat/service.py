@@ -1,14 +1,10 @@
 """
-One turn of conversation, as a flat stream of typed events.
+Chat turns as typed event streams, and thread storage operations.
 
-LangGraph streams messages, chunks and state updates; this flattens them
-into ``token``, ``tool_start``, ``tool_end``, ``citations``, ``error`` and
-``done``, which a browser can render as they arrive.  Nothing here knows
-about HTTP: ``chat.routes`` encodes the dicts as SSE, and a test
-iterates them directly.
-
-It also owns what a thread *is*: listing, reading back, pinning and deleting
-conversations, all of which live in the checkpointer and its store.
+``stream_turn`` yields ``token``, ``tool_start``, ``tool_end``, ``usage``,
+``citations``, ``error`` and ``done`` dicts; ``chat.routes`` encodes them as
+SSE.  The rest lists, reads back, rewinds, pins and deletes threads in the
+checkpointer and store.
 """
 
 from __future__ import annotations
@@ -26,18 +22,14 @@ from ..config import get_settings
 from . import retrieval, titles
 from .agent import build_agent
 
-# A citation as the prompt asks for it: a dotted id in square brackets.
-# Anchored on the digits so prose brackets — "[see below]" — never match.
+# A dotted section id in brackets, e.g. [11.2.114]; "[see below]" does not match.
 CITATION = re.compile(r"\[(\d+(?:\.\d+)+)\]")
 
 
 def _thread(thread_id: str, checkpoint_id: str | None = None) -> dict:
     """
-    The config addressing one conversation, and optionally one moment in it.
-
-    Without a checkpoint id a run continues from the thread's latest state,
-    which is every turn but a retry.  With one it branches from that
-    checkpoint instead, which is what rewinding a turn is.
+    LangGraph run config for a thread, optionally branching from a
+    checkpoint (used by retry).
     """
     configurable = {"thread_id": thread_id}
     if checkpoint_id is not None:
@@ -47,11 +39,14 @@ def _thread(thread_id: str, checkpoint_id: str | None = None) -> dict:
 
 def resolve_citations(text: str) -> list[dict]:
     """
-    Turn the ids the model wrote into citations the UI can open.
+    Look up every section id cited in an answer.
 
-    Driven by the finished answer rather than by what was retrieved, so the
-    list is what the answer leans on, and an id the model invented resolves
-    to nothing and is dropped instead of rendering as a dead chip.
+    Args:
+        text: The model's answer.
+
+    Returns:
+        ``Passage.as_citation()`` per distinct id, in order of first
+        appearance.  Ids that match no section are dropped.
     """
     seen: list[str] = []
     for match in CITATION.findall(text):
@@ -70,21 +65,24 @@ async def stream_turn(message: str, thread_id: str,
                       checkpointer: BaseCheckpointSaver,
                       checkpoint_id: str | None = None) -> AsyncIterator[dict]:
     """
-    Run one user message and yield events until the answer is complete.
+    Run one user message and yield events until the turn ends.
 
-    History is not passed in: the checkpointer holds it under ``thread_id``,
-    so a caller only ever sends the new message.  ``checkpoint_id`` is the
-    one exception, and it is a retry: the run branches from that moment, so
-    everything after it is left behind rather than answered again.
+    Never raises: any failure becomes an ``error`` event, followed by
+    ``usage`` (if any calls were made) and ``done``.
 
-    The model is required.  Nothing answers in its place, so a call that
-    cannot be made or cannot be finished ends the turn with an ``error``
-    saying which.
+    Args:
+        message: The user's message.
+        thread_id: Conversation id; history comes from the checkpointer.
+        checkpointer: Conversation storage.
+        checkpoint_id: Branch from this checkpoint instead of the latest
+            (see ``rewind``).
+
+    Yields:
+        Event dicts, ending with ``{"type": "done", "thread_id"}``.
     """
     config = _thread(thread_id, checkpoint_id)
     answer: list[str] = []
     announced: set[str] = set()
-    # Every model call's finished message, for what the turn cost.
     spoken: list[AIMessage] = []
 
     try:
@@ -104,20 +102,15 @@ async def stream_turn(message: str, thread_id: str,
                 spoken.extend(_model_messages(payload))
                 for event in _from_update(payload):
                     yield event
-    # The error is the reply: it reaches the browser as an event rather than
-    # as a stream that simply stops, and it is the last thing said on this
-    # turn.  A part-written answer keeps what it managed to say, above it.
     except Exception as exc:
         yield {"type": "error", "message": _explain(exc)}
 
-    # After an error too: a failed turn still spent what it spent.
+    # Sent after an error too; the calls were still billed.
     usage = usage_of(spoken)
     if usage is not None:
         yield {"type": "usage", **usage}
 
     text = "".join(answer)
-    # No answer, no citations: an empty list after an error would read as
-    # "nothing to cite" rather than as "nothing was said".
     if text.strip():
         yield {"type": "citations", "citations": resolve_citations(text)}
     yield {"type": "done", "thread_id": thread_id}
@@ -125,11 +118,12 @@ async def stream_turn(message: str, thread_id: str,
 
 async def _until_silent(stream: AsyncIterator, seconds: float) -> AsyncIterator:
     """
-    The agent's own stream, failed after *seconds* of silence.
+    Re-yield a stream, failing if any gap between items exceeds ``seconds``.
 
-    Not a limit on how long an answer may take — every token and every tool
-    result resets it.  A stalled call never yields and never raises, so
-    without this the turn hangs with no answer and no error.
+    A stalled model call neither yields nor raises.
+
+    Raises:
+        TimeoutError: Nothing arrived for ``seconds``.
     """
     events = stream.__aiter__()
     while True:
@@ -142,18 +136,17 @@ async def _until_silent(stream: AsyncIterator, seconds: float) -> AsyncIterator:
                 f"the model sent nothing for {seconds:g}s") from exc
 
 
-# A provider error is JSON with the sentence buried in it — the invalid-key
-# one runs to 600 characters — and the error is what the reader gets instead
-# of an answer, so anything unrecognised is capped at a readable length.
+# Unrecognised provider errors are JSON blobs (the invalid-key one is 600
+# characters), so they are cut to this.
 ERROR_CHARS = 220
 
 
 def _explain(exc: Exception) -> str:
     """
-    A provider error as a sentence the reader can act on.
+    An exception as a short sentence for the reader.
 
-    The three that actually happen — no key, a rejected key, a spent quota —
-    are named; pydantic and Google both bury them several lines deep.
+    Missing key, rejected key, spent quota and silence get fixed messages;
+    anything else is truncated to ``ERROR_CHARS``.
     """
     text = f"{type(exc).__name__}: {exc}"
     if "GOOGLE_API_KEY" in text:
@@ -176,11 +169,10 @@ def _explain(exc: Exception) -> str:
 def _from_message_chunk(chunk: Any, answer: list[str],
                         announced: set[str]) -> list[dict]:
     """
-    Token deltas, plus tool calls the moment their arguments finish streaming.
+    ``token`` events for text, and one ``tool_start`` per tool call.
 
-    Gemini streams a tool call's arguments across chunks, so the call is
-    announced only once ``id`` and ``name`` are both present, and ``announced``
-    keeps a re-sent chunk from drawing the same trace line twice.
+    A call is announced once it has both ``id`` and ``name``; ``announced``
+    dedupes across chunks.  Text is also appended to ``answer``.
     """
     if not isinstance(chunk, AIMessageChunk):
         return []
@@ -201,18 +193,14 @@ def _from_message_chunk(chunk: Any, answer: list[str],
 
 
 def _from_update(payload: dict) -> list[dict]:
-    """Tool results, read off the state update the tool node writes."""
+    """``tool_end`` events for the tool results in a state update."""
     events = []
     for messages in (step.get("messages", []) for step in payload.values()
                      if isinstance(step, dict)):
         for message in messages:
             if getattr(message, "type", None) == "tool":
-                # The tools attach a status and one short line as an
-                # artifact, which LangChain carries on the message and never
-                # shows the model.  Without it the trace can only say a call
-                # finished, so a refused query and a perfect one draw the
-                # same grey dot.  A tool that raised rather than returning
-                # has no artifact at all, and LangChain marks the message.
+                # A tool that raised has no artifact; LangChain sets
+                # status="error" on its message instead.
                 artifact = getattr(message, "artifact", None) or {}
                 failed = getattr(message, "status", None) == "error"
                 events.append({
@@ -238,14 +226,14 @@ def _model_messages(payload: dict) -> list[AIMessage]:
 
 def usage_of(messages: list) -> dict | None:
     """
-    What a turn cost in tokens, summed over every model call in it.
+    Token usage summed over a turn's model calls.
 
-    One answer is several calls, a search or a query and then the answer,
-    and each re-sends the system prompt, the schema and every result so
-    far, so reading dwarfs writing.  Taken from ``usage_metadata`` on the
-    finished messages, which are also what the checkpoint stores, so a
-    reopened conversation counts the same as the live one did.  ``None``
-    when no message carries counts: nothing shown beats "0 tokens".
+    Args:
+        messages: Any messages; only ``AIMessage.usage_metadata`` is read.
+
+    Returns:
+        ``{"input", "output", "total", "calls"}``, or None if no message
+        has usage metadata.
     """
     counted = [message.usage_metadata for message in messages
                if isinstance(message, AIMessage) and message.usage_metadata]
@@ -261,10 +249,9 @@ def usage_of(messages: list) -> dict | None:
 
 def _text_of(chunk: Any) -> str:
     """
-    Gemini sends content as a string sometimes and a list of parts others.
+    The text of a chunk whose content is a string or a list of parts.
 
-    A tool call arrives as a part too, so parts are filtered to text rather
-    than joined blindly — otherwise a function call is rendered as prose.
+    Non-text parts (e.g. function calls) are skipped.
     """
     content = chunk.content
     if isinstance(content, str):
@@ -293,31 +280,29 @@ def _close_row(row: dict, message: ToolMessage) -> None:
 
 def turns_of(messages: list, when: dict[str, str] | None = None) -> list[dict]:
     """
-    A stored conversation, as the turns a UI draws.
+    A stored conversation as UI turns.
 
-    ``when`` maps a message id to the moment it was written, which is the
-    checkpoint's own timestamp rather than anything the model said.  Absent,
-    every turn is simply undated: a conversation stored before this was read
-    is still a conversation.
+    Tool calls attach to the assistant answer that follows them.  Calls from
+    a turn that ended without an answer are discarded at the next question.
 
-    Pure, so the part that decides which lookups belong to which turn is
-    tested without a database or a model, the way ``neighbourhood.assemble``
-    and ``retrieval.fuse`` are.
+    Args:
+        messages: The thread's messages, in order.
+        when: Message id to ISO timestamp, from ``written_at``.
+
+    Returns:
+        ``{"role": "user", "content", "at"}`` and ``{"role": "assistant",
+        "content", "citations", "tools", "usage", "at"}`` dicts.
     """
     when = when or {}
     turns: list[dict] = []
-    # Keyed by tool call id, which is what joins a call to its result, and
-    # ordered, which is what keeps the trace in the order they were made.
+    # Tool call id -> trace row, in call order.
     pending: dict[str, dict] = {}
-    # The model calls since the question, which is what one answer cost.
     spoken: list[AIMessage] = []
 
     for message in messages:
         if isinstance(message, HumanMessage):
             turns.append({"role": "user", "content": message.text,
                           "at": when.get(message.id)})
-            # A turn that ended in an error leaves its lookups behind. They
-            # belong to that turn, not to the next question.
             pending = {}
             spoken = []
         elif isinstance(message, ToolMessage):
@@ -331,9 +316,7 @@ def turns_of(messages: list, when: dict[str, str] | None = None) -> list[dict]:
                     pending[call["id"]] = _call_row(call)
             text = message.text
             if not message.tool_calls and text.strip():
-                # Nothing is in flight in a conversation being read back, so
-                # a call whose result is missing is finished with an unknown
-                # outcome rather than left pulsing for ever.
+                # A call with no stored result is shown done, status unknown.
                 tools = [{**row, "done": True} for row in pending.values()]
                 turns.append({"role": "assistant", "content": text,
                               "citations": resolve_citations(text),
@@ -347,16 +330,15 @@ def turns_of(messages: list, when: dict[str, str] | None = None) -> list[dict]:
 
 def name_missing_subjects(turns: list[dict]) -> list[dict]:
     """
-    Name what a stored lookup looked at, where the tool did not say.
+    Fill ``subject`` on stored tool calls that have only a ``section_id``.
 
-    A conversation answered before the tools carried an artifact has only the
-    dotted id it was called with, and `11.2.70` names nothing to anyone
-    reading the trace.  The graph still knows, and this is the same lookup
-    ``resolve_citations`` makes for every citation the answer carries.
+    Threads from before tools returned artifacts lack it.
 
-    Only the subject is recovered.  A count of what came back cannot be, short
-    of running the search again, so those rows stay blank rather than claiming
-    a number nobody recorded.
+    Args:
+        turns: Output of ``turns_of``; mutated.
+
+    Returns:
+        ``turns``.
     """
     named: dict[str, str | None] = {}
     for turn in turns:
@@ -371,20 +353,21 @@ def name_missing_subjects(turns: list[dict]) -> list[dict]:
     return turns
 
 
-# A stored result is as long as the tool made it, which for a wide query is
-# the whole rendered table.  Capped where it is read rather than where it is
-# written: the model was given the whole thing, and a reader asking to see
-# what the model saw should get the same, up to a length a browser can draw.
+# Cap on a stored tool result returned to the browser.
 RESULT_CHARS = 40_000
 
 
 def find_result(messages: list, call_id: str) -> dict | None:
     """
-    One lookup's stored result, by the id that joins a call to its answer.
+    One tool call's stored result.
 
-    Pure, so the search is tested without a checkpointer.  ``None`` when
-    there is no such call in this conversation, which is what the route turns
-    into a 404 rather than an empty panel.
+    Args:
+        messages: The thread's messages.
+        call_id: The tool call id.
+
+    Returns:
+        ``{"id", "name", "content", "truncated"}``, or None if the thread has
+        no result for that call.
     """
     for message in messages:
         if (isinstance(message, ToolMessage)
@@ -399,14 +382,13 @@ def find_result(messages: list, call_id: str) -> dict | None:
 async def lookup(thread_id: str, call_id: str,
                  checkpointer: BaseCheckpointSaver) -> dict | None:
     """
-    What one lookup returned, read back when a reader asks to see it.
+    One tool call's stored result, read from the thread's latest state.
 
-    Not sent with the conversation.  One turn of the Frightened question
-    stored twenty results and a hundred kilobytes of table, almost none of
-    which anyone opens, so the trace carries counts and this fetches the rest
-    on demand.  It works for a turn still on screen as well as a reopened
-    one: a tool result is checkpointed as soon as its step completes, which
-    is before the row it belongs to is drawn as finished.
+    Results are checkpointed when their step completes, so this also works
+    while the turn is still streaming.
+
+    Returns:
+        See ``find_result``.
     """
     agent = build_agent(checkpointer)
     state = await agent.aget_state(_thread(thread_id))
@@ -416,12 +398,9 @@ async def lookup(thread_id: str, call_id: str,
 async def written_at(thread_id: str,
                      checkpointer: BaseCheckpointSaver) -> dict[str, str]:
     """
-    When each message in a thread was first written, by its id.
+    Message id to the timestamp of the earliest checkpoint containing it.
 
-    The checkpointer stamps every step it saves, and a message's own moment
-    is the *earliest* checkpoint it appears in: later ones carry it forward
-    unchanged.  ``alist`` yields newest first, so overwriting as it goes
-    leaves the oldest sighting standing, which is the one wanted.
+    ``alist`` yields newest first, so the last write per id is the earliest.
     """
     when: dict[str, str] = {}
     async for item in checkpointer.alist(_thread(thread_id)):
@@ -438,15 +417,10 @@ async def written_at(thread_id: str,
 
 async def history(thread_id: str, checkpointer: BaseCheckpointSaver) -> list[dict]:
     """
-    The stored turns of one thread, for a UI reopening it after a reload.
+    One thread's turns, with tool traces, timestamps and usage.
 
-    The lookups come back with them.  They used to be dropped here, since the
-    only messages this read were the human ones and the final answer, so a
-    conversation reopened from the list showed its answers with no retrieval
-    under them and the trace read as something that had never happened.
-    Everything needed is already in the checkpoint: the tool calls on the
-    assistant messages that made them, and the status and summary on the tool
-    results that answered them.
+    Returns:
+        See ``turns_of``; empty for an unknown thread.
     """
     agent = build_agent(checkpointer)
     state = await agent.aget_state(_thread(thread_id))
@@ -457,11 +431,10 @@ async def history(thread_id: str, checkpointer: BaseCheckpointSaver) -> list[dic
 
 def last_question(messages: list) -> tuple[str, str] | None:
     """
-    The final question in a conversation, and the id of the message it is.
+    The last human message.
 
-    Pure, so the part that decides what a retry re-asks is tested without a
-    checkpointer.  ``None`` when nothing was ever asked, which is a thread
-    that does not exist as far as anyone reading it is concerned.
+    Returns:
+        ``(text, message_id)``, or None if there is none.
     """
     for message in reversed(messages):
         if isinstance(message, HumanMessage):
@@ -472,24 +445,16 @@ def last_question(messages: list) -> tuple[str, str] | None:
 async def rewind(thread_id: str,
                  checkpointer: BaseCheckpointSaver) -> tuple[str, str | None] | None:
     """
-    Undo the last turn of a conversation, and say what it asked.
+    Find where to re-ask the last question from.
 
-    A retry has to rewind rather than append: re-sending the same text would
-    leave the thread holding the question twice, and both ``turns_of`` and
-    ``threads`` read a conversation by its questions.  The checkpointer
-    cannot drop one checkpoint, only a whole thread, so the rewind is a
-    branch instead: the newest checkpoint that does not yet carry the last
-    question is where the retry runs from, and everything after it stays on
-    disk reachable from nothing.
+    The checkpointer cannot delete one checkpoint, so a retry branches from
+    the newest checkpoint without the last question; later ones stay on disk,
+    unreachable.  If no such checkpoint exists, the thread's checkpoints are
+    deleted so it restarts under the same id.
 
-    The opening turn is not a special case, since the graph checkpoints a
-    step before the input reaches it.  A thread with nothing at all before
-    its question is left, which is the one case that has to clear the thread
-    and start it again under the same id: that id is what the browser holds
-    and what a pin is keyed on, so deleting the conversation is not an option.
-
-    Returns the question and the checkpoint to ask it from, ``None`` for the
-    latter meaning "from the beginning".
+    Returns:
+        ``(question, checkpoint_id)``, where a None checkpoint means start
+        fresh; or None if the thread has no question.
     """
     agent = build_agent(checkpointer)
     state = await agent.aget_state(_thread(thread_id))
@@ -507,12 +472,11 @@ async def rewind(thread_id: str,
     return text, None
 
 
-# The namespace pins live under, in the store beside the checkpointer.
 PINS = ("threads", "pinned")
 
 
 async def pinned(store: BaseStore | None) -> set[str]:
-    """The pinned thread ids. Empty when there is no store to ask."""
+    """The pinned thread ids; empty without a store."""
     if store is None:
         return set()
     # ``asearch`` defaults to ten, which silently unpinned the eleventh.
@@ -520,12 +484,7 @@ async def pinned(store: BaseStore | None) -> set[str]:
 
 
 async def set_pinned(store: BaseStore, thread_id: str, pin: bool) -> None:
-    """
-    Pin or unpin one conversation.
-
-    Unpinning deletes the row rather than writing ``false``: the value
-    carries nothing the key does not.
-    """
+    """Pin a thread, or unpin it by deleting its row."""
     if pin:
         await store.aput(PINS, thread_id, {"pinned": True})
     else:
@@ -536,13 +495,16 @@ async def threads(checkpointer: BaseCheckpointSaver,
                   store: BaseStore | None = None,
                   limit: int = 50) -> list[dict]:
     """
-    Every conversation on disk, pinned first and newest first within that.
+    Stored threads, pinned first, then most recently updated.
 
-    Checkpoints are written per step and arrive newest first, so the first
-    one seen for a thread is its latest.  Pins are merged here rather than in
-    the route, so one place decides both what the list holds and its order.
-    A thread is called by its stored title, and by its opening question cut
-    to a line where it has none.
+    Args:
+        checkpointer: Conversation storage.
+        store: Pins and titles; optional.
+        limit: Maximum threads returned.
+
+    Returns:
+        ``{"thread_id", "title", "updated_at", "messages", "pinned"}`` per
+        thread.  The title falls back to the cut opening question.
     """
     pins = await pinned(store)
     named = await titles.titled(store)
@@ -554,7 +516,7 @@ async def threads(checkpointer: BaseCheckpointSaver,
         messages = (item.checkpoint.get("channel_values") or {}).get("messages", [])
         opening = next((m for m in messages if isinstance(m, HumanMessage)), None)
         if opening is None:
-            continue  # a thread whose first step is checkpointed before input
+            continue  # only the pre-input checkpoint so far
         found[thread_id] = {
             "thread_id": thread_id,
             "title": named.get(thread_id) or _title(opening.text),
@@ -570,23 +532,21 @@ async def threads(checkpointer: BaseCheckpointSaver,
 async def forget(thread_id: str, checkpointer: BaseCheckpointSaver,
                  store: BaseStore | None = None) -> bool:
     """
-    Drop one conversation and everything checkpointed under it.
+    Delete a thread's checkpoints, pin and title.
 
-    There is no thread table, so dropping the checkpoints drops the thread.
-    Returns whether there was anything there, so the route can answer 404 for
-    an id nobody ever used.
+    Returns:
+        False if the thread had no checkpoints.
     """
     if await checkpointer.aget_tuple(_thread(thread_id)) is None:
         return False
     await checkpointer.adelete_thread(thread_id)
     if store is not None:
-        # Otherwise the pin and the title are rows nothing reads and nothing
-        # cleans up.
         await store.adelete(PINS, thread_id)
         await titles.forget(store, thread_id)
     return True
 
 
 def _title(text: str, limit: int = 60) -> str:
+    """Whitespace-collapsed text, cut at a word boundary with an ellipsis."""
     flat = " ".join(text.split())
     return flat if len(flat) <= limit else flat[:limit].rsplit(" ", 1)[0] + "…"

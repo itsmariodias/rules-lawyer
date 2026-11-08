@@ -1,25 +1,7 @@
 /**
- * What the agent looked up, shown while it looks it up.
- *
- * A graph RAG answer is only trustworthy if you can see the retrieval, and
- * during a slow first token this is the only sign the thing is alive.
- *
- * One line per call, and that line has to carry three things a muted dot and
- * a label did not. *Which kind* of lookup it was: a ranked fuzzy search, an
- * exact query over the whole graph and a fetch of one section by id are
- * different operations, and drawing them identically makes an agent that is
- * reasoning look like one repeating itself. *How it went*: a refused query
- * used to draw the same grey dot as a perfect one. And *what came back*,
- * which sits at the right-hand end of the same line.
- *
- * Opening a row shows what it actually returned, which is the retrieval
- * inspector the whole project implies. It costs a request rather than a
- * larger conversation: one turn can store a hundred kilobytes of table
- * across twenty lookups, almost none of which anyone opens.
- *
- * A conversation being reopened arrives with its trace folded away. Watching
- * the retrieval happen is the point of it during a turn; coming back to a
- * conversation you want the answer, with the working still a click away.
+ * One row per tool call: a per-tool marker, what was looked at, and the
+ * outcome.  Opening a row fetches that call's stored result.  Replayed
+ * conversations start collapsed.
  */
 
 import { useCallback, useState } from 'react'
@@ -33,12 +15,7 @@ const LABELS: Record<string, string> = {
   query_srd_graph: 'Queried the graph',
 }
 
-/**
- * Markers, chosen to separate the operations rather than decorate them.
- *
- * Text rather than shapes, so the four stay distinguishable without relying
- * on colour.
- */
+/** Text glyphs, so the four tools are distinguishable without colour. */
 const MARKS: Record<string, string> = {
   search_srd: '≈',        // approximately: ranked, fuzzy, only the top few
   get_srd_section: '▤',   // a record, fetched whole and exactly
@@ -47,13 +24,11 @@ const MARKS: Record<string, string> = {
 }
 
 type Row = {
-  /** What was asked for, to the right of the label. */
   subject: string
-  /** Prose is quoted and set in the body font; Cypher and ids are not. */
+  /** Quoted and set in the body font; false for Cypher and ids. */
   prose: boolean
-  /** What came back, at the right-hand end of the line. */
   outcome: string
-  /** The argument in full, where the line shows only as much as fits. */
+  /** The untruncated argument, shown in the detail panel. */
   full?: string
 }
 
@@ -61,22 +36,13 @@ function flatten(text: string): string {
   return text.replace(/\s+/g, ' ').trim()
 }
 
-/**
- * One call, as the row reads it.
- *
- * Each tool puts something different in front of a reader. A search is the
- * words the model chose, so it is quoted. A section read and a graph walk
- * are reached by a dotted id, which names nothing to anyone, so the server
- * sends what it found there instead.
- */
+/** Cypher as written; else the server's `subject`; else the quoted query; else the raw id. */
 function describe(call: ToolCall): Row {
   const args = call.args as {
     query?: string; section_id?: string; cypher_query?: string
   }
   const summary = call.summary ?? ''
 
-  // Cypher is its own argument and worth reading as written, so it is never
-  // replaced by anything the server would rather say.
   if (args.cypher_query) {
     return { subject: flatten(args.cypher_query), prose: false,
              outcome: summary, full: args.cypher_query }
@@ -87,14 +53,11 @@ function describe(call: ToolCall): Row {
   if (args.query) {
     return { subject: `“${flatten(args.query)}”`, prose: true, outcome: summary }
   }
-  // Until the call finishes, the id is all there is to show.
   return { subject: args.section_id ?? '', prose: false, outcome: summary }
 }
 
 function marker(call: ToolCall): string {
   if (!call.done) return '·'
-  // A call that did not do what was asked says so in the marker, whatever
-  // tool it was: the kind of lookup stops being the interesting fact.
   if (call.status === 'refused' || call.status === 'failed') return '✗'
   return MARKS[call.name] ?? '●'
 }
@@ -112,22 +75,19 @@ function Line({ call, row }: { call: ToolCall; row: Row }) {
           </span>
         </>
       )}
-      {/* Beside what it narrowed, rather than before the separator, where
-          two dividers in a row read as punctuation for its own sake. */}
+      {/* After the subject, not before the separator. */}
       {filter && <span className="filter">· {filter}</span>}
       <span className="outcome">{row.outcome}</span>
     </>
   )
 }
 
-/** The result of one lookup, once someone has asked to see it. */
 type Fetched = { state: 'loading' | 'done' | 'failed'; text: string }
 
 function Detail({ row, fetched }: { row: Row; fetched?: Fetched }) {
   return (
     <div className="detail">
-      {/* The query leads, because a result only means something beside the
-          question that produced it. */}
+      {/* Query above its result. */}
       {row.full && (
         <>
           <p className="detail-label">query</p>
@@ -150,8 +110,7 @@ export function ToolTrace(
 ) {
   const [open, setOpen] = useState(!replayed)
   const [shown, setShown] = useState<string | null>(null)
-  // Kept for the life of the trace: reopening a row a reader just closed
-  // should not go back to the server for something that cannot have changed.
+  // Cached per trace; stored results never change.
   const [results, setResults] = useState<Record<string, Fetched>>({})
 
   const reveal = useCallback(async (call: ToolCall) => {
@@ -176,8 +135,6 @@ export function ToolTrace(
         },
       }))
     } catch {
-      // The lookup happened; only reading it back failed, and saying so
-      // beats an empty panel that reads as "it returned nothing".
       setResults((current) => ({
         ...current,
         [call.id]: {
@@ -200,7 +157,6 @@ export function ToolTrace(
           {tools.map((call) => {
             const row = describe(call)
             const expanded = shown === call.id
-            // Nothing to open until the call has returned something.
             const openable = call.done && Boolean(threadId)
             return (
               <li

@@ -1,7 +1,3 @@
-/**
- * What an answer cost in tokens: the total on the line, the split on hover.
- */
-
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
@@ -26,7 +22,6 @@ describe('formatTokens', () => {
 
 describe('Usage', () => {
   it('given counts, when drawn, then the total shows and the split is on hover', () => {
-    /** The total is what counts against a quota; the split explains it. */
     // Given a turn of five calls
     render(<Usage usage={{ input: 17_790, output: 450, total: 18_240, calls: 5 }} />)
 

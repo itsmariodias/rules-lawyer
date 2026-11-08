@@ -1,22 +1,11 @@
 """
-The dense half of retrieval: one vector per section, and the file that makes
-generating them somebody else's problem.
+One vector per section, and the ``srd_embeddings.idx`` file that carries them.
 
-Embedding the book is a one-time activity, since the text changes only when
-``srd-parse`` changes, so it belongs to the load rather than to the chat.
-But it costs an API key, and everything else here runs on a PDF and Docker
-alone.  So the vectors are also a *file*: ``srd_embeddings.idx``, which a
-reader downloads, points ``DND_GRAPH_RAG_EMBEDDINGS`` at, and loads without
-ever calling Google.
+The file lets a load run without an API key.  A load with neither a complete
+file nor a key raises ``MissingEmbeddings``.
 
-**Embeddings are required, not an enrichment.**  Either they are generated or
-they are supplied; a load that can do neither raises :class:`MissingEmbeddings`
-rather than quietly writing a graph with a hole in it.  That exception's
-message is most of this module's user interface, so it names both ways out.
-
-Nothing here imports a driver.  Like ``mapping``, the whole of it is a
-function of the document and is tested without a database; the one call that
-touches the network is injectable, so it is tested without a key either.
+File format: ``MAGIC``, a little-endian uint32 header length, a JSON header,
+then ``count * dimensions`` little-endian float32.
 """
 
 from __future__ import annotations
@@ -37,12 +26,9 @@ from ..config import EmbeddingSettings
 
 Report = Callable[[str], None]
 
-# ``DNDEMB`` plus a format version, so a file written by a later version is
-# refused by name rather than read as garbage.
 MAGIC = b"DNDEMB\x00"
 VERSION = 1
 _HEADER_LENGTH = struct.Struct("<I")
-# The payload is fixed little-endian, so a file moves between machines.
 _SWAP = sys.byteorder != "little"
 
 
@@ -57,12 +43,15 @@ class BadEmbeddingsFile(ValueError):
 @dataclass(slots=True)
 class Vectors:
     """
-    Every section's embedding, plus what was embedded to get it.
+    Every section's embedding, and a digest of the text embedded.
 
-    ``keys``, ``digests`` and ``rows`` are parallel: row *i* is the embedding
-    of the text whose digest is ``digests[i]``, for the section ``keys[i]``.
-    The digests are what make this a cache as well as an artifact: a re-parse
-    that changed twelve sections re-embeds twelve sections.
+    Attributes:
+        keys: Section ids.
+        digests: ``digest`` of each embedded text.  A section whose text
+            changes is re-embedded; the rest are reused.
+        rows: The vectors.  All three lists are parallel.
+        artifact: ``pdf``, ``generated`` and ``pages`` from the document's
+            meta, for provenance.
     """
 
     model: str
@@ -77,11 +66,12 @@ class Vectors:
         return len(self.keys)
 
     def by_key(self) -> dict[str, tuple[str, list[float]]]:
+        """Section id to ``(digest, vector)``."""
         return {key: (digest, row)
                 for key, digest, row in zip(self.keys, self.digests, self.rows)}
 
     def matches(self, settings: EmbeddingSettings) -> bool:
-        """Whether this file was made in the space the settings ask for."""
+        """Whether model, dimensions and task type all equal the settings'."""
         return (self.model == settings.model
                 and self.dimensions == settings.dimensions
                 and self.task_type == settings.task_type)
@@ -92,7 +82,7 @@ class Vectors:
 
 
 def digest(text: str) -> str:
-    """Enough of a hash to notice an edit; not a security boundary."""
+    """First 16 hex chars of the text's SHA-256; for change detection only."""
     return sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
@@ -104,16 +94,18 @@ def _truncate(text: str, limit: int) -> str:
 
 def texts(document: dict, max_chars: int = 6000) -> dict[str, str]:
     """
-    One text per section that has prose, keyed by section id.
+    The text to embed for each section with prose.
 
-    The ancestor headings lead, because a heading on its own is routinely
-    meaningless: the book has dozens of sections called "Traits" and
-    "Actions", and the tree is the only thing that tells them apart.  A
-    stat block's "Actions" embedded bare is noise; embedded as
-    ``Monsters > Goblin > Actions`` it is the thing someone is searching for.
+    Each is prefixed with its heading path (``Monsters > Goblin > Actions``),
+    since dozens of sections share headings like "Actions".  Truncated here,
+    not in ``embed``, so the digest describes what was sent.
 
-    Truncation happens here rather than in ``embed`` so that the digest
-    describes what was actually sent.
+    Args:
+        document: The stage 1 artifact.
+        max_chars: Truncation limit, at a word boundary.
+
+    Returns:
+        Section id to text.
     """
     found: dict[str, str] = {}
 
@@ -139,11 +131,14 @@ def texts(document: dict, max_chars: int = 6000) -> dict[str, str]:
 
 def write(path: Path, vectors: Vectors) -> Path:
     """
-    Magic, a JSON header, then the payload as raw little-endian float32.
+    Write vectors in the format described in the module docstring.
 
-    Nothing but the standard library: ``array.tolist()`` is already the
-    ``list[float]`` the Neo4j driver wants, so numpy would buy a dependency
-    and no conversion.
+    Args:
+        path: Destination; parent directories are created.
+        vectors: What to write.
+
+    Returns:
+        ``path``.
     """
     header = json.dumps({
         "version": VERSION,
@@ -175,7 +170,19 @@ def write(path: Path, vectors: Vectors) -> Path:
 
 
 def read(path: Path) -> Vectors:
-    """The inverse.  A file that is not ours fails by name, not by garbage."""
+    """
+    Read a file written by ``write``.
+
+    Args:
+        path: The ``.idx`` file.
+
+    Returns:
+        Its vectors and header fields.
+
+    Raises:
+        BadEmbeddingsFile: Wrong magic, another format version, an
+            unreadable header, or a truncated payload.
+    """
     with path.open("rb") as handle:
         if handle.read(len(MAGIC)) != MAGIC:
             raise BadEmbeddingsFile(f"{path} is not an embeddings file")
@@ -225,10 +232,15 @@ def _chunks(items: list[str], size: int) -> Iterator[list[str]]:
 
 def normalise(vector: Iterable[float]) -> list[float]:
     """
-    Unit length, which the API guarantees only at the model's native 3072.
+    Scale a vector to unit length.
 
-    Cosine similarity over unnormalised truncated vectors is still defined,
-    but Neo4j's cosine index and every dot product downstream assume this.
+    The API normalises only at the native 3072 dimensions.
+
+    Args:
+        vector: Any vector.
+
+    Returns:
+        The unit vector; a zero vector is returned unchanged.
     """
     values = list(vector)
     length = math.sqrt(sum(value * value for value in values))
@@ -238,12 +250,23 @@ def normalise(vector: Iterable[float]) -> list[float]:
 def embed(batch: list[str], settings: EmbeddingSettings,
           report: Report = lambda _: None) -> list[list[float]]:
     """
-    The only call that reaches Google.  Injectable, so ``resolve`` is tested
-    without a key.
+    Embed texts with the Gemini API.
 
-    A 429 is retried rather than fatal: the free tier's per-minute limit is
-    reached well before its daily one, and failing a twenty-minute run on a
-    rate limit would be absurd.
+    Rate limits (429 / RESOURCE_EXHAUSTED) are retried with exponential
+    backoff, up to five attempts per batch.
+
+    Args:
+        batch: Texts to embed.
+        settings: Model, dimensions, task type, batch size and key.
+        report: Receives progress lines.
+
+    Returns:
+        One normalised vector per text, in order.
+
+    Raises:
+        MissingEmbeddings: No API key.
+        RuntimeError: Rate limited five times in a row.
+        Exception: Any other SDK error, unchanged.
     """
     from google import genai
     from google.genai import types
@@ -284,11 +307,23 @@ def resolve(document: dict, *, path: Path, settings: EmbeddingSettings,
             refresh: bool = False, report: Report = lambda _: None,
             embedder: Callable[..., list[list[float]]] = embed) -> Vectors:
     """
-    Every section's vector, from the file where possible and the API where
-    not.  Complete, or :class:`MissingEmbeddings`.
+    Every section's vector, from the file where its digest matches and the
+    API otherwise.  Writes the file back if anything was generated.
 
-    Nothing downstream has to reason about a partial set, which is the point:
-    the check in ``verify`` is then a real one rather than a tautology.
+    Args:
+        document: The stage 1 artifact.
+        path: The ``.idx`` file to read and write.
+        settings: Embedding settings; a file made under others is ignored.
+        refresh: Ignore the file and embed everything.
+        report: Receives progress lines.
+        embedder: Replaces ``embed`` in tests.
+
+    Returns:
+        A vector for every section with prose.
+
+    Raises:
+        MissingEmbeddings: Some sections lack a vector and there is no key.
+        BadEmbeddingsFile: The file exists but cannot be read.
     """
     wanted = texts(document, settings.max_chars)
     cached: dict[str, tuple[str, list[float]]] = {}

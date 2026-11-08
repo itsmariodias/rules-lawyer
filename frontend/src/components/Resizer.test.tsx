@@ -1,17 +1,9 @@
-/**
- * The drag handle between the conversation and the page panel.
- *
- * How wide the page facsimile needs to be is a question about the reader's
- * screen and eyes, so it is a control rather than a constant, and the
- * clamping is what keeps it from eating the conversation.
- */
-
 import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { MIN_PANEL, Resizer, SIDEBAR, clampWidth, defaultPanel } from './Resizer'
 
-/** jsdom defaults to 1024×768; set it where a test needs a wider desk. */
+/** jsdom defaults to 1024×768. */
 function windowWidth(width: number) {
   Object.defineProperty(window, 'innerWidth', { value: width,
                                                 configurable: true })
@@ -35,10 +27,6 @@ describe('clampWidth', () => {
   })
 
   it('given an open thread list, when clamped, then the conversation keeps its room', () => {
-    /**
-     * The two share a window, so the panel cannot be clamped alone: widening
-     * it while the thread list is open would leave nothing in between.
-     */
     // Given a 1512px window with the thread list open
     windowWidth(1512)
 
@@ -59,7 +47,6 @@ describe('clampWidth', () => {
   })
 
   it('given a very narrow window, when clamped, then the minimum still wins', () => {
-    /** `max` can fall below `min`, and the layout's media query takes over. */
     // Given a window too small for the panel and the conversation at once
     windowWidth(500)
 
@@ -71,11 +58,6 @@ describe('clampWidth', () => {
 
 describe('defaultPanel', () => {
   it('given a screen never seen before, when opened, then the width is proportional', () => {
-    /**
-     * The page is rendered *to fit the panel*, so the panel's width is the
-     * reading size; a fixed default is a thumbnail on one screen and half
-     * the desk on another.
-     */
     // Given a wide display
     windowWidth(2000)
 
@@ -124,7 +106,6 @@ describe('Resizer', () => {
   })
 
   it('given a drag in progress, when the pointer leaves the handle, then it continues', () => {
-    /** A pointer routinely leaves a 13px target mid-drag. */
     // Given a drag that started on the handle
     const onResize = vi.fn()
     render(<Resizer width={600} sidebar={200} onResize={onResize} />)
@@ -153,7 +134,6 @@ describe('Resizer', () => {
   })
 
   it('given a keyboard, when the arrow keys are pressed, then the divider moves', () => {
-    /** Dragging is not the only way to move a divider. */
     // Given the panel's handle with focus
     const onResize = vi.fn()
     render(<Resizer width={600} sidebar={200} onResize={onResize} />)

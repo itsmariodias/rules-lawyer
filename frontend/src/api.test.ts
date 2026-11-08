@@ -1,12 +1,3 @@
-/**
- * The browser's half of the SSE contract.
- *
- * The plain calls are thin, so what is worth testing is the framing:
- * `fetch` rather than `EventSource` means events arrive in chunks whose
- * boundaries land anywhere, and a frame split across two reads must not be
- * lost or parsed twice.
- */
-
 import { describe, expect, it, vi } from 'vitest'
 
 import {
@@ -26,7 +17,7 @@ function answering(body: unknown, ok = true, status = 200) {
   return stub
 }
 
-/** A `fetch` whose body streams the given chunks, as the server would. */
+/** A `fetch` whose body streams the given chunks. */
 function streaming(chunks: string[]) {
   const encoder = new TextEncoder()
   const queue = chunks.map((chunk) => encoder.encode(chunk))
@@ -56,10 +47,6 @@ describe('graphStatus', () => {
   })
 
   it('given a database with nothing in it, when asked, then it is empty', async () => {
-    /**
-     * Reachable and useless is its own state: every question comes back
-     * with nothing, and "connected" would be true and misleading.
-     */
     // Given a database nothing has been loaded into
     answering({ status: 'ok', nodes: {} })
 
@@ -69,8 +56,7 @@ describe('graphStatus', () => {
   })
 
   it('given no database at all, when asked, then it is a status not a throw', async () => {
-    /** The caller is a caption in a footer; there is nothing for it to
-        catch, and a rejected promise there would be an unhandled one. */
+    /** Callers do not catch, so a rejection would go unhandled. */
     // Given Neo4j down, which the API reports as a 503
     answering(null, false, 503)
 
@@ -194,10 +180,6 @@ describe('loadNeighbourhood', () => {
   })
 
   it('given a drawn node, when expanded, then it is the seed instead', async () => {
-    /**
-     * A citation names a section, but the interesting neighbours are not all
-     * sections, so an expansion names the node it was already shown.
-     */
     // Given a node from an earlier answer
     const stub = answering({ root: 'x', nodes: [], edges: [], truncated: [] })
 
@@ -209,10 +191,6 @@ describe('loadNeighbourhood', () => {
   })
 
   it('given a wider fan, when loaded, then it is sent; otherwise it is left out', async () => {
-    /**
-     * The server samples deterministically, so asking again for the same fan
-     * returns the same neighbours; only a wider one shows anything new.
-     */
     // Given a hub asked for more
     const stub = answering({ root: 'x', nodes: [], edges: [], truncated: [] })
 
@@ -244,10 +222,6 @@ describe('streamChat', () => {
   })
 
   it('given a frame split across two chunks, when streamed, then it is not lost', () => {
-    /**
-     * A chunk boundary can land anywhere, so the tail of a chunk is held
-     * back until its blank line arrives.
-     */
     // Given one frame arriving in two pieces
     streaming(['data: {"type":"tok', 'en","text":"Prone"}\n\n'])
     const seen: ChatEvent[] = []
@@ -302,11 +276,6 @@ describe('streamChat', () => {
 
 describe('retryChat', () => {
   it('given a conversation, when retried, then it is asked at the thread', async () => {
-    /**
-     * The question is not re-sent. The server reads what was asked out of
-     * the checkpoint it is about to rewind, which is what keeps a retry from
-     * being a second question that happens to match.
-     */
     // Given a stored conversation
     const stub = streaming([frame({ type: 'done', thread_id: 'held' })])
 

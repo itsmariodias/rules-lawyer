@@ -1,12 +1,3 @@
-"""
-Paths, database settings and chat settings.
-
-Every test here is pure: ``Settings`` reads ``.env`` and the environment, and
-what is worth asserting is that the derived paths hang off ``root``, that the
-two settings groups stay lazy, and that the one renamed value is still
-accepted under its old name.
-"""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -19,8 +10,6 @@ from dnd_graph_rag.config import (ChatSettings, EmbeddingSettings,
 
 
 class TestSettingsPaths:
-    """``Settings``' derived filesystem paths."""
-
     def test_given_a_root_when_the_paths_are_read_then_they_hang_off_it(self):
         # Given a settings object rooted somewhere other than the checkout
         settings = Settings(root=Path("/srv/app"))
@@ -61,7 +50,6 @@ class TestSettingsPaths:
         assert settings.output_path == Path("/srv/app/data/output/tree.json")
 
     def test_given_a_root_when_the_embeddings_are_read_then_they_sit_in_output(self):
-        """Beside the artifact they were derived from, and reproducible."""
         # Given a settings object with no explicit embeddings path
         settings = Settings(root=Path("/srv/app"))
 
@@ -71,10 +59,6 @@ class TestSettingsPaths:
             "/srv/app/data/output/srd_embeddings.idx")
 
     def test_given_an_explicit_embeddings_path_when_read_then_it_wins(self):
-        """
-        The whole point of the variable: a reader downloads the file and
-        keeps it wherever they like rather than where we would have put it.
-        """
         # Given a settings object pointed at a downloaded file
         settings = Settings(root=Path("/srv/app"),
                             embeddings=Path("~/Downloads/srd.idx"))
@@ -96,10 +80,6 @@ class TestSettingsPaths:
 
     def test_given_no_api_key_when_the_checkpoint_path_is_read_then_it_still_answers(
             self, monkeypatch):
-        """
-        ``checkpoint_name`` lives on ``Settings`` rather than ``ChatSettings``
-        so the server can say where conversations are stored without a key.
-        """
         # Given an environment with no Google API key
         monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
 
@@ -111,8 +91,6 @@ class TestSettingsPaths:
 
 
 class TestSettingsGroups:
-    """``chat``, ``embedding`` and ``neo4j``, all built on first access."""
-
     def test_given_settings_when_built_then_no_group_is_constructed_yet(self):
         # Given a fresh settings object
         settings = Settings()
@@ -133,13 +111,7 @@ class TestSettingsGroups:
 
 
 class TestChatSettings:
-    """The agent's model, its key, and the retrieval limits around it."""
-
     def test_given_no_stub_when_read_then_the_model_is_the_real_one(self):
-        """
-        The scripted model is the suites' seam.  Defaulting it on anywhere
-        else would make a broken key look like a working assistant.
-        """
         # Given no CHAT_STUB in the environment
         chat = ChatSettings()
 
@@ -149,12 +121,6 @@ class TestChatSettings:
 
     def test_given_no_overrides_when_read_then_the_search_is_wider_than_the_answer(
             self):
-        """
-        Two limits, not one: each arm of the hybrid search is asked for
-        ``search_limit`` candidates, and the fusion cuts the union to
-        ``top_k``.  A passage the other arm ranks highly is worth having in
-        the pool even when it is not in the answer.
-        """
         # Given no CHAT_ overrides in the environment
         chat = ChatSettings()
 
@@ -164,11 +130,6 @@ class TestChatSettings:
         assert chat.search_limit > chat.top_k
 
     def test_given_a_blank_key_when_read_then_it_counts_as_no_key_at_all(self):
-        """
-        ``GOOGLE_API_KEY=`` is how someone turns the key off without deleting
-        it, and it has to reach the reader as the sentence naming ``.env``
-        rather than as a provider rejecting an empty credential.
-        """
         # Given the key set to nothing
         chat = ChatSettings(google_api_key="   ")
 
@@ -187,7 +148,6 @@ class TestChatSettings:
 
     def test_given_the_environment_names_the_key_when_read_then_the_alias_is_used(
             self, monkeypatch):
-        """The name every Google tool already reads, not CHAT_GOOGLE_API_KEY."""
         # Given the key under the name Google's own tooling uses
         monkeypatch.setenv("GOOGLE_API_KEY", "from-the-environment")
 
@@ -199,13 +159,7 @@ class TestChatSettings:
 
 
 class TestEmbeddingSettings:
-    """The one-time embedding run, and the file that stands in for it."""
-
     def test_given_no_override_when_read_then_the_pinned_model_is_used(self):
-        """
-        A GA id rather than a preview or a "-latest" alias: the vectors in
-        the shared file have to stay in the space they were made in.
-        """
         # Given the defaults
         settings = EmbeddingSettings()
 
@@ -216,14 +170,6 @@ class TestEmbeddingSettings:
         assert settings.task_type == "RETRIEVAL_DOCUMENT"
 
     def test_given_a_blank_key_when_read_then_it_counts_as_no_key_at_all(self):
-        """
-        ``GOOGLE_API_KEY=`` is how someone turns the key off without deleting
-        it, and the only way to reach the offline path from a checkout that
-        has one — an unset variable does not beat an ``.env`` that sets it.
-        Without this the run reaches Google with an empty credential and
-        fails halfway through with a provider error rather than the message
-        that names the file.
-        """
         # Given a key set to nothing
         settings = EmbeddingSettings(google_api_key="   ")
 
@@ -242,8 +188,6 @@ class TestEmbeddingSettings:
 
 
 class TestNeo4jSettings:
-    """Connection details for the graph."""
-
     def test_given_a_user_and_password_when_auth_is_read_then_it_is_a_pair(self):
         # Given the connection settings
         neo4j = Neo4jSettings(user="neo4j", password="secret")
@@ -263,8 +207,6 @@ class TestNeo4jSettings:
 
 
 class TestGetSettings:
-    """The process-wide settings object."""
-
     def test_given_two_calls_when_compared_then_they_are_the_same_object(self):
         # Given the settings have been read once
         first = get_settings()
@@ -286,8 +228,6 @@ class TestGetSettings:
 
 
 class TestMarkdownPathFor:
-    """Where the intermediate markdown is written."""
-
     def test_given_an_artifact_when_asked_then_the_markdown_sits_beside_it(self):
         # Given the artifact's path
         # When the markdown path is derived
@@ -298,8 +238,6 @@ class TestMarkdownPathFor:
 
 
 class TestAnchorsPathFor:
-    """Where the page geometry is written."""
-
     def test_given_the_markdown_when_asked_then_the_anchors_sit_beside_it(self):
         # Given the markdown's path
         # When the anchors path is derived

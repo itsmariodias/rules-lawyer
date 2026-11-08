@@ -1,13 +1,8 @@
 """
-A citation resolved to the book's own words, and to its place on the page.
+A cited section's markdown slice and its page rectangles.
 
-A section node carries ``char_start``/``char_end`` into
-``srd_hierarchy.md``, which is sliced for the text, and
-``srd_hierarchy.anchors.json`` maps that same range to the rectangles of the
-lines behind it, which the UI draws over a render of the page.
-
-Both files are read once and cached: together they are about 4 MB, and every
-citation in every conversation slices the same two.
+``srd_hierarchy.md`` and ``srd_hierarchy.anchors.json`` (about 4 MB together)
+are read once per process.
 """
 
 from __future__ import annotations
@@ -22,17 +17,19 @@ from . import retrieval
 
 @lru_cache(maxsize=1)
 def markdown() -> str:
+    """
+    The stage 1 markdown, cached.
+
+    Raises:
+        FileNotFoundError: It has not been generated.
+    """
     return _read(markdown_path_for(get_settings().output_path), "markdown")
 
 
 @lru_cache(maxsize=1)
 def anchors() -> list[dict]:
     """
-    Page geometry per emitted part, in document order.
-
-    Missing on an artifact generated before the anchors existed, which is a
-    re-parse away rather than an error worth failing a citation over — so
-    the caller gets no boxes and the text still resolves.
+    The anchors file, cached; empty if absent (artifacts predating it).
     """
     path = anchors_path_for(markdown_path_for(get_settings().output_path))
     if not path.exists():
@@ -49,11 +46,20 @@ def _read(path, what: str) -> str:
 
 def excerpt(section_id: str, context: int = 0) -> dict | None:
     """
-    The source text of one section, with the graph's own view of it.
+    A section's source text, page boxes and tree neighbours.
 
-    ``context`` widens the slice on both sides so the panel can show a
-    citation in its surroundings; the offsets of the citation itself are
-    returned alongside, so the caller can still highlight exactly it.
+    Args:
+        section_id: Dotted section id.
+        context: Extra characters of markdown on each side of the section.
+
+    Returns:
+        ``text`` (the widened slice), ``highlight`` (the section's offsets
+        within ``text``), ``boxes`` and ``pages`` (for the section alone),
+        heading, type, labels, ``parent`` and ``children``.  None if no such
+        section.
+
+    Raises:
+        FileNotFoundError: The markdown has not been generated.
     """
     found = retrieval.get_section(section_id)
     if found is None:
@@ -77,12 +83,8 @@ def excerpt(section_id: str, context: int = 0) -> dict | None:
         "page": passage.page_start,
         "labels": passage.labels,
         "text": text[start:end],
-        # Where the section sits inside the slice above, so a widened
-        # excerpt can still dim everything that is not the citation.
         "highlight": {"start": passage.char_start - start,
                       "end": passage.char_end - start},
-        # Always the citation's own range, never the widened one: the boxes
-        # mark what was cited, not what is being shown around it.
         "boxes": boxes,
         "pages": sorted({box["page"] for box in boxes}),
         **around,

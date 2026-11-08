@@ -1,9 +1,8 @@
 """
-Stage 3 over HTTP: the chat stream, its threads, and what a citation opens.
+Stage 3 over HTTP: the chat stream, threads, citation sources and the graph view.
 
-The routes hold no state.  The checkpointer and the store are opened once by
-the app's lifespan and reached through ``request.app.state`` as dependencies,
-so a conversation is addressed only by the thread id the browser holds.
+The checkpointer and store come from ``request.app.state`` (see
+``api.lifespan``).
 """
 
 from __future__ import annotations
@@ -34,7 +33,7 @@ def conversations(request: Request) -> BaseCheckpointSaver:
 
 
 def flags(request: Request) -> BaseStore:
-    """The process-wide store of what is true about a conversation."""
+    """The process-wide pin and title store, opened by the app's lifespan."""
     return request.app.state.store
 
 
@@ -48,12 +47,12 @@ class PinRequest(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1)
-    # Absent on the first message of a conversation; the response stream
-    # reports the id that was minted so the browser can keep using it.
+    # Omitted to start a thread; the ``start`` event carries the minted id.
     thread_id: str | None = None
 
 
 def _sse(event: dict) -> str:
+    """One server-sent event frame."""
     return f"data: {json.dumps(event)}\n\n"
 
 
@@ -63,23 +62,13 @@ async def chat(request: ChatRequest, checkpointer: Conversations,
     """
     One turn, streamed as server-sent events.
 
-    Events are ``token`` (a fragment of the answer), ``tool_start`` and
-    ``tool_end`` (the searches the agent ran, so the UI can show its
-    working), ``usage`` (the tokens every model call in the turn read and
-    wrote, summed), ``citations`` (resolved once the answer is complete),
-    ``error`` (the model could not answer, and nothing answers in its
-    place), and finally ``done``.
+    Events: ``start``, ``token``, ``tool_start``, ``tool_end``, ``usage``,
+    ``citations``, ``error`` and ``done``.  Failures after the stream starts
+    arrive as ``error``.  On a thread's first turn a title is generated
+    concurrently and stored before the stream ends.
 
-    A missing key is the one failure knowable before the response is
-    committed, so it is an HTTP error rather than an event buried inside a
-    stream that had already announced itself as a turn.  Everything that can
-    only fail mid-call — a rejected key, a spent quota, a stall — arrives as
-    ``error``.
-
-    The opening turn of a conversation also has it titled, by a call that
-    runs beside the turn rather than before it, so the first token waits for
-    nothing. It is stored before the stream ends, which is when the browser
-    refreshes its thread list.
+    Raises:
+        HTTPException: 503 if no API key is configured.
     """
     try:
         chat_agent.build_agent(checkpointer)
@@ -87,8 +76,7 @@ async def chat(request: ChatRequest, checkpointer: Conversations,
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     thread_id = request.thread_id or uuid4().hex
-    # Whether this is the opening turn is asked of the checkpointer rather
-    # than read off a missing id, since a client may mint its own.
+    # Checked in storage, not by a missing id: a client may mint its own.
     opening = await checkpointer.aget_tuple(
         {"configurable": {"thread_id": thread_id}}) is None
 
@@ -103,15 +91,14 @@ async def chat(request: ChatRequest, checkpointer: Conversations,
             if titling is not None and (title := await titling):
                 await titles.remember(store, thread_id, title)
         finally:
-            # A reader who stops the turn has left; nothing is waiting on it.
+            # The client disconnected; nothing will read the title.
             if titling is not None:
                 titling.cancel()
 
     return StreamingResponse(
         events(),
         media_type="text/event-stream",
-        # Without this a reverse proxy will happily buffer the whole answer
-        # and deliver it in one piece, which defeats the point.
+        # Stops nginx-style proxies buffering the stream.
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
@@ -120,17 +107,14 @@ async def chat(request: ChatRequest, checkpointer: Conversations,
 async def retry_turn(thread_id: str,
                      checkpointer: Conversations) -> StreamingResponse:
     """
-    Ask the last question again, in place of the answer it got.
+    Re-ask the last question, replacing its answer (see ``service.rewind``).
 
-    The same events ``/chat`` sends, and the same rule about which failures
-    are HTTP: the key and the rewind are both knowable before the response is
-    committed, so a missing key is a 503 and a thread with nothing in it is a
-    404 rather than an event inside a stream that has already announced
-    itself as a turn.
+    Streams the same events as ``/chat``.  The question is read from the
+    checkpoint, not sent by the client.
 
-    The browser sends no message.  What was asked is in the checkpoint, and
-    reading it there is what keeps the retry a rewind rather than a second
-    question that happens to match.
+    Raises:
+        HTTPException: 503 if no API key is configured; 404 if the thread
+            has no question.
     """
     try:
         chat_agent.build_agent(checkpointer)
@@ -166,10 +150,10 @@ async def chat_threads(checkpointer: Conversations, store: Flags,
 async def pin_thread(thread_id: str, request: PinRequest,
                      checkpointer: Conversations, store: Flags) -> None:
     """
-    Pin or unpin one conversation, which decides where it sits in the list.
+    Pin or unpin one conversation.
 
-    Checked against the checkpointer first: a pin on a thread that does not
-    exist is a row nothing would ever read.
+    Raises:
+        HTTPException: 404 if the thread does not exist.
     """
     if await checkpointer.aget_tuple(
             {"configurable": {"thread_id": thread_id}}) is None:
@@ -179,7 +163,12 @@ async def pin_thread(thread_id: str, request: PinRequest,
 
 @router.get("/chat/threads/{thread_id}")
 async def chat_thread(thread_id: str, checkpointer: Conversations) -> dict:
-    """One conversation's turns, for reopening it in the UI."""
+    """
+    One conversation's turns.
+
+    Raises:
+        HTTPException: 404 if the thread does not exist.
+    """
     messages = await service.history(thread_id, checkpointer)
     if not messages:
         raise HTTPException(status_code=404, detail=f"no thread {thread_id!r}")
@@ -190,11 +179,10 @@ async def chat_thread(thread_id: str, checkpointer: Conversations) -> dict:
 async def chat_lookup(thread_id: str, call_id: str,
                       checkpointer: Conversations) -> dict:
     """
-    What one lookup in a conversation returned.
+    One tool call's stored result, fetched on demand because results are large.
 
-    Its own request rather than part of the conversation: the results are
-    large, most are never opened, and the trace's counts are enough until
-    someone asks to see one.
+    Raises:
+        HTTPException: 404 if the thread has no such call.
     """
     found = await service.lookup(thread_id, call_id, checkpointer)
     if found is None:
@@ -207,10 +195,10 @@ async def chat_lookup(thread_id: str, call_id: str,
 async def forget_thread(thread_id: str, checkpointer: Conversations,
                         store: Flags) -> None:
     """
-    Delete one conversation: its turns, its tool calls and its pin.
+    Delete one conversation, its pin and its title.
 
-    404 when there was nothing under that id, so the UI can tell a delete
-    from a no-op.
+    Raises:
+        HTTPException: 404 if the thread does not exist.
     """
     if not await service.forget(thread_id, checkpointer, store):
         raise HTTPException(status_code=404, detail=f"no thread {thread_id!r}")
@@ -219,12 +207,10 @@ async def forget_thread(thread_id: str, checkpointer: Conversations,
 @router.get("/source/{section_id}")
 async def source(section_id: str, context: int = 0) -> dict:
     """
-    The SRD text behind a citation, sliced out of ``srd_hierarchy.md`` by the
-    character offsets the graph carries, plus the rectangles those lines
-    occupy on the page.
+    A cited section's text and page boxes; see ``source.excerpt``.
 
-    ``context`` widens the slice; ``highlight`` says where the cited section
-    sits within it, and ``boxes`` always marks the citation itself.
+    Raises:
+        HTTPException: 503 if the markdown is missing; 404 if the section is.
     """
     try:
         found = await run_in_threadpool(excerpt, section_id, context)
@@ -241,16 +227,13 @@ async def neighbourhood(section: str | None = None, node: str | None = None,
                         fan: int = graph_view.FAN,
                         limit: int = graph_view.LIMIT) -> dict:
     """
-    The graph around one node: the nodes ``depth`` hops from it, and the
-    edges between them.
+    The bounded graph around one node; see ``neighbourhood.neighbourhood``.
 
-    Exactly one of ``section`` (a dotted section id, as ``/source`` takes)
-    and ``node`` (a ``uid`` this endpoint returned earlier).  Both exist
-    because a drawn node may be a creature ability or a damage type, which
-    has no section id to be named by.
+    Pass exactly one of ``section`` (a dotted id) or ``node`` (a ``uid`` from
+    an earlier response; derived nodes have no section id).
 
-    ``fan`` and ``limit`` bound the answer; whatever they cut is counted in
-    ``truncated`` rather than dropped in silence.
+    Raises:
+        HTTPException: 400 unless exactly one is given; 404 if not found.
     """
     if (section is None) == (node is None):
         raise HTTPException(

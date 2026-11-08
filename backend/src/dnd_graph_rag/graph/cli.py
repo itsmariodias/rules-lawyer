@@ -11,12 +11,12 @@ from ..config import get_settings
 from .embeddings import BadEmbeddingsFile, MissingEmbeddings
 from .pipeline import build_embeddings, build_graph
 
-# The two ways a run can be short of vectors, both of which are the reader's
-# to fix and neither of which wants a traceback.
+# Reported as a message, without a traceback.
 _EMBEDDING_FAILURES = (MissingEmbeddings, BadEmbeddingsFile)
 
 
 def main() -> None:
+    """``srd-graph-load``: load, verify, and exit non-zero on any failure."""
     settings = get_settings()
     parser = argparse.ArgumentParser(
         description="Load the parsed SRD artifact into Neo4j.")
@@ -60,13 +60,7 @@ def main() -> None:
 
 
 def embed_main() -> None:
-    """
-    ``srd-embed``: the one-time run that produces the shareable ``.idx``.
-
-    Separate from the load because it is the only thing in either pipeline
-    that needs an API key, and because the file it writes is what lets
-    everybody else's load do without one.
-    """
+    """``srd-embed``: write ``srd_embeddings.idx`` without touching the database."""
     settings = get_settings()
     parser = argparse.ArgumentParser(
         description="Embed the parsed SRD artifact into srd_embeddings.idx.")

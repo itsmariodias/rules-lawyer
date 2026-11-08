@@ -1,27 +1,12 @@
 """
-The graph, asked a question directly.
+Agent-written Cypher: the guard, the read-only transaction, the derived
+schema, and the rendered rows.
 
-Where ``retrieval`` reads the graph for passages and ``neighbourhood`` reads
-it for shape, this lets the agent write the query itself.  It exists for the
-question those two answer badly: the *exhaustive* one.  "Which creatures can
-make someone Frightened" is twenty rows of Cypher and sixty tool calls of
-searching, because a search returns passages and a bounded walk returns a
-sample, and neither is a list the model will trust as complete.
-
-**The boundary is the transaction, not a word list.**  The session is opened
-``READ_ACCESS`` and the query runs in an explicit transaction, so Neo4j
-itself refuses a write with ``Neo.ClientError.Statement.AccessMode`` before
-anything happens.  That matters because the obvious alternative — refusing
-any query containing ``CREATE`` or ``SET`` — is both weaker and wrong: the
-SRD contains a spell called *Create Undead*, so a legitimate
-``WHERE s.name = 'Create Undead'`` would be rejected by it.
-
-What read access does *not* cover is guarded separately, and there is
-exactly one thing in that class: a procedure.  ``CALL dbms.listConfig()`` is
-a read, runs happily in a read transaction, and returns the server's
-configuration, so procedures are allow-listed rather than permitted.  ``LOAD
-CSV`` is refused too — this server already blocks the URL, but that is its
-configuration rather than our decision.
+Writes are refused by Neo4j itself (``READ_ACCESS`` session, explicit
+transaction), not by a keyword denylist, which would also reject
+``WHERE s.name = 'Create Undead'``.  Read access still permits procedures
+such as ``dbms.listConfig()``, so those are allow-listed, and ``LOAD CSV``
+is refused.
 """
 
 from __future__ import annotations
@@ -41,22 +26,18 @@ from .retrieval import driver, query
 
 
 class Refused(ValueError):
-    """The query is one we will not run, for a reason worth telling."""
+    """A query ``guard`` rejects; the message is shown to the model."""
 
 
-# Strings are cut out before the guard reads anything, so a rule about the
-# word CALL is a rule about the Cypher and never about the book: the SRD has
-# a *Create Undead*, a *Delete*-free but *Remove Curse*-full glossary, and
-# names are exactly what a WHERE clause is full of.
+# String literals are blanked before checking, so names in the book never
+# trip the guard.
 _STRING = re.compile(r"'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\"")
 
-# ``CALL {`` and ``CALL (n) {`` are subqueries, not procedures: neither is
-# followed by a name, so neither matches.
+# Subqueries (``CALL {`` and ``CALL (n) {``) have no name, so do not match.
 _PROCEDURE = re.compile(r"\bCALL\s+([A-Za-z_][\w.]*)", re.I)
 _LOAD_CSV = re.compile(r"\bLOAD\s+CSV\b", re.I)
 
-# The two the graph is searched through.  Nothing else is needed to answer a
-# rules question, and ``dbms.*`` is a read that returns the server's config.
+# Lowercase.  ``dbms.*`` must stay out: it returns server configuration.
 ALLOWED_PROCEDURES = frozenset({
     "db.index.fulltext.querynodes",
     "db.index.vector.querynodes",
@@ -65,10 +46,15 @@ ALLOWED_PROCEDURES = frozenset({
 
 def guard(cypher: str) -> None:
     """
-    Refuse what a read transaction would happily run and we would not.
+    Reject ``LOAD CSV`` and any procedure outside ``ALLOWED_PROCEDURES``.
 
-    Pure, and deliberately short: everything a denylist would traditionally
-    carry is already refused by the server one layer down.
+    Writes are not checked here; the read-only transaction refuses them.
+
+    Args:
+        cypher: The model's query.
+
+    Raises:
+        Refused: The query loads CSV or calls a disallowed procedure.
     """
     bare = _STRING.sub("''", cypher)
     if _LOAD_CSV.search(bare):
@@ -88,12 +74,19 @@ def guard(cypher: str) -> None:
 def read(cypher: str, *, timeout: float,
          max_rows: int) -> tuple[list[dict], bool]:
     """
-    One query, in a transaction that cannot write and cannot run forever.
+    Run a query in a read-only transaction with a timeout.
 
-    Returns the rows and whether there were more.  ``max_rows + 1`` are read
-    so that "more than this" is known rather than guessed, and the timeout
-    bounds the query the row cap cannot: a cartesian product costs its time
-    server-side before a single row is sent.
+    Args:
+        cypher: An already guarded query.
+        timeout: Transaction timeout in seconds.
+        max_rows: Rows to return; one more is read to detect truncation.
+
+    Returns:
+        ``(rows, truncated)``.
+
+    Raises:
+        neo4j.exceptions.Neo4jError: Syntax errors, write attempts
+            (``Neo.ClientError.Statement.AccessMode``) and timeouts.
     """
     settings = get_settings().neo4j
     rows: list[dict] = []
@@ -113,9 +106,7 @@ def read(cypher: str, *, timeout: float,
 # --------------------------------------------------------------------------
 # The schema
 
-# What the label lists never say, and every one of these cost real debugging
-# time to learn.  Derived facts go below, from the graph; these are the ones
-# no introspection can state.
+# Hand-written facts that introspection cannot state; ``shapes`` derives the rest.
 ORIENTATION = prompt("graph-orientation")
 
 _SHAPES = """
@@ -127,19 +118,13 @@ ORDER BY rel, total DESC
 
 
 def _form(labels: list[str]) -> str:
-    """
-    A label set as it would be written in a MATCH.
-
-    ``:Section`` is dropped where anything else is present, for the reason it
-    is dropped everywhere else: it is on 2368 nodes and says nothing about
-    which one this is.  On a node that is *only* a section it is all there
-    is, so it stays.
-    """
+    """A label set as written in a MATCH, without ``Section`` unless it is the only one."""
     specific = [label for label in labels if label != "Section"]
     return ":" + ":".join(specific or ["Section"])
 
 
 def _sides(counts: dict[str, int], cap: int = 4) -> str:
+    """The ``cap`` most frequent label forms joined with ``|``, then a remainder count."""
     ordered = sorted(counts, key=lambda form: (-counts[form], form))
     shown = "|".join(f"({form})" for form in ordered[:cap])
     if len(ordered) > cap:
@@ -150,15 +135,16 @@ def _sides(counts: dict[str, int], cap: int = 4) -> str:
 @lru_cache(maxsize=1)
 def shapes() -> str:
     """
-    Which labels each relationship actually joins, read off the data.
+    Which label sets each relationship type joins, read from the data.
 
-    Derived rather than written down, because a hand-kept schema in a prompt
-    drifts from the loader the first time anyone edits ``mapping.py`` and
-    nothing fails — the model simply writes Cypher against a graph that no
-    longer exists.  ``db.schema.visualization`` would be the obvious source
-    and is not: it reads the token store, which on a multi-label graph
-    reports combinations that no node has.  One pass over 11319
-    relationships is 0.14s, once per process.
+    Not ``db.schema.visualization``: on a multi-label graph it reports label
+    combinations no node has.  About 0.14s; cached for the process.
+
+    Returns:
+        One ``(:A)|(:B)-[:REL]->(:C)`` line per relationship type.
+
+    Raises:
+        neo4j.exceptions.ServiceUnavailable: The database is unreachable.
     """
     grouped: dict[str, dict[str, dict[str, int]]] = {}
     for row in query(_SHAPES, {}):
@@ -173,7 +159,12 @@ def shapes() -> str:
 
 
 def schema() -> str:
-    """The whole of what the model is told about the graph."""
+    """
+    The graph section of the system prompt: orientation plus ``shapes``.
+
+    Raises:
+        neo4j.exceptions.ServiceUnavailable: The database is unreachable.
+    """
     return (f"The SRD graph, for query_srd_graph:\n\n{ORIENTATION}\n\n"
             f"Relationships, as they actually occur in the data:\n\n"
             f"{shapes()}")
@@ -182,25 +173,16 @@ def schema() -> str:
 # --------------------------------------------------------------------------
 # The answer
 
-# A cell is a property, not a passage.  A query that returns whole nodes
-# pulls a creature's `content` into every row, so long values are cut here
-# and the tool's docstring asks for named properties instead.
-#
-# Wide enough for the longest thing anyone legitimately selects.  At 200 it
-# cut 22% of ability descriptions, and the ones it cut were the interesting
-# ones — a trait with a saving throw and a duration is longer than a trait
-# without — so the model read the truncated mechanics, went to
-# get_srd_section for the rest, and paid a call per row for a column it had
-# already been given. 600 cuts 18 of 1314.
+# At 200, 22% of ability descriptions were cut and the model fetched each
+# section to read the rest.  600 cuts 18 of 1314.
 CELL_CHARS = 600
 
-# What the cell cap cannot bound: fifty rows of six columns.  Rows are
-# dropped whole rather than cells being squeezed, because a half-populated
-# row reads as a fact about the book.
+# Whole rows are dropped past this; a partly emptied row would read as data.
 TOTAL_CHARS = 12_000
 
 
 def _cell(value: Any) -> str:
+    """A value as one line of text, cut at ``CELL_CHARS``."""
     if value is None:
         return ""
     if isinstance(value, (list, tuple)):
@@ -215,12 +197,15 @@ def _cell(value: Any) -> str:
 
 def render(rows: list[dict], truncated: bool) -> str:
     """
-    Rows as a table the model can read and quote from.
+    Rows as a pipe-separated table for the model.
 
-    Pipe-separated with a header, because the columns are the ones the query
-    asked for and their names are how the model refers back to them.  A cut
-    result says so: an answer built on 50 rows that were silently the first
-    50 of 300 is the same failure the walk's ``truncated`` exists to prevent.
+    Args:
+        rows: Query results; columns are taken from the first row.
+        truncated: Whether ``read`` stopped at its row cap.
+
+    Returns:
+        A count line stating whether the rows are complete, the header and
+        the rows; or a hint to check the schema when there are none.
     """
     if not rows:
         return ("The query ran and matched nothing. Check the labels and "

@@ -1,10 +1,7 @@
 """
-Constraints and indexes, plus the reset that precedes a full reload.
+Constraints, indexes and the graph reset.  Every statement is idempotent.
 
-Every uniqueness constraint doubles as the index the loader's ``MERGE``
-needs; without one, merging thousands of nodes degenerates into a scan per
-row.  All of them are ``IF NOT EXISTS``, so applying the schema twice is a
-no-op.
+Each uniqueness constraint is also the index the loader's ``MERGE`` uses.
 """
 
 from __future__ import annotations
@@ -14,8 +11,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:  # pragma: no cover
     from neo4j import Session
 
-# (label, property) pairs that identify a node.  These mirror the keys
-# ``mapping`` merges on; adding a label there means adding it here.
+# Must match the keys ``mapping`` merges on.
 NODE_KEYS = [
     ("Section", "id"),
     ("CreatureAbility", "key"),
@@ -30,8 +26,7 @@ NODE_KEYS = [
     ("Trait", "key"),
 ]
 
-# Secondary indexes for the filters a rules question actually starts from:
-# "which CR 5 creatures", "which 3rd-level spells", "which conditions".
+# Common query filters: CR, spell level, term type.
 INDEXES = [
     ("Section", "entity_type"),
     ("Section", "name"),
@@ -42,24 +37,28 @@ INDEXES = [
     ("CreatureAbility", "creature"),
 ]
 
-# The full-text index stage 3 retrieves through.
 FULLTEXT_NAME = "srd_text"
 FULLTEXT = (
     f"CREATE FULLTEXT INDEX {FULLTEXT_NAME} IF NOT EXISTS "
     "FOR (n:Section) ON EACH [n.heading, n.content]"
 )
 
-# The vector index over the embeddings, beside it.  Cosine because ``embed``
-# normalises every vector; over unit vectors cosine and dot product agree, and
-# cosine is the one that stays right if a future model does not.
+# Cosine; vectors are unit length, so it equals dot product.
 VECTOR_NAME = "srd_vector"
 
 
 def vector_statement(dimensions: int) -> str:
     """
-    The dimension is baked into the index, so changing ``EMBED_DIMENSIONS``
-    means dropping it: ``IF NOT EXISTS`` would otherwise keep the old one and
-    every write of a vector would then fail against it.
+    The vector index statement.
+
+    ``IF NOT EXISTS`` keeps an index of the old width after
+    ``EMBED_DIMENSIONS`` changes; drop ``srd_vector`` by hand in that case.
+
+    Args:
+        dimensions: Vector width.
+
+    Returns:
+        A ``CREATE VECTOR INDEX`` statement.
     """
     return (f"CREATE VECTOR INDEX {VECTOR_NAME} IF NOT EXISTS "
             "FOR (n:Section) ON (n.embedding) OPTIONS {indexConfig: {"
@@ -68,6 +67,7 @@ def vector_statement(dimensions: int) -> str:
 
 
 def constraint_statements() -> list[str]:
+    """A uniqueness constraint per ``NODE_KEYS`` entry."""
     return [
         f"CREATE CONSTRAINT {label.lower()}_{prop}_unique IF NOT EXISTS "
         f"FOR (n:{label}) REQUIRE n.{prop} IS UNIQUE"
@@ -76,6 +76,7 @@ def constraint_statements() -> list[str]:
 
 
 def index_statements(dimensions: int) -> list[str]:
+    """The ``INDEXES``, the full-text index and the vector index."""
     return [
         f"CREATE INDEX {label.lower()}_{prop}_index IF NOT EXISTS "
         f"FOR (n:{label}) ON (n.{prop})"
@@ -85,11 +86,14 @@ def index_statements(dimensions: int) -> list[str]:
 
 def apply_schema(session: "Session", *, dimensions: int) -> int:
     """
-    Create every constraint and index.  Safe to run repeatedly.
+    Create every constraint and index, then wait up to 300s for them.
 
-    ``dimensions`` is required rather than optional because every load now
-    carries embeddings: there is no shape of this graph that wants the vector
-    index left out.
+    Args:
+        session: An open session.
+        dimensions: Width of the vector index.
+
+    Returns:
+        The number of statements run.
     """
     statements = constraint_statements() + index_statements(dimensions)
     for statement in statements:
@@ -100,11 +104,14 @@ def apply_schema(session: "Session", *, dimensions: int) -> int:
 
 def reset(session: "Session", batch_size: int = 10_000) -> int:
     """
-    Empty the graph, in batches so a reload does not build one enormous
-    transaction.
+    Delete every node and relationship, ``batch_size`` nodes per transaction.
 
-    A full reload is the default because the artifact is the whole truth:
-    merging alone would leave behind nodes that a re-parse has since dropped.
+    Args:
+        session: An open session.
+        batch_size: Nodes per ``DETACH DELETE``.
+
+    Returns:
+        The number of nodes deleted.
     """
     deleted = 0
     while True:

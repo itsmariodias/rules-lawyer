@@ -1,14 +1,6 @@
 /**
- * The application shell: conversations, the chat, and the book beside it.
- *
- * Chat is primary and always mounted; the side panel opens beside it and
- * closes without disturbing the conversation. A citation opens it on the
- * page it was printed on, but the panel is not *only* a citation viewer —
- * the toolbar opens either tab on its own, so the book and the graph are
- * reachable before an answer has cited anything.
- *
- * Which tab is showing therefore lives here rather than in the panel: the
- * toolbar picks one, and a citation forces the page.
+ * The app shell: thread list, conversation, and side panel.  The panel's
+ * tab is held here because both the toolbar and citations set it.
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -22,7 +14,7 @@ import { Clock, Elapsed, formatDuration } from './components/Timing'
 import { Usage } from './components/Usage'
 import { SidePanel, type Tab } from './components/SidePanel'
 import type { Citation, Thread } from './api'
-/* The mark itself, as text. See `LogoIcon`, below, for why raw. */
+/* Inlined as text; see `LogoIcon`. */
 import mark from './logo.svg?raw'
 
 const EXAMPLES = [
@@ -32,13 +24,7 @@ const EXAMPLES = [
   'What are the components and damage of Fireball?',
 ]
 
-/**
- * The ellipsis after "Thinking", animated.
- *
- * Three elements rather than an animated `content` string: browsers disagree on
- * whether `content` is animatable, and opacity on three marks is the same
- * effect everywhere.
- */
+/** Animated ellipsis.  Three elements, since animating `content` is not portable. */
 function Dots() {
   return (
     <span className="dots" aria-hidden="true">
@@ -49,14 +35,7 @@ function Dots() {
   )
 }
 
-/**
- * Ask the last question again.
- *
- * `plain` is the failure case, where the retry is the whole way forward and
- * has to read as one; everywhere else it is the quiet icon beside a
- * timestamp, because an answer somebody is reading should not be crowded by
- * an offer to throw it away.
- */
+/** Retry button: an icon, or "Try again" text with `plain` (beside an error). */
 function Retry({ plain, onRetry }: { plain?: boolean; onRetry: () => void }) {
   return (
     <button className={plain ? 'retry plain' : 'retry'}
@@ -70,15 +49,8 @@ function Retry({ plain, onRetry }: { plain?: boolean; onRetry: () => void }) {
 }
 
 /**
- * Take the answer out of the app.
- *
- * The copy is the markdown the model wrote, citations and all: the numbers
- * on screen are this app's way of showing them, and what a reader pastes
- * into a note should still say which section of the book it came from.
- *
- * It says so afterwards, because a clipboard write is silent and otherwise
- * nothing on screen changes. The tick is a second state of the same button
- * rather than a message beside it, so nothing moves under the pointer.
+ * Copy the raw markdown, dotted section ids included.  Shows a tick for
+ * 1.6s once the write resolves.
  */
 function Copy({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
@@ -93,10 +65,7 @@ function Copy({ text }: { text: string }) {
   return (
     <button className={copied ? 'copy copied' : 'copy'}
             onClick={() => {
-              // It can be refused outright: a clipboard write needs a
-              // secure context and the reader's permission, and saying
-              // "Copied" when nothing was copied is worse than saying
-              // nothing at all.
+              // Absent outside a secure context, or may be denied.
               navigator.clipboard?.writeText(text)
                 .then(() => setCopied(true))
                 .catch(() => setCopied(false))
@@ -146,34 +115,24 @@ export default function App() {
   const graph = useGraphStatus()
   const [draft, setDraft] = useState('')
   const [theme, setTheme] = useTheme()
-  // The section the panel is showing, and whether it is showing at all —
-  // separate, because the panel opens with nothing cited and because
-  // closing it should not forget where the reader had got to.
+  // Separate from `panelOpen`: the panel can open with nothing cited, and
+  // closing it keeps the citation.
   const [cited, setCited] = useState<string | null>(null)
   const [tab, setTab] = useState<Tab>('page')
   const [panelOpen, setPanelOpen] = useState(false)
-  // Wide enough that the page is legible at Fit, and remembered, because
-  // these are preferences rather than per-visit choices.
-  // Which thread the delete dialog is asking about, and why the last
-  // attempt did not go through.
+  // Thread awaiting delete confirmation, and the last delete error.
   const [arming, setArming] = useState<string | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
-  // Which row's menu is open, and where to draw it. One at a time.
+  // The open row menu and its screen position.
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
   const [panel, setPanel] = useStored('panel-width', defaultPanel())
-  // Collapsed or not is a preference like the widths are, so it is
-  // remembered the same way. What the rest of the layout has to know is
-  // how much room the sidebar is actually taking, which is none when it is
-  // shut — otherwise the panel would keep clamping around a pane that is
-  // not on screen.
+  // Width the panel clamp should reserve; 0 when the sidebar is hidden.
   const [sidebarOpen, setSidebarOpen] = useStored('sidebar-open', true)
   const sidebarRoom = sidebarOpen ? SIDEBAR : 0
   const end = useRef<HTMLDivElement>(null)
 
-  // A window narrower than the one the panel's width was stored on would
-  // otherwise leave no room for the conversation beside it. That is as true
-  // on load as on a resize: a panel remembered at 1000px from a large
-  // display, reopened on a laptop, squeezed the conversation to a column.
+  // Re-clamp on load as well as resize: a width stored on a large display
+  // would otherwise squeeze the conversation on a laptop.
   useEffect(() => {
     const fit = () => setPanel(clampWidth(panel, sidebarRoom))
     fit()
@@ -190,19 +149,13 @@ export default function App() {
     void send(text)
   }
 
-  // A citation names one passage, and both tabs answer a question about it
-  // — what the book printed, and what it is connected to. So it re-seeds
-  // whichever tab is already open and falls back to the page, which is what
-  // someone clicking a rules claim out of an answer is usually after.
+  // Re-seed the open tab; open on Page if the panel was closed.
   const cite = (sectionId: string) => {
     setCited(sectionId)
     if (!panelOpen) setTab('page')
     setPanelOpen(true)
   }
 
-  // The question a retry would re-ask, so both halves of that turn can offer
-  // it. Everything before it stays as it is, since the rewind branches from
-  // the checkpoint under this one and takes whatever follows with it.
   const lastAsked = messages.map((message) => message.role).lastIndexOf('user')
 
   const pinned = threads.filter((thread) => thread.pinned)
@@ -223,8 +176,7 @@ export default function App() {
     </ul>
   )
 
-  // The toolbar toggles: the tab you are already looking at closes the
-  // panel, any other one switches to it.
+  // Clicking the active tab closes the panel; another tab switches to it.
   const toggle = (next: Tab) => {
     if (panelOpen && tab === next) setPanelOpen(false)
     else { setTab(next); setPanelOpen(true) }
@@ -238,8 +190,6 @@ export default function App() {
          } as React.CSSProperties}>
       {sidebarOpen && (
       <nav className="sidebar">
-        {/* The name lives here rather than only on the welcome screen,
-            which disappears the moment a conversation starts. */}
         <div className="brand">
           <LogoIcon />Rules Lawyer
           <button className="collapse" title="Hide the thread list"
@@ -249,12 +199,7 @@ export default function App() {
           </button>
         </div>
         <button className="new" onClick={reset}><PlusIcon />New conversation</button>
-        {/* Pinned conversations are a section, not a sort order. Ordering
-            alone said which came first and nothing about why, so a pin
-            looked like luck; a heading says what the group *is*. Pinned
-            appears only when something is in it; Conversations always
-            names the list, so pinning the first thread adds a section
-            above rather than renaming the one already there. */}
+        {/* "Pinned" only when non-empty; "Conversations" whenever any. */}
         <div className="threads">
           {pinned.length > 0 && (
             <>
@@ -280,12 +225,8 @@ export default function App() {
               setArming(menu.id)
             }} />
         )}
-        {/* Whether the graph is up, said where a caption used to name two
-            technologies. A dead or unloaded database is otherwise only
-            discoverable by asking a question and being told nothing came
-            back. The dot carries the colour and the word carries the
-            meaning, so it reads without seeing the difference between
-            them, and nothing is claimed until the first answer arrives. */}
+        {/* Graph status: hidden while checking; the word carries the
+            meaning so colour is not required. */}
         <footer className="sidebar-foot">
           <span className={`graph-status ${graph}`}>
             {graph !== 'checking' && (<>
@@ -298,21 +239,11 @@ export default function App() {
       </nav>
       )}
 
-      {/* Collapsed, the pane keeps the width of its own controls: the one
-          that brings it back, and the one thing you would have opened it
-          to do. Anything else here would be a second thread list drawn as
-          icons, which is what the pane itself is for. */}
+      {/* Collapsed sidebar: expand and new-conversation only. */}
       {!sidebarOpen && (
         <nav className="rail">
-          {/* The mark does not leave when the pane does — it moves here and
-              stands in for the toggle, turning into it only when someone
-              reaches for it. Two icons, one button: the label is the
-              button's throughout, so what it *is* never depends on which
-              one is currently showing.
-
-              Both are drawn at the size they are in the open pane, the
-              mark at its and the toggle at its. Collapsing moves things;
-              it does not resize them. */}
+          {/* One button showing the logo, swapped for the pane icon on
+              hover; both keep their open-sidebar sizes. */}
           <button className="collapse rail-mark" title="Show the thread list"
                   aria-label="Show the thread list" aria-expanded={false}
                   onClick={() => setSidebarOpen(true)}>
@@ -347,18 +278,11 @@ export default function App() {
           )}
 
           {messages.map((message, index) => {
-            // The one still being written is always the last, and only
-            // while the stream is open.
             const running = streaming && index === messages.length - 1
             const since = running && message.at
               ? new Date(message.at).getTime() : null
-            // Only the last turn can be asked again, and only once it is
-            // over. A conversation the server has never seen has nothing
-            // to rewind, which is a turn that failed before it began.
-            // Both halves of the last turn offer it, and they do the same
-            // thing: the question is what a reader reaches for when they
-            // want it asked differently, the answer is what they are
-            // looking at when they decide it was not good enough.
+            // Retry is offered on the last question and the last answer,
+            // once the turn is over and the server has a thread to rewind.
             const retryable = !streaming && threadId !== null
               && (index === messages.length - 1 || index === lastAsked)
             return (
@@ -366,11 +290,9 @@ export default function App() {
               {message.role === 'user' ? (
                 <>
                   <p>{message.content}</p>
-                  {/* A div rather than a p: every `p` in a user message is
-                      drawn as the bubble itself. A turn that failed stores
-                      no answer, so a failed conversation reopened from the
-                      list ends on its question, and this is the only place
-                      left to offer it again. */}
+                  {/* Not a <p>: every <p> in a user message is styled as
+                      the bubble.  Retry here covers reopened failed turns,
+                      which have no answer to hang it on. */}
                   <div className="timing">
                     <Clock at={message.at} />
                     {retryable && <Retry onRetry={retry} />}
@@ -393,18 +315,12 @@ export default function App() {
                     )}
                   {message.error && (
                     <div className="failed">
-                      {/* The model is required, so a failure is the reply
-                          rather than a banner over something else. The one
-                          thing offered beside it is the same question again,
-                          since retyping it was the only way forward. */}
                       <p className="error">{message.error}</p>
                       {retryable && <Retry plain onRetry={retry} />}
                     </div>
                   )}
                   <Citations citations={message.citations ?? []} onCite={cite} />
-                  {/* Nothing to date until there is something to read: while
-                      the turn is only thinking, the counter beside it is
-                      already saying everything a timestamp would. */}
+                  {/* Hidden while thinking; the elapsed counter shows instead. */}
                   {(message.content || message.error) && (
                   <p className="timing">
                     <Clock at={message.at} />
@@ -413,12 +329,8 @@ export default function App() {
                     )}
                     {since !== null && <Elapsed since={since} />}
                     {message.usage && <Usage usage={message.usage} />}
-                    {/* Quiet, and off to the side of what is being read:
-                        taking an answer away and replacing it are both
-                        things you do *after* reading it. Copy is offered on
-                        every answer, since any of them is worth keeping;
-                        retry only on the last, and not on a failure, where
-                        the block above already says it louder. */}
+                    {/* Copy on every answer; retry icon only when the
+                        error block isn't already showing "Try again". */}
                     {message.content && <Copy text={message.content} />}
                     {retryable && !message.error && <Retry onRetry={retry} />}
                   </p>
@@ -431,12 +343,8 @@ export default function App() {
           <div ref={end} />
         </div>
 
-        {/* The composer, then the examples under it. They are suggestions
-            for the box rather than an introduction to it, so they follow
-            it — which is also why they live out here rather than in
-            `.welcome`, above. The form itself never moves in the DOM, so
-            sending a message re-lays the page out without rebuilding the
-            textarea under the reader's cursor. */}
+        {/* Keep the form at a fixed DOM position so sending does not
+            remount the textarea. */}
         <form className="composer"
               onSubmit={(event) => { event.preventDefault(); submit(draft) }}>
           <textarea
@@ -445,8 +353,7 @@ export default function App() {
             rows={1}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
-              // Enter sends, Shift+Enter is a newline — the convention every
-              // chat interface has trained people into.
+              // Enter sends; Shift+Enter inserts a newline.
               if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault()
                 submit(draft)
@@ -468,13 +375,9 @@ export default function App() {
           </ul>
         )}
 
-        {/* The SRD is CC BY 4.0, and its licence requires this statement
-            word for word in any work carrying its material. Every answer
-            here quotes the book, so it belongs in the application and not
-            only in the repository, and it stays on screen rather than
-            behind a link nobody opens. The same licence asks that no other
-            attribution to Wizards of the Coast appear anywhere, which is
-            why this is the only mention of them in the UI. */}
+        {/* Verbatim attribution required by the SRD's CC BY 4.0 licence,
+            which also forbids any other attribution to Wizards of the
+            Coast in the UI. */}
         <footer className="attribution">
           This work includes material from the System Reference Document
           5.2.1 (“SRD 5.2.1”) by Wizards of the Coast LLC, available at{' '}
@@ -501,9 +404,7 @@ export default function App() {
           failed={failed}
           onCancel={() => { setArming(null); setFailed(null) }}
           onDelete={() => {
-            // Dismissed only once it is actually gone: a delete that failed
-            // silently leaves the reader believing a conversation was
-            // deleted that is still there.
+            // Stays open on failure so the error is seen.
             forget(arming)
               .then(() => { setArming(null); setFailed(null) })
               .catch((problem) => setFailed(String(problem)))
@@ -513,16 +414,7 @@ export default function App() {
   )
 }
 
-/**
- * One conversation in the list, and the things you can do to it.
- *
- * The menu button is hidden until the row is hovered or something in it is
- * focused — and while its own menu is open, or it would vanish under the
- * menu it opened. Reading a conversation is what you do to one of these a
- * hundred times more often than pinning or deleting it, and a column of
- * controls reads like a list of things to act on rather than a list of
- * conversations.
- */
+/** A thread row.  Its menu button shows on hover, focus, or while its menu is open. */
 function ThreadRow({ thread, active, menuOpen, onOpen, onMenu }: {
   thread: Thread
   active: boolean
@@ -540,9 +432,6 @@ function ThreadRow({ thread, active, menuOpen, onOpen, onMenu }: {
               title={`Options for “${thread.title}”`}
               aria-label={`Options for conversation: ${thread.title}`}
               onClick={(event) => {
-                // The menu is placed from the button rather than nested in
-                // the row: the list scrolls, and anything drawn inside it
-                // is clipped at its edges.
                 const box = event.currentTarget.getBoundingClientRect()
                 onMenu({ x: box.right, y: box.bottom + 4 })
               }}>
@@ -553,21 +442,12 @@ function ThreadRow({ thread, active, menuOpen, onOpen, onMenu }: {
 }
 
 /**
- * Asking before deleting a conversation.
- *
- * A native `<dialog>` rather than a div: `showModal` puts it in the top
- * layer, so no stacking context can bury it, and brings the focus trap, the
- * inert background, the Escape key and the backdrop with it. All of that is
- * a lot to hand-roll badly.
- *
- * **Cancel** takes the focus, not **Delete**. There is no undo — the
- * checkpointer is the whole store — so the key someone presses without
- * reading must be the one that changes nothing. Escape and the backdrop
- * agree with it.
+ * Delete confirmation in a native modal `<dialog>` (top layer, focus trap,
+ * Escape, backdrop).  Cancel is focused by default: there is no undo.
  */
 function ConfirmDelete({ title, failed, onCancel, onDelete }: {
   title: string
-  /** Why the last attempt did not delete it, if one has been made. */
+  /** Error from the last failed attempt. */
   failed: string | null
   onCancel: () => void
   onDelete: () => void
@@ -579,8 +459,8 @@ function ConfirmDelete({ title, failed, onCancel, onDelete }: {
   return (
     <dialog className="modal" ref={dialog}
             aria-labelledby="confirm-delete-title"
-            // Escape fires `cancel`; letting it close the dialog on its own
-            // would leave this component mounted and believing otherwise.
+            // Escape fires `cancel`; route it through the parent's state
+            // rather than letting the dialog close itself.
             onCancel={(event) => { event.preventDefault(); onCancel() }}
             onClick={(event) => {
               if (event.target === dialog.current) onCancel()
@@ -601,12 +481,8 @@ function ConfirmDelete({ title, failed, onCancel, onDelete }: {
 }
 
 /**
- * The menu those buttons open.
- *
- * Fixed rather than absolute, and positioned from the button that opened
- * it, because the thread list scrolls and clips: a menu nested in a row
- * would be cut off by the pane it lives in. That is also why scrolling
- * closes it — the anchor it was measured against has moved.
+ * Row menu, `position: fixed` at the opening button so the scrolling list
+ * cannot clip it.  Closes on outside click, Escape, resize or scroll.
  */
 function ThreadMenu({ at, pinned, onClose, onPin, onDelete }: {
   at: { x: number; y: number }
@@ -624,8 +500,7 @@ function ThreadMenu({ at, pinned, onClose, onPin, onDelete }: {
     const key = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
     }
-    // Deferred a tick: the click that opened it is still on its way up, and
-    // would otherwise close it again immediately.
+    // Deferred so the opening click does not immediately close it.
     const timer = setTimeout(() =>
       document.addEventListener('pointerdown', away), 0)
     document.addEventListener('keydown', key)
@@ -692,12 +567,7 @@ function Citations({ citations, onCite }: {
   if (citations.length === 0) return null
   return (
     <div className="citations">
-      {/*
-        * The legend for the numbers in the prose, so it is ordered by them
-        * and labelled by them. The section id is not on it: it is how the
-        * app finds the passage, not something a reader knows or wants, and
-        * it is still one hover away.
-        */}
+      {/* Numbered to match the prose; the section id is in the title. */}
       {citations.map((citation, index) => (
         <button key={citation.section_id} className="chip"
                 title={`SRD section ${citation.section_id}`}
@@ -710,12 +580,7 @@ function Citations({ citations, onCite }: {
   )
 }
 
-/**
- * One toolbar button per panel tab.
- *
- * It is a toggle rather than an opener, and says so: `aria-pressed` is what
- * a screen reader reads off it, and the same state draws the button as on.
- */
+/** Toolbar toggle for one panel tab. */
 function PanelToggle({ tab, active, label, onClick }: {
   tab: Tab
   active: boolean
@@ -731,15 +596,7 @@ function PanelToggle({ tab, active, label, onClick }: {
   )
 }
 
-/*
- * Light, dark, or whatever the machine is set to.
- *
- * Three buttons rather than one that cycles: with three states, a single
- * button cannot say what pressing it will do, and the one people reach for
- * most is the one they are already on — going back to it would mean
- * pressing through the other two. `system` is offered as its own choice
- * because it is not a third look, it is the absence of an override.
- */
+/* Three explicit buttons rather than one cycling toggle. */
 const THEMES: { value: Theme; label: string; Icon: () => React.JSX.Element }[] = [
   { value: 'light', label: 'Light', Icon: SunIcon },
   { value: 'dark', label: 'Dark', Icon: MoonIcon },
@@ -763,54 +620,12 @@ function ThemeSwitch({ theme, onPick }: {
   )
 }
 
-/* Drawn rather than imported: eight icons is still not a dependency. The
-   book is the panel's Page tab; the mark is that book with the graph
-   behind it. */
-
 /*
- * The app's mark: the book as the hub of its own graph, drawn in
- * `logo.svg`, which is the only copy of it.
- *
- * The book is *open* where the panel's Page tab is closed, so the two
- * never read as the same drawing. Six nodes sit at the corners of a
- * hexagon and the edges run between them, so the graph is the frame and
- * the book is what it holds — a closed ring rather than spikes, which said
- * the same thing but pointed away from the subject.
- *
- * The hexagon is pointy-top, and that is the whole reason the book is the
- * size it is. What binds is not the frame's width but its four slanted
- * sides: the book's top corners run into them long before its flanks come
- * near the two upright ones. Pointy-top leaves those corners the most room
- * of the two orientations, so the book inside is larger than a flat-top
- * ring of the same width would allow. It is drawn to leave about a stroke
- * of daylight at the corners — nearer than that and the two merge at the
- * size the favicon is read at.
- *
- * The book is two curved leaves either side of a drawn spine, rather than
- * two rectangles with a notch between them. The notch version has to put
- * the spine's foot below the pages, and at this size that hangs off the
- * bottom as a nub; squaring the pages off instead loses the book and
- * leaves a window. Curving both edges gives the V at the top something to
- * answer at the bottom, and it is the pair that reads as open.
- *
- * The nodes are hollow on hairlines rather than discs on full-weight
- * strokes, which is what keeps the frame behind the book rather than
- * competing with it.
- *
- * `?raw` is Vite's, not a plugin: the file arrives as a string and is
- * inlined, which is what keeps `currentColor` working — the mark takes the
- * accent from the sidebar or the heading it sits in, including a theme the
- * reader has overridden. An `<img>` would not: it loads the file as its own
- * document, which the app's colours never reach. Nor would
- * `<use href="logo.svg#…">`, which no browser resolves across files any
- * more. That is also why the file names a colour at all — as the favicon it
- * is loaded exactly that way, with no page to take one from.
- *
- * `size` is the only thing that varies — the wordmark wants it at text
- * height, the welcome screen at heading height — so `.logo` hands one down
- * in a custom property. The file states 24 of its own, which the rule
- * beats: that pair is there for the favicon, since an SVG with only a
- * viewBox has no intrinsic size and Chrome will not take it as an icon.
+ * The logo, inlined from `logo.svg` (also the favicon) so `currentColor`
+ * picks up the surrounding accent and theme; an <img> or a cross-file
+ * <use> would not.  The file's own width/height (24) are for the favicon,
+ * since Chrome ignores an SVG icon without an intrinsic size; `--logo-size`
+ * overrides them here.
  */
 function LogoIcon({ size = 22 }: { size?: number }) {
   return (
@@ -831,8 +646,6 @@ function BookIcon() {
   )
 }
 
-/* A pane hinged on the left edge: the same mark whichever way it is
-   about to go, since it is one control with two states. */
 function PaneIcon() {
   return (
     <svg viewBox="0 0 24 24" width="20" height="20" fill="none"
@@ -875,7 +688,6 @@ function MoonIcon() {
   )
 }
 
-/* Half the dial filled: the theme is being taken from somewhere else. */
 function AutoIcon() {
   return (
     <svg viewBox="0 0 24 24" width="14" height="14" fill="none"

@@ -1,11 +1,6 @@
 /**
- * The browser's half of the contract in `api.py`.
- *
- * Two streaming calls over one parser, and the plain ones beside them: a
- * question and a question asked again are the same events either way.  The
- * event union here mirrors the
- * dicts `chat/service.py` yields, so adding an event type is a change in two
- * files and nowhere else.
+ * Client for the backend API.  `ChatEvent` mirrors the dicts
+ * `chat/service.py` yields; keep the two in step.
  */
 
 export type Citation = {
@@ -16,7 +11,6 @@ export type Citation = {
   labels: string[]
 }
 
-/** How a finished tool call went, for the trace to draw. */
 export type ToolStatus = 'ok' | 'empty' | 'refused' | 'failed'
 
 export type ToolCall = {
@@ -24,14 +18,10 @@ export type ToolCall = {
   name: string
   args: Record<string, unknown>
   done: boolean
-  /** These arrive with tool_end, so all three are absent while it runs. */
+  /** Set by `tool_end`; absent while the call runs. */
   status?: ToolStatus
   summary?: string
-  /**
-   * What the call looked at, where only the server can say. A dotted id
-   * means nothing to a reader, and the graph is the only thing that knows
-   * `11.2.70` is Frightened.
-   */
+  /** The heading a dotted-id argument names, resolved by the server. */
   subject?: string
 }
 
@@ -43,15 +33,10 @@ export type ChatEvent =
       status?: ToolStatus; summary?: string; subject?: string }
   | ({ type: 'usage' } & Usage)
   | { type: 'citations'; citations: Citation[] }
-  /** The model could not answer, and nothing answers in its place. */
   | { type: 'error'; message: string }
   | { type: 'done'; thread_id: string }
 
-/**
- * What one answer cost in tokens, summed over every model call in the turn:
- * a search, a query and the answer are three calls, and each re-reads the
- * system prompt and every result so far, so `input` dwarfs `output`.
- */
+/** Token usage summed over every model call in one turn. */
 export type Usage = {
   input: number
   output: number
@@ -62,18 +47,11 @@ export type Usage = {
 export type Message = {
   role: 'user' | 'assistant'
   content: string
-  /**
-   * Read back from the server rather than watched as it happened, which is
-   * what decides whether its trace opens on arrival.
-   */
+  /** Loaded from history rather than streamed; its trace starts closed. */
   replayed?: boolean
-  /**
-   * When the turn was written, as an ISO string. The server takes it from
-   * the checkpoint that stored the message, so a reopened conversation is
-   * dated by when it happened rather than by when it was read.
-   */
+  /** ISO timestamp of the checkpoint that stored the message. */
   at?: string
-  /** How long the answer took, in milliseconds. Live turns only. */
+  /** Send-to-done duration in ms; live turns only. */
   ms?: number
   /** Null when the stored turn carries no counts. */
   usage?: Usage | null
@@ -87,7 +65,6 @@ export type Thread = {
   title: string
   updated_at: string | null
   messages: number
-  /** Pinned threads sort above the rest; the server decides the order. */
   pinned: boolean
 }
 
@@ -109,20 +86,15 @@ export type SourceExcerpt = {
   highlight: { start: number; end: number } | null
   /** Rectangles of the cited lines, in PDF points, origin top-left. */
   boxes: Box[]
-  /** Every page those rectangles fall on, ascending. */
+  /** Pages the boxes fall on, ascending. */
   pages: number[]
   parent: { id: string; heading: string } | null
   children: { id: string; heading: string }[]
 }
 
 /**
- * One node of the graph, as the explorer draws it.
- *
- * `uid` is Neo4j's own element id, not the section id: the interesting
- * neighbours are not all sections — an ability is keyed on `key`, a damage
- * type on `name` — so the only identifier every node has is the node.
- * `section_id` is present on the ones that *are* a section, and is what
- * decides whether this node can be opened on the page.
+ * A graph node.  `uid` is Neo4j's element id, since derived nodes have no
+ * section id; `section_id` is set only on nodes that are sections.
  */
 export type GraphNode = {
   uid: string
@@ -131,14 +103,11 @@ export type GraphNode = {
   entity_type: string | null
   section_id: string | null
   page: number | null
-  /** The opening of what this node says, markdown stripped. */
+  /** Plain-text opening of the node's prose. */
   summary: string | null
-  /**
-   * What a node with no prose at all carries instead — a weapon is a table
-   * row with a cost and a die and not one sentence in the book.
-   */
+  /** Properties to show when there is no summary. */
   facts: { name: string; value: string }[]
-  /** Edges on this node in the whole graph, not in what was returned. */
+  /** Edge count in the whole graph, not just in this response. */
   degree: number
   /** Hops from the node the view was opened on. */
   depth: number
@@ -151,7 +120,7 @@ export type GraphEdge = {
   target: string
 }
 
-/** A fan-out the server sampled rather than returned whole. */
+/** A (node, type, direction) group the fan cap cut. */
 export type GraphTruncation = {
   uid: string
   type: string
@@ -173,17 +142,9 @@ async function getJSON<T>(path: string): Promise<T> {
   return response.json() as Promise<T>
 }
 
-/**
- * Whether the graph can answer anything, as three states rather than two.
- *
- * A reachable but empty database is its own failure: every question comes
- * back with nothing, and "connected" would be a true sentence that misleads.
- * `/graph/health` counts what is in Neo4j rather than remembering a load, so
- * both answers come from the one request. It never throws: an unreachable
- * database is a status, not an error the caller has to catch.
- */
 export type GraphStatus = 'checking' | 'connected' | 'empty' | 'unreachable'
 
+/** Probe `/graph/health`.  Never throws; `empty` means reachable with no nodes. */
 export async function graphStatus(): Promise<GraphStatus> {
   try {
     const health = await getJSON<{ nodes: Record<string, number> }>(
@@ -196,13 +157,7 @@ export async function graphStatus(): Promise<GraphStatus> {
   }
 }
 
-/**
- * What one lookup returned, fetched only when a reader opens it.
- *
- * Not part of the conversation: one turn can store a hundred kilobytes of
- * table across twenty lookups, almost none of which anyone opens, so the
- * trace carries counts and this fetches the rest on demand.
- */
+/** One tool call's stored result, fetched when its trace row is opened. */
 export type Lookup = {
   id: string
   name: string
@@ -220,7 +175,6 @@ export const listThreads = () =>
 export const loadThread = (id: string) =>
   getJSON<{ messages: Message[] }>(`/chat/threads/${id}`).then((r) => r.messages)
 
-/** Pin or unpin one conversation, which only moves it in the list. */
 export async function pinThread(id: string, pinned: boolean): Promise<void> {
   const response = await fetch(`/api/chat/threads/${id}/pin`, {
     method: 'PUT',
@@ -230,12 +184,6 @@ export async function pinThread(id: string, pinned: boolean): Promise<void> {
   if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
 }
 
-/**
- * Delete one conversation and everything checkpointed under it.
- *
- * The checkpointer is the whole store, so there is nothing left afterwards
- * and nothing to undo it with.
- */
 export async function deleteThread(id: string): Promise<void> {
   const response = await fetch(`/api/chat/threads/${id}`, { method: 'DELETE' })
   if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
@@ -245,13 +193,9 @@ export const loadSource = (sectionId: string, context = 0) =>
   getJSON<SourceExcerpt>(`/source/${sectionId}?context=${context}`)
 
 /**
- * The graph around one node.
- *
- * A citation names a section, an expansion names a node it was already
- * shown, and the server takes exactly one of the two.  `fan` is how many
- * neighbours it may return per relationship type per direction; it is what
- * asking a hub for *more* raises, since asking again for the same number
- * would return the same sample.
+ * The graph around a section or a node.  `fan` caps neighbours per
+ * relationship type and direction; the server's sample is deterministic, so
+ * asking for more means raising it.
  */
 export const loadNeighbourhood = (
   seed: { section: string } | { node: string },
@@ -264,15 +208,10 @@ export const loadNeighbourhood = (
 }
 
 /**
- * One turn, streamed: POST *path* and invoke `onEvent` for each event.
+ * POST and parse the SSE response, calling `onEvent` per event.
  *
- * `fetch` rather than `EventSource`, because the request is a POST with a
- * body and `EventSource` can only GET.  That means framing the stream here:
- * SSE separates events with a blank line, and a chunk boundary can land
- * anywhere, so the tail of a chunk is held back until its blank line arrives.
- *
- * Asking and asking again are the same stream of the same events, so they
- * are the same parser: only the path and the body differ.
+ * `fetch`, not `EventSource`, which cannot POST.  A chunk can end mid-frame,
+ * so the text after the last blank line is held for the next chunk.
  */
 async function stream(
   path: string,
@@ -308,7 +247,7 @@ async function stream(
   }
 }
 
-/** Send one message, into a new conversation when `threadId` is null. */
+/** Send a message; a null `threadId` starts a new thread. */
 export const streamChat = (
   message: string,
   threadId: string | null,
@@ -316,14 +255,7 @@ export const streamChat = (
   signal?: AbortSignal,
 ) => stream('/chat', { message, thread_id: threadId }, onEvent, signal)
 
-/**
- * Ask the last question of a conversation again, in place of its answer.
- *
- * No message is sent: what was asked is in the checkpoint, and reading it
- * there is what makes this a rewind rather than a second question that
- * happens to match.  The server drops the old turn before it answers, so
- * the reply replaces what was there rather than following it.
- */
+/** Re-ask a thread's last question; the server replaces its answer. */
 export const retryChat = (
   threadId: string,
   onEvent: (event: ChatEvent) => void,

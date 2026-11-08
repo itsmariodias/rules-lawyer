@@ -1,10 +1,9 @@
 """
-Stage 1's last step: markdown to the finished JSON artifact.
+Stage 1 orchestration: section tree, entity typing, validation, and the CLI.
 
-``layout`` turns the PDF into ordered lines and markdown, ``statblocks``
-turns those lines into creature records, and this module builds the section
-hierarchy over the markdown, types every node, attaches the entities the
-other modules extracted, and validates the lot against the book's own index::
+    srd-parse [--pdf PATH] [--out PATH] [--markdown PATH]
+
+The artifact::
 
     {
       "meta":       { pdf, pages, generated, counts },
@@ -13,13 +12,8 @@ other modules extracted, and validates the lot against the book's own index::
       "validation": { index reconciliation and every warning raised }
     }
 
-Sections and creatures are separate collections because a stat block is a
-card in the book rather than a heading: several creatures can sit under one
-heading, and a heading's name ("Black Dragons") is often a category. Section
-nodes carry ``entity_type`` and, where they own stat blocks, ``creatures``.
-
-The markdown is written next to the JSON, so every node's ``char_start`` and
-``char_end`` resolves back to text.
+``char_start``/``char_end`` on every section index the markdown written
+beside the JSON.
 """
 
 from __future__ import annotations
@@ -50,9 +44,8 @@ _EMPHASIS_RE = re.compile(r"\*{1,2}(.+?)\*{1,2}")
 # ---------------------------------------------------------------------------
 # Entity typing
 # ---------------------------------------------------------------------------
-# The top-level section a node lives under determines what kind of thing it
-# is.  Where a section mixes kinds (Spells holds both the class spell lists
-# and the spell descriptions) the rule keys off the intermediate heading too.
+# Default entity type by top-level section.  SUBTREE_ENTITY_TYPES refines
+# mixed sections; subtitles, stat blocks and entry sets override both.
 
 SECTION_ENTITY_TYPES: dict[str, str] = {
     "Legal Information": "front_matter",
@@ -68,8 +61,7 @@ SECTION_ENTITY_TYPES: dict[str, str] = {
     "Rules Glossary": "rule",
     "Gameplay Toolbox": "rule",
     "Magic Items": "rule",
-    # The monster sections default to lore: "creature" is earned by owning a
-    # stat block, never by sitting under the Monsters heading.
+    # "creature" is assigned by _mark_groups, only to a stat block's section.
     "Monsters": "rule",
     "Monsters A–Z": "creature_lore",
     "Animals": "creature_lore",
@@ -82,10 +74,8 @@ SUBTREE_ENTITY_TYPES: list[tuple[str, str, str]] = [
     ("Feats", "Feat Descriptions", "feat"),
 ]
 
-# Headings that introduce a closed set of entries which are entities in their
-# own right, not rules prose.  Without this they are indistinguishable from
-# the chapters around them, so "which environmental effects deal Cold damage"
-# has nothing to select on — even though the edges are already there.
+# Headings introducing a closed set of entries that are typed as entities
+# rather than left as "rule".
 ENTRY_SET_ENTITY_TYPES: dict[str, str] = {
     "Environmental Effects": "environmental_effect",
     "Example Traps": "trap",
@@ -98,20 +88,30 @@ ENTRY_SET_ENTITY_TYPES: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 def strip_markup(text: str) -> str:
+    """Text with ``*``/``**`` emphasis and underscores removed."""
     return _EMPHASIS_RE.sub(r"\1", text).replace("_", "").strip()
 
 
 def clean_content(text: str) -> str:
-    """Remove page markers and collapse the blank lines they leave behind."""
+    """Text with page markers removed and the blank lines they leave collapsed."""
     text = _PAGE_MARKER_RE.sub("", text)
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
 def build_page_index(markdown: str) -> list[tuple[int, int]]:
+    """``(offset, page)`` for every page marker, in order."""
     return [(m.start(), int(m.group(1))) for m in _PAGE_MARKER_RE.finditer(markdown)]
 
 
 def page_at(page_index: list[tuple[int, int]], pos: int) -> int:
+    """
+    Args:
+        page_index: Output of ``build_page_index``.
+        pos: A character offset in the markdown.
+
+    Returns:
+        The page the offset falls on; 1 before the first marker.
+    """
     offsets = [p[0] for p in page_index]
     idx = bisect.bisect_right(offsets, pos) - 1
     return page_index[idx][1] if idx >= 0 else 1
@@ -121,14 +121,13 @@ def page_at(page_index: list[tuple[int, int]], pos: int) -> int:
 # Hierarchy
 # ---------------------------------------------------------------------------
 
-# Level 6 is reserved for stat block sections ("Traits", "Actions").  Their
-# content is already captured, split into named entries, on the creature
-# records, so they stay part of their parent's prose instead of becoming
-# hundreds of near-empty "Actions" nodes in the tree.
+# Level 6 is stat block sections ("Traits", "Actions"), already split into
+# entries on the creature records; they stay in their parent's content.
 MAX_HEADING_LEVEL = 5
 
 
 def first_heading_level(body: str, min_level: int) -> int | None:
+    """The shallowest heading level at or below ``min_level`` present in ``body``."""
     for level in range(min_level, MAX_HEADING_LEVEL + 1):
         if re.search(rf'^{"#" * level} ', body, re.MULTILINE):
             return level
@@ -136,7 +135,13 @@ def first_heading_level(body: str, min_level: int) -> int | None:
 
 
 def split_on_level(body: str, level: int) -> list[tuple[str, str, int, int]]:
-    """Split a body on headings of exactly *level*."""
+    """
+    Split a body on headings of exactly ``level``.
+
+    Returns:
+        ``(heading, body, heading_start, body_start)`` per heading, offsets
+        relative to ``body``.
+    """
     pattern = re.compile(rf'^{"#" * level} (.+)$', re.MULTILINE)
     matches = list(pattern.finditer(body))
     out = []
@@ -156,6 +161,21 @@ def direct_content(body: str, child_level: int | None) -> str:
 
 def build_nodes(body: str, min_level: int, id_prefix: str, offset: int,
                 page_index: list[tuple[int, int]], pdf_name: str) -> list[dict]:
+    """
+    Recursively build section nodes from markdown.
+
+    Args:
+        body: Markdown to split.
+        min_level: Shallowest heading level to consider.
+        id_prefix: Parent's dotted id; children are ``prefix.1``, ``prefix.2``.
+        offset: Position of ``body`` within the whole markdown.
+        page_index: Output of ``build_page_index``.
+        pdf_name: Recorded in each node's ``source``.
+
+    Returns:
+        Nodes with ``id``, ``heading``, ``content``, ``source`` and
+        ``subsections``.
+    """
     level = first_heading_level(body, min_level)
     if level is None:
         return []
@@ -190,6 +210,7 @@ def build_nodes(body: str, min_level: int, id_prefix: str, offset: int,
 
 
 def build_tree(markdown: str, page_index: list[tuple[int, int]], pdf_name: str) -> list[dict]:
+    """The full section tree; see ``build_nodes``."""
     return build_nodes(markdown, 1, "", 0, page_index, pdf_name)
 
 
@@ -203,10 +224,16 @@ _BOLD_ENTRY_RE = re.compile(r"^\*\*(.+?)\.\*\*\s*", re.MULTILINE)
 
 def parse_named_entries(content: str) -> tuple[str, list[dict]]:
     """
-    Split prose into named entries, returning (preamble, entries).
+    Split prose into named entries.
 
-    The SRD names a trait, feature or effect by leading its paragraph with a
-    bold-italic run ("**_Multiattack._**") or a bold run ("**Casting Time:**").
+    Entries open with a bold-italic run (``**_Multiattack._**``), or failing
+    any, a bold run at line start (``**Casting Time.**``).
+
+    Args:
+        content: Section markdown.
+
+    Returns:
+        ``(preamble, entries)``; entries are ``{"name", "description"}``.
     """
     matches = list(_NAMED_ENTRY_RE.finditer(content))
     if not matches:
@@ -244,7 +271,14 @@ RARITIES = ("Very Rare", "Rarity Varies", "Uncommon", "Common", "Rare",
 
 
 def parse_spell_subtitle(text: str) -> dict | None:
-    """``Level 5 Abjuration (Druid)`` → level, school and class list."""
+    """
+    Args:
+        text: e.g. ``Level 5 Abjuration (Druid)`` or ``Evocation Cantrip``.
+
+    Returns:
+        ``{"level", "school", "classes"}`` with cantrips at level 0; None if
+        the text is not a spell subtitle.
+    """
     m = _SPELL_SUBTITLE_RE.match(strip_markup(text).strip())
     if not m:
         return None
@@ -254,16 +288,14 @@ def parse_spell_subtitle(text: str) -> dict | None:
     return {"level": level, "school": school, "classes": classes}
 
 
-# The four mechanical fields printed under a spell's subtitle.  The book
-# writes "Component:" as often as "Components:" — accept both.
+# The book writes "Component:" as often as "Components:".
 _SPELL_FIELD_RE = re.compile(
     r"\*\*(Casting Time|Range|Components?|Duration):\*\*\s*(.*?)"
     r"(?=\s*\*\*(?:Casting Time|Range|Components?|Duration):\*\*|\n\n|\Z)",
     re.DOTALL,
 )
 _MATERIAL_RE = re.compile(r"M\s*\(([^)]*)\)", re.IGNORECASE)
-# Usually "a pearl worth 100+ GP", but sometimes the price leads the noun:
-# "one 150+ GP black onyx stone for each corpse".
+# Usually "worth 100+ GP"; Create Undead has "one 150+ GP black onyx stone".
 _MATERIAL_COST_RE = re.compile(r"(?:worth\s+)?([\d,]+)\+?\s*GP", re.IGNORECASE)
 
 
@@ -271,10 +303,12 @@ def parse_spell_fields(content: str) -> dict:
     """
     Extract a spell's casting time, range, components and duration.
 
-    Concentration and Ritual are not printed as fields of their own — the
-    book folds them into Duration ("Concentration, up to 1 minute") and
-    Casting Time ("Action or Ritual") — so they are lifted out here, since
-    both are properties a graph will want to filter on directly.
+    Args:
+        content: The spell section's markdown.
+
+    Returns:
+        The fields found, plus ``ritual`` (split off "Action or Ritual") and
+        ``concentration`` (split off "Concentration, up to 1 minute").
     """
     fields = {
         m.group(1).lower().rstrip("s") if m.group(1).startswith("Component")
@@ -285,7 +319,6 @@ def parse_spell_fields(content: str) -> dict:
     out: dict = {}
     casting_time = fields.get("casting_time")
     if casting_time:
-        # "Action or Ritual" — strip the marker, keep the time itself.
         out["ritual"] = bool(re.search(r"\bor Ritual\b", casting_time, re.I))
         out["casting_time"] = re.sub(r"\s*or Ritual\b", "", casting_time, flags=re.I).strip()
 
@@ -295,8 +328,7 @@ def parse_spell_fields(content: str) -> dict:
     if "component" in fields:
         raw = fields["component"]
         material = _MATERIAL_RE.search(raw)
-        # Components are a comma-separated letter list, with the material's
-        # description in parentheses after the M: "V, S, M (a bit of fleece)".
+        # "V, S, M (a bit of fleece)"
         letters = {p.strip().upper() for p in raw.split("(")[0].split(",")}
         components: dict = {
             "verbal": "V" in letters,
@@ -326,7 +358,15 @@ def parse_spell_fields(content: str) -> dict:
 
 
 def parse_item_subtitle(text: str) -> dict | None:
-    """``Weapon (Any Sword), Rare (Requires Attunement)`` → its parts."""
+    """
+    Args:
+        text: e.g. ``Weapon (Any Sword), Rare (Requires Attunement)``.
+
+    Returns:
+        ``{"category", "subtype", "rarity", "requires_attunement",
+        "attunement_requirement"}``; None unless the text starts with a
+        magic item category.
+    """
     text = strip_markup(text).strip()
     if not any(text.lower().startswith(c) for c in MAGIC_ITEM_CATEGORIES):
         return None
@@ -354,6 +394,7 @@ def parse_item_subtitle(text: str) -> dict | None:
 
 
 def leading_subtitle(content: str) -> str | None:
+    """The first paragraph, if it is a single italic run; else None."""
     m = re.match(r"^\s*_([^_\n]+)_\s*$", content.split("\n\n")[0].strip())
     return m.group(1) if m else None
 
@@ -363,13 +404,20 @@ def leading_subtitle(content: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 def walk(nodes: list[dict]):
+    """Yield every node in the tree, depth first."""
     for node in nodes:
         yield node
         yield from walk(node["subsections"])
 
 
 def annotate(tree: list[dict], creatures: list[dict]) -> None:
-    """Assign entity types, attach stat blocks and split out named entries."""
+    """
+    Type every section, attach stat blocks and split out named entries.
+
+    Args:
+        tree: The section tree; mutated.
+        creatures: Stat block records, matched by ``source.char_start``.
+    """
     for section in tree:
         section_name = section["heading"]
         default = SECTION_ENTITY_TYPES.get(section_name, "rule")
@@ -382,13 +430,11 @@ def annotate(tree: list[dict], creatures: list[dict]) -> None:
 
 def _type_entry_sets(siblings: list[dict]) -> None:
     """
-    Type the closed sets a heading introduces.
+    Type the entries under each ``ENTRY_SET_ENTITY_TYPES`` heading.
 
-    The book does this two ways.  "Environmental Effects" and "Example Traps"
-    nest their entries beneath them, the way "Sample Poisons" does; "Example
-    Contagions" is printed as a plain sibling standing ahead of the three it
-    introduces.  So a heading with children types those, and one without
-    types the siblings that follow it.
+    A heading with children types them; one without types its following
+    siblings, because "Example Contagions" is printed at the same level as
+    the contagions it introduces.
     """
     for index, node in enumerate(siblings):
         kind = ENTRY_SET_ENTITY_TYPES.get(node["heading"])
@@ -400,12 +446,11 @@ def _type_entry_sets(siblings: list[dict]) -> None:
 
 def _attach_creatures(tree: list[dict], creatures: list[dict]) -> None:
     """
-    Attach every stat block to the section it was printed in.
+    Append each creature's name to ``creatures`` on its deepest containing
+    section, by character offset.
 
-    Matching is by character offset, not by name: a creature summoned by a
-    spell ("Giant Insect" under Conjure Animals) shares no name with its
-    section, and a name match alone would also let a heading and the stat
-    block card beneath it both claim the same creature.
+    Not by name: a summoned creature shares no name with the spell section it
+    is printed in.
     """
     for record in creatures:
         start = record["source"].get("char_start")
@@ -459,13 +504,11 @@ def _annotate_subtree(node: dict, section: str, default: str,
 
 def _mark_groups(tree: list[dict]) -> None:
     """
-    Separate a category heading from a creature heading.
+    Mark ``creature`` and ``creature_group`` sections.
 
-    A heading is the creature only when it holds exactly one stat block and
-    shares its name.  "Ghast" is a creature; "Black Dragons" holds four and
-    is none of them, and "Azer" holds only "Azer Sentinel" — a category of
-    one, not that creature.  Everything above them that contains creatures
-    is a group too, so a graph can walk from "Monsters A–Z" downward.
+    A section is a creature only when it owns exactly one stat block of the
+    same name ("Azer" holding only "Azer Sentinel" is a group).  Any other
+    section with stat blocks in its subtree is a group, with ``members``.
     """
     for node in walk(tree):
         owned = node.get("creatures", [])
@@ -491,12 +534,16 @@ _INDEX_ENTRY_RE = re.compile(r"([A-Za-z][A-Za-z’'\- ]*?)\.{3,}\s*(\d+)")
 
 def parse_stat_block_index(tree: list[dict]) -> dict[str, int]:
     """
-    Read the "Index of Stat Blocks" section: creature name → page.
+    Read the "Index of Stat Blocks" section.
 
-    The index shares its opening page with the table of contents, whose
-    entries have the same dotted-leader shape.  Every stat block lives in the
-    monster sections at the back of the book, so entries pointing anywhere
-    earlier are contents lines that bled in and are dropped.
+    Entries pointing before the first monster section are table-of-contents
+    lines from the shared page, and are dropped.
+
+    Args:
+        tree: The section tree.
+
+    Returns:
+        Creature name to page number.
     """
     node = next((n for n in tree if n["heading"] == "Index of Stat Blocks"), None)
     if not node:
@@ -517,8 +564,13 @@ def section_boxes(anchors: list[dict], char_start: int, char_end: int) -> list[d
     """
     The page rectangles a character range covers.
 
-    Anchors are emitted in document order, so the run of parts that overlap
-    the range is contiguous and can be found by bisecting for its start.
+    Args:
+        anchors: The anchors file, in document order.
+        char_start: Start of the range in the markdown.
+        char_end: End of the range, exclusive.
+
+    Returns:
+        The boxes of every anchor overlapping the range.
     """
     starts = [anchor["start"] for anchor in anchors]
     index = max(0, bisect.bisect_left(starts, char_start) - 1)
@@ -532,13 +584,14 @@ def section_boxes(anchors: list[dict], char_start: int, char_end: int) -> list[d
 
 def check_anchors(tree: list[dict], anchors: list[dict]) -> dict:
     """
-    Every section's geometry must fall on the pages the section claims.
+    Check every section's boxes fall within its claimed page range.
 
-    The page range and the rectangles are derived independently — one from
-    the ``<!-- PAGE:n -->`` markers in the finished markdown, the other from
-    the lines themselves — so agreeing is a real assertion that the offsets
-    and the boxes describe the same passage.  A section with no geometry at
-    all means a part was emitted that no line accounts for.
+    The range comes from page markers and the boxes from the lines, so they
+    are independent.
+
+    Returns:
+        ``anchor_parts``, plus the ids of ``sections_without_geometry`` and
+        the details of ``sections_with_misplaced_geometry``.
     """
     without, misplaced = [], []
     for node in walk(tree):
@@ -562,11 +615,15 @@ def check_anchors(tree: list[dict], anchors: list[dict]) -> dict:
 
 def validate(creatures: list[dict], index: dict[str, int]) -> dict:
     """
-    Reconcile what we extracted against the book's own index of stat blocks.
+    Reconcile extracted stat blocks with the book's index of them.
 
-    The index is an independent list of every creature and the page it is on,
-    which makes it a free assertion that nothing was missed, duplicated or
-    attributed to the wrong page.
+    Args:
+        creatures: Extracted stat block records.
+        index: Output of ``parse_stat_block_index``.
+
+    Returns:
+        Missing, unexpected, misplaced (by more than one page) and duplicate
+        names, every stat block warning, and ``check_mechanics``'s results.
     """
     extracted = {r["name"]: r["source"]["page_start"] for r in creatures}
     duplicates = sorted({r["name"] for r in creatures
@@ -574,8 +631,7 @@ def validate(creatures: list[dict], index: dict[str, int]) -> dict:
 
     missing = sorted(name for name in index if name not in extracted)
     unexpected = sorted(name for name in extracted if name not in index)
-    # One page of slack: a stat block that starts at the foot of a column can
-    # be indexed to the page its card visually occupies.
+    # A card starting at the foot of a column may be indexed to the next page.
     misplaced = [
         {"name": name, "index_page": page, "found_page": extracted[name]}
         for name, page in sorted(index.items())
@@ -600,7 +656,7 @@ def validate(creatures: list[dict], index: dict[str, int]) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# CLI
+# Mechanics checks
 # ---------------------------------------------------------------------------
 
 CREATURE_PARTS = ("traits", "actions", "bonus_actions", "reactions", "legendary_actions")
@@ -608,12 +664,14 @@ CREATURE_PARTS = ("traits", "actions", "bonus_actions", "reactions", "legendary_
 
 def check_mechanics(creatures: list[dict]) -> dict:
     """
-    Cross-check the parsed mechanics against the arithmetic they must satisfy.
+    Check damage averages against their dice, and attack bonuses against
+    ability modifier + proficiency bonus.
 
-    A printed damage average has to equal the average of its own dice, and a
-    monster's attack bonus has to be one of its ability modifiers plus its
-    proficiency bonus.  Both are independent of how the text was parsed, so a
-    disagreement means either the parse or the extraction beneath it is wrong.
+    Attacks with a parenthesised note are skipped; their bonus is not the
+    plain sum.
+
+    Returns:
+        Counts checked and the mismatches for each.
     """
     damage_checked, damage_bad, bonus_checked, bonus_bad = 0, [], 0, []
 
@@ -645,16 +703,27 @@ def check_mechanics(creatures: list[dict]) -> dict:
 
 
 def count_nodes(nodes: list[dict]) -> int:
+    """Nodes in the tree, descendants included."""
     return sum(1 + count_nodes(n["subsections"]) for n in nodes)
 
+
+# ---------------------------------------------------------------------------
+# Entry points
+# ---------------------------------------------------------------------------
 
 def parse(pdf_path: Path, markdown_path: Path,
           report: Callable[[str], None] = lambda _: None) -> dict:
     """
-    Run the whole pipeline and return the finished document.
+    Run the whole pipeline.
 
-    Progress goes to *report* rather than to stdout so the same function
-    serves the command line and the API without one of them being noisy.
+    Args:
+        pdf_path: The SRD PDF.
+        markdown_path: Where to write the markdown.  The anchors file is
+            written beside it.
+        report: Receives progress lines.
+
+    Returns:
+        The finished document, not yet written.
     """
     report(f"Extracting layout  ({pdf_path.name}) …")
     lines: list[Line] = extract_lines(pdf_path)
@@ -665,9 +734,8 @@ def parse(pdf_path: Path, markdown_path: Path,
     markdown_path.write_text(markdown, encoding="utf-8")
     report(f"  markdown → {markdown_path}")
 
-    # Written beside the markdown rather than into the document: it is
-    # per-line nested geometry, which is exactly the shape the graph mapper
-    # rejects, and nothing traverses it.
+    # Kept out of the document: nested per-line geometry that the graph
+    # mapper would reject and nothing traverses.
     anchor_path = anchors_path_for(markdown_path)
     anchor_path.write_text(json.dumps(anchors), encoding="utf-8")
     report(f"  line anchors → {anchor_path} ({len(anchors)} parts)")
@@ -758,8 +826,17 @@ def build(pdf_path: Path | None = None, out_path: Path | None = None,
     """
     Parse the SRD and write the JSON document, with its markdown beside it.
 
-    Missing paths are resolved from the settings here rather than defaulted
-    at import time, so overriding an environment variable still takes effect.
+    Args:
+        pdf_path: Defaults to ``settings.pdf_path``.
+        out_path: Defaults to ``settings.output_path``.
+        markdown_path: Defaults to ``out_path`` with a ``.md`` suffix.
+        report: Receives progress lines.
+
+    Returns:
+        The document that was written.
+
+    Raises:
+        FileNotFoundError: The PDF does not exist.
     """
     settings = get_settings()
     pdf_path = pdf_path or settings.pdf_path
@@ -777,12 +854,24 @@ def build(pdf_path: Path | None = None, out_path: Path | None = None,
 
 
 def load(out_path: Path | None = None) -> dict:
-    """Read a document the pipeline wrote earlier."""
+    """
+    Read a document the pipeline wrote earlier.
+
+    Args:
+        out_path: Defaults to ``settings.output_path``.
+
+    Returns:
+        The parsed document.
+
+    Raises:
+        FileNotFoundError: Nothing has been written there.
+    """
     out_path = out_path or get_settings().output_path
     return json.loads(out_path.read_text(encoding="utf-8"))
 
 
 def main() -> None:
+    """``srd-parse``: build the artifact and print a validation summary."""
     settings = get_settings()
     parser = argparse.ArgumentParser(
         description="Parse the SRD PDF into the JSON artifact.")

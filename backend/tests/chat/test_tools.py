@@ -1,11 +1,3 @@
-"""
-The subset of retrieval the agent may call.
-
-Results are prose rather than JSON: the model reads them, and every result
-leads with its section id so it can cite what it sees.  The structured half
-reaches the UI by another route, so nothing here serialises twice.
-"""
-
 from __future__ import annotations
 
 import re
@@ -16,8 +8,6 @@ from dnd_graph_rag.chat import retrieval, tools
 
 
 class TestSearchSrd:
-    """Search the SRD for rules text matching a query."""
-
     def test_given_an_unknown_entity_type_when_called_then_it_never_reaches_the_graph(self):
         # Given a filter naming a type nothing is
         # When the tool is called
@@ -29,11 +19,6 @@ class TestSearchSrd:
 
     def test_given_only_the_lexical_arm_when_nothing_matches_then_it_says_so(
             self, graph, settings_env):
-        """
-        Reachable only when both arms come back empty.  With the dense arm
-        live there is always a nearest neighbour, so this is what a checkout
-        with no key sees.
-        """
         # Given a loaded graph, no key, and a question matching no section
         settings_env(GOOGLE_API_KEY="")
         retrieval.embed_query.cache_clear()
@@ -47,10 +32,6 @@ class TestSearchSrd:
 
     def test_given_a_nonsense_question_when_searched_then_it_still_guesses(
             self, graph, embedding_key):
-        """
-        A dense index always has a nearest neighbour, so judging whether the
-        guesses answer the question is the model's job, not the tool's.
-        """
         # Given a loaded graph with vectors on it
         # When a question matching no words in the book is searched
         result = tools.search_srd.invoke({"query": "zzzzqqqq"})
@@ -80,10 +61,6 @@ class TestSearchSrd:
         assert "(creature," not in result
 
     def test_given_the_offered_types_when_read_then_they_are_what_a_reader_asks_about(self):
-        """
-        Deliberately not the full list from the artifact: the long tail
-        ("front_matter", "creature_group") narrows nothing anyone would ask.
-        """
         # Given the filter the tool offers the model
         # When it is read
         # Then it names the kinds of thing a rules question is about
@@ -94,8 +71,6 @@ class TestSearchSrd:
 
 
 class TestGetSrdSection:
-    """Fetch the full text of one SRD section by its id."""
-
     def test_given_an_unknown_id_when_called_then_the_shape_of_one_is_explained(self):
         # Given an id no section has
         # When the tool is called
@@ -123,7 +98,6 @@ class TestGetSrdSection:
         assert result.startswith("[11.2.114]")
 
     def test_given_a_section_when_called_then_its_neighbours_are_named(self, graph):
-        """So the model can follow a parent or a child it was pointed at."""
         # Given a loaded graph
         # When a section with a parent is fetched
         result = tools.get_srd_section.invoke({"section_id": "11.2.114"})
@@ -133,8 +107,6 @@ class TestGetSrdSection:
 
 
 class TestDescribe:
-    """One node on one line, and whether it can be cited."""
-
     def test_given_a_node_that_is_a_section_when_described_then_it_is_citable(
             self):
         # Given a node the book printed as a heading
@@ -147,10 +119,6 @@ class TestDescribe:
 
     def test_given_a_derived_node_with_nowhere_to_point_when_described_then_it_is_marked_uncitable(
             self):
-        """
-        An ability is keyed ``Goblin|actions/Bite``, a damage type on its
-        name.  Unmarked, the model invents an id for them.
-        """
         # Given a node stage 2 derived, printed in no section
         node = {"uid": "n1", "name": "Bludgeoning",
                 "labels": ["DamageType"], "section_id": None, "owner": None}
@@ -164,11 +132,6 @@ class TestDescribe:
 
     def test_given_a_derived_node_when_described_then_it_points_at_what_to_cite(
             self):
-        """
-        The alternative is a list of things the model may name and may not
-        cite, which it answers by searching for each one by name, a call
-        apiece.
-        """
         # Given an ability, and the section the book printed it in
         node = {"uid": "n1", "name": "Roar (3/Day)", "owner": "Sphinx of Valor",
                 "labels": ["CreatureAbility"], "section_id": None}
@@ -197,8 +160,6 @@ class TestDescribe:
 
 
 class TestRender:
-    """A drawable neighbourhood, spelled as prose for the model."""
-
     @staticmethod
     def _node(uid, name, depth, section_id=None, degree=1, summary=None):
         return {"uid": uid, "name": name, "depth": depth, "degree": degree,
@@ -206,10 +167,6 @@ class TestRender:
                 "entity_type": "rule", "summary": summary, "facts": []}
 
     def test_given_a_capped_group_when_rendered_then_the_total_is_told(self):
-        """
-        Eight of 121 presented as the whole answer is the one thing a graph
-        view must not do, in prose exactly as in the picture.
-        """
         # Given a neighbourhood whose fan cap cut a group
         data = {
             "root": "a",
@@ -248,7 +205,6 @@ class TestRender:
 
     def test_given_a_second_hop_when_rendered_then_it_is_grouped_by_its_anchor(
             self):
-        """The shallower end is the one the walk reached first."""
         # Given a neighbourhood two hops deep
         data = {
             "root": "a",
@@ -271,8 +227,6 @@ class TestRender:
 
 
 class TestExploreSrdGraph:
-    """What one SRD section is connected to in the rules graph."""
-
     def test_given_an_unknown_id_when_called_then_it_never_walks_anything(
             self, graph):
         # Given a loaded graph and an id that resolves to nothing
@@ -295,11 +249,6 @@ class TestExploreSrdGraph:
 
     def test_given_a_condition_when_walked_twice_then_its_imposers_are_reached(
             self, graph):
-        """
-        Filled is printed, hollow is derived: a citation names the *section*
-        that defines Prone, and the term everything imposes is one hop
-        further out.  Two hops is what answers "which creatures can do this".
-        """
         # Given a loaded graph
         # When the graph around a condition is walked two hops
         result = tools.explore_srd_graph.invoke({"section_id": "11.2.114",
@@ -311,11 +260,6 @@ class TestExploreSrdGraph:
 
     def test_given_a_walk_when_read_then_every_neighbour_has_an_id_to_cite(
             self, graph):
-        """
-        A creature ability is a real neighbour with no id of its own, and the
-        prompt tells the model to cite every claim — so it is pointed at the
-        stat block it was printed in rather than left uncitable.
-        """
         # Given a loaded graph
         # When a condition creatures impose is walked to its imposers
         result = tools.explore_srd_graph.invoke({"section_id": "11.2.114",
@@ -328,11 +272,6 @@ class TestExploreSrdGraph:
 
     def test_given_a_wider_fan_when_walked_then_a_sampled_group_is_complete(
             self, graph):
-        """
-        A sample is what makes a "which things" question expensive: told that
-        8 of 20 are shown and given no way to ask for the rest, the model
-        goes and searches for them one at a time.
-        """
         # Given a loaded graph and a group the default fan samples.  The
         # total is read out of the result rather than written down here: it
         # is a property of the book, and changes whenever the parser learns
@@ -358,10 +297,6 @@ class TestExploreSrdGraph:
 
     def test_given_a_wider_fan_when_walked_then_the_other_groups_survive_it(
             self, graph):
-        """
-        The budget is spent in discovery order, so a fan raised against a
-        fixed limit is an ask for more that returns less.
-        """
         # Given a loaded graph and a walk at the default fan
         default = tools.explore_srd_graph.invoke({"section_id": "11.2.70",
                                                   "depth": 2})
@@ -375,8 +310,6 @@ class TestExploreSrdGraph:
             assert group in wide
 
     def test_given_an_absurd_fan_when_walked_then_it_is_clamped(self, graph):
-        """The node budget bounds the walk regardless; the clamp keeps the
-        per-group query from being asked for a million rows."""
         # Given a loaded graph
         # When a walk asks for more neighbours than there can be
         result = tools.explore_srd_graph.invoke({"section_id": "11.2.70",
@@ -387,8 +320,6 @@ class TestExploreSrdGraph:
 
 
 class TestQuerySrdGraph:
-    """The graph, asked a question directly."""
-
     def test_given_a_refused_query_when_called_then_it_never_reaches_the_graph(
             self):
         # Given a query calling a procedure outside the allowlist
@@ -401,11 +332,6 @@ class TestQuerySrdGraph:
 
     def test_given_an_exhaustive_question_when_queried_then_every_row_comes_back(
             self, graph):
-        """
-        The whole point: a search returns passages and a walk returns a
-        sample, and the model answers both by verifying each row with another
-        call.  This is the list.
-        """
         # Given a loaded graph
         # When the question that took sixty tool calls is asked as one query
         result = tools.query_srd_graph.invoke({"cypher_query": """
@@ -422,8 +348,7 @@ class TestQuerySrdGraph:
     def test_given_a_write_when_called_then_the_model_is_told_plainly(
             self, graph):
         """
-        Neo4j's own wording for this is "Unexpected error has occurred. See
-        debug log", which tells the model nothing it can act on.
+        Neo4j's own text is "Unexpected error has occurred. See debug log".
         """
         # Given a loaded graph and a query that would change it
         # When the tool is called
@@ -436,8 +361,6 @@ class TestQuerySrdGraph:
 
     def test_given_broken_cypher_when_called_then_the_error_is_the_result(
             self, graph):
-        """A bad label is a query the model can fix and run again, which is
-        the loop working rather than the turn failing."""
         # Given a loaded graph and a query that will not parse
         # When the tool is called
         result = tools.query_srd_graph.invoke(
@@ -449,14 +372,6 @@ class TestQuerySrdGraph:
 
 
 class TestArtifacts:
-    """
-    The status and one short line every tool attaches for the trace.
-
-    LangChain carries it on the ToolMessage and never shows it to the model,
-    which is the same "structured half by another route" split the prose
-    results already use.
-    """
-
     @staticmethod
     def _artifact(tool, args: dict) -> dict:
         message = tool.invoke({"type": "tool_call", "id": "1",
@@ -475,8 +390,6 @@ class TestArtifacts:
 
     def test_given_a_section_when_read_then_the_heading_comes_back_with_it(
             self, graph):
-        """A dotted id says nothing to the person reading the trace, and the
-        graph is the only thing that knows what it names."""
         # Given a loaded graph
         # When a section is fetched
         artifact = self._artifact(tools.get_srd_section,
@@ -499,8 +412,6 @@ class TestArtifacts:
 
     def test_given_a_search_when_made_then_no_subject_is_invented_for_it(
             self, graph):
-        """The query is already the words someone chose, so the server has
-        nothing better to say than the argument itself."""
         # Given a loaded graph
         # When a search runs
         artifact = self._artifact(tools.search_srd, {"query": "Prone"})
@@ -531,7 +442,6 @@ class TestArtifacts:
 
     def test_given_a_query_matching_nothing_when_called_then_it_is_empty_not_failed(
             self, graph):
-        """Matching nothing is an answer about the book, not a broken tool."""
         # Given a loaded graph and a query that matches nothing
         # When it runs
         artifact = self._artifact(
@@ -553,10 +463,6 @@ class TestArtifacts:
 
     def test_given_every_tool_when_called_then_none_shows_the_model_its_artifact(
             self, graph):
-        """
-        The model reads the prose and nothing else: an artifact leaking into
-        the content would be retrieval plumbing in the context window.
-        """
         # Given a call to each tool
         for tool, args in ((tools.search_srd, {"query": "Prone"}),
                            (tools.get_srd_section, {"section_id": "11.2.114"}),
@@ -572,10 +478,6 @@ class TestArtifacts:
             assert isinstance(message.content, str)
 
     def test_given_a_tool_when_invoked_plainly_then_it_still_returns_prose(self):
-        """
-        ``invoke`` with a bare argument dict returns the content only, which
-        is what keeps every other test in this file reading as it did.
-        """
         # Given a call made with arguments rather than a tool call
         result = tools.search_srd.invoke({"query": "x",
                                           "entity_type": "wizardry"})
@@ -586,8 +488,6 @@ class TestArtifacts:
 
 
 class TestTools:
-    """What the agent is given."""
-
     def test_given_the_tool_list_when_read_then_it_is_the_four_ways_in(self):
         # Given the list handed to the agent
         # When it is read
@@ -598,7 +498,6 @@ class TestTools:
                                                         "query_srd_graph"]
 
     def test_given_a_tool_when_described_then_its_arguments_are_documented(self):
-        """The docstring is what the model reads to decide how to call it."""
         # Given the search tool
         # When its schema is read
         schema = tools.search_srd.args_schema.model_json_schema()

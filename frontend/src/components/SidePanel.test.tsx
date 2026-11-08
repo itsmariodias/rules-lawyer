@@ -1,12 +1,4 @@
-/**
- * The right-hand panel: the page a citation was printed on, and the graph
- * around it.
- *
- * The panel opens from the toolbar as well as from a citation, so it has to
- * be useful with nothing selected — and both tabs share the selected
- * section, so switching never loses the reader's place.  pdf.js and the
- * graph are mocked here; each is tested on its own.
- */
+/** pdf.js and the graph view are mocked. */
 
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -60,11 +52,6 @@ describe('SidePanel', () => {
   })
 
   it('given a citation, when opened, then the page facsimile is drawn', async () => {
-    /**
-     * A facsimile rather than the extracted markdown: the page is what the
-     * book actually says, and a citation you can check is worth more than
-     * one you have to trust.
-     */
     // Given a cited section
     panel()
 
@@ -74,7 +61,6 @@ describe('SidePanel', () => {
   })
 
   it('given nothing cited, when the page tab is open, then the whole book is browsable', async () => {
-    /** The panel opens from the toolbar too, so it must be useful empty. */
     // Given a panel opened with no citation
     panel({ sectionId: null })
 
@@ -107,7 +93,6 @@ describe('SidePanel', () => {
   })
 
   it('given the graph tab, when shown, then it opens on the same section', () => {
-    /** Both tabs share the selected section, so switching keeps the place. */
     // Given the panel on the graph tab
     panel({ tab: 'graph' })
 
@@ -117,10 +102,6 @@ describe('SidePanel', () => {
   })
 
   it('given a depth control, when a depth is chosen, then it is remembered', async () => {
-    /**
-     * How deep is the reader's question, not ours — the same argument the
-     * panel width is a drag handle for.
-     */
     // Given the graph tab
     const { unmount } = panel({ tab: 'graph' })
 
@@ -175,7 +156,6 @@ describe('SidePanel', () => {
   })
 
   it('given the tabs, when one is pressed, then the shell is told', async () => {
-    /** Which tab is showing is the shell's, since the toolbar picks it too. */
     // Given the panel on the page tab
     const { props } = panel()
 

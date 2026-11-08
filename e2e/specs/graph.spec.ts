@@ -1,21 +1,12 @@
-/**
- * The Graph tab: the same citation, asked a different question.
- *
- * The Page tab says what the book printed; this says what that passage is
- * connected to. It is the only place the edges stage 2 exists to build are
- * visible at all, so what matters here is that a real neighbourhood comes
- * back from the real graph and can be walked.
- */
-
 import type { Page } from '@playwright/test'
 
 import { ask, expect, panel, test } from '../fixtures'
 
-/** The panel's own tabs, which share their names with the page-jump form. */
+/** The panel tabs; the page-jump form also has a "Page" label. */
 const tab = (page: Page, name: 'Page' | 'Graph') =>
   panel(page).locator('.tabs').getByRole('button', { name })
 
-/** A citation, opened on the Graph tab. */
+/** Open a citation on the Graph tab. */
 async function graphOf(page: Page, question = 'What does the Prone condition do?') {
   await ask(page, question)
   await page.locator('.citations .chip').first().click()
@@ -26,23 +17,14 @@ async function graphOf(page: Page, question = 'What does the Prone condition do?
 const dots = (page: Page) => page.locator('.graph svg g[data-kind]')
 
 /**
- * Select a node.
- *
- * Forced, because a force-directed layout is a moving target by design: the
- * simulation cools over about ten seconds, and until it does Playwright's
- * stability check will not fire a click at all. Waiting for it would add
- * that ten seconds to every test here and would still be a race — a reader
- * aims at a drifting node and hits it, and so does this.
+ * Click a node with `force`: the simulation moves nodes for ~10s, and
+ * Playwright's stability check will not click a moving element.
  */
 const select = (dot: ReturnType<Page['locator']>) => dot.click({ force: true })
 
 test.describe('the graph explorer', () => {
   test('given nothing cited, when opened, then it says how to get in',
        async ({ app }) => {
-    /**
-     * The explorer opens on a citation; with nothing cited it says so
-     * rather than drawing an empty canvas.
-     */
     // Given the panel opened from the toolbar
     await app.getByRole('button', { name: 'Graph' }).click()
 
@@ -66,7 +48,6 @@ test.describe('the graph explorer', () => {
 
   test('given the drawn nodes, when read, then the legend names their kinds',
        async ({ app }) => {
-    /** Colour comes from a priority over a node's labels, not a lookup. */
     // Given a drawn neighbourhood
     await graphOf(app)
 
@@ -80,10 +61,6 @@ test.describe('the graph explorer', () => {
 
   test('given a node, when selected, then the card says what it is',
        async ({ app }) => {
-    /**
-     * Selecting answers "and what is that?" in place: the summary arrives
-     * with the node, so selection costs no request.
-     */
     // Given a drawn neighbourhood
     await graphOf(app)
 
@@ -98,7 +75,6 @@ test.describe('the graph explorer', () => {
 
   test('given a selected section, when its page is opened, then the tab follows',
        async ({ app }) => {
-    /** Either tab hands the other a new place to be. */
     // Given a selected node that is a section
     await graphOf(app)
     const openable = app.locator('.graph-details').getByRole(
@@ -118,10 +94,6 @@ test.describe('the graph explorer', () => {
 
   test('given a hub, when it is capped, then the card says what it did not show',
        async ({ app }) => {
-    /**
-     * "121 creatures reference Poison damage, here are 8" — the picture can
-     * only be honest if the count is beside it.
-     */
     // Given a passage joined to a great many things
     await graphOf(app, 'What creatures deal Poison damage?')
 
@@ -139,7 +111,6 @@ test.describe('the graph explorer', () => {
 
   test('given a deeper reach, when chosen, then more of the graph is drawn',
        async ({ app }) => {
-    /** How deep is the reader's question, not ours. */
     // Given a neighbourhood at one hop
     await graphOf(app)
     const near = await dots(app).count()
@@ -154,7 +125,6 @@ test.describe('the graph explorer', () => {
 
   test('given a graph and a citation, when the tab is switched, then the place is kept',
        async ({ app }) => {
-    /** Both tabs share the selected section, so switching loses nothing. */
     // Given a citation open on the Graph tab
     await graphOf(app)
 

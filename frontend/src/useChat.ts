@@ -1,10 +1,6 @@
 /**
- * Conversation state for one thread.
- *
- * The server owns the history; this owns only what is on screen, which is
- * why switching threads is a fetch rather than a cache lookup. The streaming
- * assistant message is always the last element of `messages` and is mutated
- * in place as tokens arrive.
+ * Conversation state for the open thread.  History lives on the server; the
+ * streaming assistant message is always the last element of `messages`.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -26,7 +22,6 @@ export function useChat() {
 
   useEffect(refreshThreads, [refreshThreads])
 
-  /** Replace the in-flight assistant message, which is always the last one. */
   const patchLast = (change: (message: Message) => Message) =>
     setMessages((current) =>
       current.map((message, index) =>
@@ -71,13 +66,7 @@ export function useChat() {
     }
   }
 
-  /**
-   * Stream one turn into the assistant message already at the end.
-   *
-   * It takes the call to make rather than the question, because asking and
-   * asking again differ only in that: the timing, the abort, the error and
-   * the refreshed sidebar are the same either way.
-   */
+  /** Stream a turn (send or retry) into the trailing assistant message. */
   const run = useCallback(async (
     ask: (onEvent: (event: ChatEvent) => void, signal: AbortSignal) => Promise<void>,
   ) => {
@@ -92,14 +81,10 @@ export function useChat() {
         patchLast((m) => ({ ...m, error: String(error) }))
       }
     } finally {
-      // Measured here rather than from the timestamps, which are the
-      // server's and are written a step at a time: what a reader watched is
-      // the wait from pressing send to the stream ending.
+      // Client-side, so it is the wait the reader actually saw.
       patchLast((m) => ({ ...m, ms: Date.now() - started }))
       setStreaming(false)
       abort.current = null
-      // The sidebar only changes when a thread is created or its preview
-      // moves to the top, so it is refreshed after a turn, not during one.
       refreshThreads()
       if (isFirst) refreshThreads()
     }
@@ -116,16 +101,7 @@ export function useChat() {
     await run((onEvent, signal) => streamChat(text, threadId, onEvent, signal))
   }, [streaming, threadId, run])
 
-  /**
-   * Ask the last question again, in place of the answer it got.
-   *
-   * The old answer is dropped here and on the server both: it rewinds the
-   * checkpoint rather than appending, so a conversation reopened later holds
-   * one question where the reader asked one. The question itself is not
-   * re-sent: the server reads what was asked out of the checkpoint, which
-   * is what keeps the two halves from disagreeing about what is being
-   * retried.
-   */
+  /** Drop everything after the last question and ask it again. */
   const retry = useCallback(async () => {
     if (streaming || threadId === null) return
     const asked = messages.map((m) => m.role).lastIndexOf('user')
@@ -139,26 +115,13 @@ export function useChat() {
 
   const stop = useCallback(() => abort.current?.abort(), [])
 
-  /**
-   * Delete a conversation.
-   *
-   * The list is refreshed from the server rather than filtered here, so
-   * what is on screen is what is stored. Deleting the thread being read
-   * clears it too — leaving its turns up with nothing behind them would
-   * invite a reply into a thread that no longer exists.
-   */
-  /**
-   * Pin or unpin a conversation.
-   *
-   * The order is the server's, so the list is refetched rather than
-   * resorted here — there is one answer to where a thread sits and it is
-   * not the browser's.
-   */
+  // Refetched rather than resorted: the server owns the order.
   const pin = useCallback(async (id: string, pinned: boolean) => {
     await pinThread(id, pinned)
     refreshThreads()
   }, [refreshThreads])
 
+  /** Delete a thread, clearing the view if it was the open one. */
   const forget = useCallback(async (id: string) => {
     await deleteThread(id)
     if (id === threadId) {
@@ -172,9 +135,6 @@ export function useChat() {
   const open = useCallback(async (id: string) => {
     abort.current?.abort()
     setThreadId(id)
-    // Marked on the way in, because it is the one thing the server cannot
-    // say: the same turn is live when it is watched and replayed when it is
-    // reopened, and only the reader knows which.
     setMessages((await loadThread(id)).map(
       (message) => ({ ...message, replayed: true })))
   }, [])

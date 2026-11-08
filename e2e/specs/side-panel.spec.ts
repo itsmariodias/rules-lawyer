@@ -1,13 +1,3 @@
-/**
- * The page a citation was printed on.
- *
- * This is the one thing the component tests cannot really check: pdf.js
- * fetching the actual PDF by byte range, rendering page 186, and the
- * rectangles `layout.py` computed landing on the lines they were computed
- * from. A citation you can check against the book is the whole point of
- * carrying the geometry through three stages.
- */
-
 import type { Page } from '@playwright/test'
 
 import { ask, expect, panel, test } from '../fixtures'
@@ -20,14 +10,9 @@ async function citation(page: Page) {
 }
 
 /**
- * Wait until the page is actually drawn, not merely present.
- *
- * The canvas is in the DOM at its placeholder width from the first paint,
- * and only takes its real size when pdf.js has rendered — so measuring on
- * the canvas alone measures a page that is still arriving. The text layer is
- * built at the very end of that effect, after the scale the boxes are
- * positioned by is published, which makes its first span the signal that
- * everything on this page agrees about how big it is.
+ * Wait for the page to finish rendering.  The canvas exists at placeholder
+ * size from the start; the text layer's first span appears only after the
+ * scale is final.
  */
 async function rendered(page: Page) {
   await expect(page.locator('.pdf-page canvas').first())
@@ -52,10 +37,6 @@ test.describe('the page panel', () => {
 
   test('given a rendered page, when the citation is marked, then boxes are drawn',
        async ({ app }) => {
-    /**
-     * The payoff of `char_start`/`char_end`: the range the graph carries,
-     * bisected into the rectangles of the lines behind it.
-     */
     // Given a cited passage on its page
     await citation(app)
     await rendered(app)
@@ -86,13 +67,6 @@ test.describe('the page panel', () => {
 
   test('given a box, when drawn, then it tints the paper without lifting the ink',
        async ({ app }) => {
-    /**
-     * A highlight is painted over the canvas the page was rendered into, so
-     * a translucent fill composites with the glyphs underneath and lifts
-     * black ink towards its own colour: marking a passage made it harder to
-     * read than leaving it alone. Multiplied, the paper takes the tint and
-     * the ink stays ink.
-     */
     // Given a marked passage
     await citation(app)
     await rendered(app)
@@ -107,11 +81,6 @@ test.describe('the page panel', () => {
 
   test('given the text layer, when it renders, then the page is selectable',
        async ({ app }) => {
-    /**
-     * The one thing a bitmap of a page would cost. It is also the check that
-     * `--total-scale-factor` is spelled the way the text layer's own rules
-     * read it: with the wrong name every span is `font-size: 0`.
-     */
     // Given a rendered page
     await citation(app)
     await rendered(app)
@@ -140,7 +109,6 @@ test.describe('the page panel', () => {
 
   test('given nothing cited, when the panel is opened, then the book is browsable',
        async ({ app }) => {
-    /** The panel is a reader before it is a citation viewer. */
     // Given a panel opened from the toolbar with nothing cited
     await app.getByRole('button', { name: 'Book page' }).click()
 
@@ -152,10 +120,6 @@ test.describe('the page panel', () => {
 
   test('given a page number, when submitted, then the book scrolls to it',
        async ({ app }) => {
-    /**
-     * 364 pages is more than anyone scrolls through, and the SRD's own index
-     * is printed in page numbers.
-     */
     // Given the book, open at the front
     await app.getByRole('button', { name: 'Book page' }).click()
     await expect(app.locator('.pdf-page').first()).toBeVisible()
@@ -183,10 +147,6 @@ test.describe('the page panel', () => {
 
   test('given a remembered width, when the page reloads, then it is kept',
        async ({ app }) => {
-    /**
-     * How wide the page needs to be is the reader's question, so the panel
-     * is a dragged control with a remembered width rather than a constant.
-     */
     // Given the panel open and dragged narrower
     await app.getByRole('button', { name: 'Book page' }).click()
     const handle = app.getByRole('separator', { name: 'Resize the page panel' })

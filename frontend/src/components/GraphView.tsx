@@ -1,25 +1,7 @@
 /**
- * The graph, drawn.
- *
- * The Page tab answers "what does the book say here"; this one answers "what
- * is this connected to", which is the question stage 2 exists to make
- * askable and which nothing in the UI could ask until now.
- *
- * **It never draws the whole graph.** 4260 nodes is not a picture, it is a
- * hairball, and a single hub — Poison damage, referenced from 121 places —
- * would swamp the panel on its own. So a citation opens on *its* node and
- * the edges immediately around it, and everything further is a click: the
- * server caps the fan-out per relationship type and the node count in total,
- * says what it capped, and this view spends those clicks one node at a time.
- * Expanding merges into what is already on screen rather than replacing it,
- * so following a chain reads as walking rather than as a series of unrelated
- * pictures.
- *
- * **The layout is ours.** A force simulation over sixty nodes is a hundred
- * lines and no dependency; d3-force would be the whole library for the one
- * function of it we want. The seed is pinned at the centre, because the
- * reader came here from a citation and the thing they cited should not
- * wander off while they watch.
+ * Force-directed view of the cited node's neighbourhood.  Expanding a node
+ * merges its neighbours into the current picture.  The seed is pinned at
+ * the centre; the simulation stops once it cools.
  */
 
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
@@ -34,46 +16,26 @@ import {
   restLength, type Body, type Places, type View,
 } from './graph-layout'
 
-/**
- * The spring along every edge, and friction.
- *
- * The spring's *rest length* is not a constant: twelve nodes in a tall
- * panel and sixty in a short one want very different pictures, and a fixed
- * length gives the first a knot in the middle of an empty page. So it comes
- * from the room available and the number of things to put in it — see
- * `restLength` — and the repulsion that balances it follows from that.
- * Sizing the layout is better than magnifying it afterwards: zoom scales the
- * circles and the type along with the distances, and a graph blown up to
- * fill a panel is just a graph with enormous labels.
- */
+// Rest length comes from `restLength`; repulsion is derived from it.
 const SPRING = 0.045
 const FRICTION = 0.86
 const CENTRING = 0.012
 
-/** The simulation cools rather than running forever behind a still picture. */
 const COOL = 0.992
 const COLD = 0.004
 
 const ZOOM_RANGE = [0.25, 3] as const
 /**
- * How much wider a hub gets when it is asked for more.
- *
- * The server samples deterministically, so asking again for the same `fan`
- * returns the same neighbours and reads as a broken button. The ask is
- * therefore derived from the picture rather than from a click count: twice
- * whatever is already drawn from that node's largest group. That matters on
- * the *first* click too — a node two hops out was already sampled at the
- * default fan on the way in, so expanding it at the default fan would show
- * nothing new.
+ * Expansion asks for `WIDEN` times the node's largest drawn group.  The
+ * server's sample is deterministic, so repeating a fan returns nothing new,
+ * including on a first click on a node already sampled at the default fan.
  */
 const WIDEN = 2
 const FAN = 8
 
 type Props = {
-  /** The section the panel was opened on, or null when nothing is cited. */
   sectionId: string | null
   depth: number
-  /** Open a node on the Page tab; only nodes that are sections can be. */
   onOpenPage: (sectionId: string) => void
 }
 
@@ -82,25 +44,18 @@ export function GraphView({ sectionId, depth, onOpenPage }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [selected, setSelected] = useState<string | null>(null)
-  // How many times each node has been expanded, not merely whether: it is
-  // what decides how much wider the next ask is.
+  // Expansion count per node.
   const [expanded, setExpanded] = useState<Record<string, number>>({})
 
-  // Bodies are the simulation's; positions are what it publishes. Sixty
-  // nodes a frame is nothing to re-render, and keeping the drawing on state
-  // means the picture is a function of state like everything else here.
+  // Simulation state in a ref; positions published to state each frame.
   const bodies = useRef(new Map<string, Body>())
   const [places, setPlaces] = useState<Places>({})
   const box = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ width: 0, height: 0 })
   const [view, setView] = useState<View>({ x: 0, y: 0, k: 1 })
-  // How much of the canvas the details card is covering. Measured rather
-  // than assumed: the card grows a row per relationship type on the
-  // selected node, so a creature's is twice a leaf section's.
+  // Measured height of the details card, which overlays the canvas.
   const [reserved, setReserved] = useState(0)
   const card = useRef<HTMLElement>(null)
-  // The simulation writes into `places`; this is only how it asks React to
-  // look again, so a frame costs one render and no reconciliation of state.
 
   useEffect(() => {
     const element = box.current
@@ -121,8 +76,6 @@ export function GraphView({ sectionId, depth, onOpenPage }: Props) {
     return () => observer.disconnect()
   }, [selected, graph])
 
-  // A fresh seed is a fresh picture: positions, selection and the record of
-  // what has been expanded all belong to the graph that is on screen.
   useEffect(() => {
     if (!sectionId) { setGraph(null); return }
     let live = true
@@ -141,11 +94,8 @@ export function GraphView({ sectionId, depth, onOpenPage }: Props) {
     return () => { live = false }
   }, [sectionId, depth])
 
-  // Panning and zooming are one-way without this: the reader can always ask
-  // for the framing back, which is also what the Page tab's Fit does. It
-  // has to fit *now* rather than only clear the flag, because by the time
-  // anyone reaches for it the simulation has cooled and stopped and there
-  // is no next frame to recompute anything.
+  // Fits immediately as well as clearing the flag: a cooled simulation has
+  // no next frame to do it.
   const refit = useCallback(() => {
     framed.current = false
     const points = (graph?.nodes ?? [])
@@ -168,17 +118,11 @@ export function GraphView({ sectionId, depth, onOpenPage }: Props) {
     }
   }, [])
 
-  // The view transform is read inside pointer handlers that outlive the
-  // render they were created in, so it is held as well as stored.
+  // Mirror of `view` for pointer handlers that outlive their render.
   const camera = useRef(view)
   useEffect(() => { camera.current = view }, [view])
-  // Until the reader moves the picture themselves, it is framed for them.
-  // After that it is theirs, and refitting under their hands would be the
-  // application arguing with them.
+  // Set once the user pans, zooms or drags; auto-fitting then stops.
   const framed = useRef(false)
-  // Handing out the setting rather than the ref: the simulation reads it
-  // live inside its own loop, but nothing else needs more than to say "the
-  // reader has taken over".
   const claim = useCallback(() => { framed.current = true }, [])
 
   useSimulation(graph, bodies.current, size, setPlaces, setView, framed,
@@ -187,8 +131,7 @@ export function GraphView({ sectionId, depth, onOpenPage }: Props) {
   const drag = useDrag(bodies.current, camera, box, claim)
   const pan = usePan(setView, camera, box, claim)
 
-  // Positions are published by the simulation's effect, so the first paint
-  // after a load has none and draws nothing.
+  // Null until the simulation has published positions.
   const seeded = graph && Object.keys(places).length > 0 ? graph : null
 
   if (!sectionId) {
@@ -204,8 +147,7 @@ export function GraphView({ sectionId, depth, onOpenPage }: Props) {
   }
 
   const node = graph?.nodes.find((n) => n.uid === selected) ?? null
-  // An edge stops at the rim of the node it points at, not at its centre,
-  // so the arrowhead lands beside the circle instead of under it.
+  // Edges end at the target's rim so the arrowhead is visible.
   const radii: Record<string, number> = {}
   for (const item of graph?.nodes ?? []) radii[item.uid] = radiusOf(item)
 
@@ -221,8 +163,7 @@ export function GraphView({ sectionId, depth, onOpenPage }: Props) {
           <svg width={size.width} height={size.height}
                role="img" aria-label="The graph around the cited section">
             <defs>
-              {/* One marker per state: SVG markers cannot inherit the
-                  stroke of the line they cap. */}
+              {/* SVG markers cannot inherit stroke, so one per state. */}
               {['edge', 'edge-on'].map((name) => (
                 <marker key={name} id={`arrow-${name}`} viewBox="0 0 8 8"
                         refX="7" refY="4" markerWidth="7" markerHeight="7"
@@ -268,13 +209,12 @@ export function GraphView({ sectionId, depth, onOpenPage }: Props) {
 
 /* ── the picture ───────────────────────────────────────────────────── */
 
-/** How far short of the target's centre the arrowhead has to stop. */
 const ARROW = 6
 
 function Link({ edge, places, radius, active }: {
   edge: GraphEdge
   places: Places
-  /** The radius of the node this edge points at. */
+  /** Target node radius. */
   radius: number
   active: boolean
 }) {
@@ -295,14 +235,7 @@ function Link({ edge, places, radius, active }: {
   )
 }
 
-/**
- * The type of an edge, drawn over the picture rather than in it.
- *
- * The type is the whole point of an edge, but eleven of them at once is a
- * thicket, so only the selected node's are labelled — and they are drawn in
- * a pass after the nodes, because a label that disappears under the circle
- * it describes is worse than no label.
- */
+/** An edge's type at its midpoint; rendered after the nodes so it stays on top. */
 function LinkLabel({ edge, places }: { edge: GraphEdge; places: Places }) {
   const from = places[edge.source]
   const to = places[edge.target]
@@ -327,10 +260,8 @@ function Dot({ node, places, root, selected, grown, hidden, onSelect, onDrag }: 
   const at = places[node.uid]
   if (!at) return null
   const radius = radiusOf(node)
-  // `data-node` is filled for a passage the book printed and hollow for a
-  // node stage 2 derived from one. Both are real: "Alignment" is a glossary
-  // *section* and a glossary *term*, and two identical circles beside each
-  // other read as a duplicate rather than as two things.
+  // `data-node`: filled for sections, hollow for derived nodes, which can
+  // share a name (the "Alignment" section and glossary term).
   return (
     <g className={`dot ${selected ? 'on' : ''} ${root ? 'root' : ''}`}
        data-kind={kindOf(node)}
@@ -338,21 +269,14 @@ function Dot({ node, places, root, selected, grown, hidden, onSelect, onDrag }: 
        transform={`translate(${at.x},${at.y})`}
        onPointerDown={(event) => { onSelect(node.uid); onDrag(node.uid, event) }}>
       <circle r={radius} />
-      {/* A node with edges the server did not send says so, rather than
-          looking like a node with nothing left to show. */}
+      {/* Dashed halo: the server holds edges not yet fetched. */}
       {hidden > 0 && !grown && <circle className="more" r={radius + 3.5} />}
       <text y={radius + 12} textAnchor="middle">{clip(node.name)}</text>
     </g>
   )
 }
 
-/**
- * What is known about the selected node, and the two things to do with it.
- *
- * "Open page" is missing rather than disabled on a node that is not a
- * section: a damage type has no passage of its own, and a button that can
- * never work is worse than no button.
- */
+/** The selected node's card.  "Open page" appears only for sections. */
 function Details({ ref, node, graph, asked, busy, onExpand, onOpenPage }: {
   ref: React.RefObject<HTMLElement | null>
   node: GraphNode
@@ -360,7 +284,7 @@ function Details({ ref, node, graph, asked, busy, onExpand, onOpenPage }: {
   /** How many times this node has already been expanded. */
   asked: number
   busy: boolean
-  /** Called with the fan to ask for, which the card is what can work out. */
+  /** Called with the fan to request. */
   onExpand: (fan: number) => void
   onOpenPage: (sectionId: string) => void
 }) {
@@ -368,8 +292,6 @@ function Details({ ref, node, graph, asked, busy, onExpand, onOpenPage }: {
     (edge) => edge.source === node.uid || edge.target === node.uid).length
   const hidden = countHidden(graph, node.uid)
   const groups = connections(graph, node.uid)
-  // Twice the biggest group already on screen, so the ask is always wider
-  // than what it would return unchanged.
   const fan = Math.max(FAN,
                        Math.max(0, ...groups.map((g) => g.drawn)) * WIDEN)
   return (
@@ -383,9 +305,7 @@ function Details({ ref, node, graph, asked, busy, onExpand, onOpenPage }: {
         {node.section_id && <> · <code>{node.section_id}</code></>}
         {node.page !== null && <> · p.{node.page}</>}
       </p>
-      {/* What the node says, so selecting one answers "and what is that?"
-          in place. The Page tab is where the passage is read in full; this
-          is only enough to recognise it by. */}
+      {/* Summary, or facts for nodes with no prose. */}
       {node.summary && <p className="graph-summary">{node.summary}</p>}
       {!node.summary && node.facts.length > 0 && (
         <dl className="graph-facts">
@@ -415,9 +335,7 @@ function Details({ ref, node, graph, asked, busy, onExpand, onOpenPage }: {
         ))}
       </ul>
       <div className="graph-actions">
-        {/* Three states, because they are three different situations: a
-            node nothing has been asked of, a hub with more to give, and one
-            whose edges are all already drawn. */}
+        {/* Expand / Show more / Expanded (nothing left to fetch). */}
         <button onClick={() => onExpand(fan)}
                 disabled={busy || (asked > 0 && hidden === 0)}>
           {asked === 0 ? 'Expand' : hidden > 0 ? 'Show more' : 'Expanded'}
@@ -453,12 +371,8 @@ function Legend({ nodes }: { nodes: GraphNode[] }) {
 /* ── the layout ────────────────────────────────────────────────────── */
 
 /**
- * Give every node that has not got one a starting position.
- *
- * The seed is pinned dead centre and everything else lands on a ring around
- * whichever drawn node introduced it — so an expansion visibly grows out of
- * the node that was clicked, and a simulation that starts from a plausible
- * arrangement settles instead of exploding.
+ * Initial positions for new nodes: the seed pinned at the centre, others on
+ * a golden-angle spiral around an already-placed neighbour.
  */
 function place(graph: Neighbourhood, bodies: Map<string, Body>,
                size: { width: number; height: number }) {
@@ -476,7 +390,7 @@ function place(graph: Neighbourhood, bodies: Map<string, Body>,
     const from = anchor
       ? bodies.get(anchor.source === node.uid ? anchor.target : anchor.source)!
       : { x: cx, y: cy }
-    const angle = index * 2.399  // the golden angle: no two land together
+    const angle = index * 2.399  // golden angle, radians
     const rest = restLength(size, graph.nodes.length)
     bodies.set(node.uid, {
       x: from.x + Math.cos(angle) * rest,
@@ -487,11 +401,8 @@ function place(graph: Neighbourhood, bodies: Map<string, Body>,
 }
 
 /**
- * Repulsion between every pair, a spring along every edge, a pull to the
- * centre, and friction — run until it cools.
- *
- * O(n²) is the right algorithm here: the server caps the picture at sixty
- * nodes, and a Barnes-Hut tree for sixty bodies is more code and slower.
+ * Pairwise repulsion, edge springs, centring and friction, until `alpha`
+ * drops below `COLD`.  O(n²) is fine: the server caps the graph at 60 nodes.
  */
 function useSimulation(graph: Neighbourhood | null, bodies: Map<string, Body>,
                        size: { width: number; height: number },
@@ -501,14 +412,9 @@ function useSimulation(graph: Neighbourhood | null, bodies: Map<string, Body>,
                        reserved: number) {
   useEffect(() => {
     if (!graph || !size.width) return
-    // New nodes are placed here rather than during a render: the picture is
-    // laid out by this effect, and giving a node its first position is part
-    // of laying it out.
     place(graph, bodies, size)
     const rest = restLength(size, graph.nodes.length)
-    // Balanced against the spring: repulsion falls off as 1/d², so scaling
-    // it with the rest length squared keeps the two in the same proportion
-    // whatever size the picture is being drawn at.
+    // Repulsion falls off as 1/d², so scale it by rest² to stay balanced.
     const repulsion = rest * rest * 0.58
     let alpha = 1
     let frame = 0
@@ -524,8 +430,7 @@ function useSimulation(graph: Neighbourhood | null, bodies: Map<string, Body>,
           const b = points[j]
           let dx = b.x - a.x
           let dy = b.y - a.y
-          // Two nodes exactly on top of each other have no direction to be
-          // pushed apart in; any direction will do, so long as it is one.
+          // Coincident nodes: push in a random direction.
           let distance = Math.hypot(dx, dy)
           if (distance < 0.5) { dx = Math.random() - 0.5; dy = Math.random() - 0.5; distance = 0.5 }
           const push = Math.min(repulsion / (distance * distance), 40)
@@ -565,11 +470,8 @@ function useSimulation(graph: Neighbourhood | null, bodies: Map<string, Body>,
       alpha *= COOL
       publish(Object.fromEntries(
         [...bodies].map(([uid, at]) => [uid, { x: at.x, y: at.y }])))
-      // Fitting every frame rather than once at the end, so the picture is
-      // framed while it settles instead of snapping when it stops.
+      // Fit every frame so the view follows the layout as it settles.
       if (!framed.current) frame_(fit(points, size, reserved))
-      // A settled picture is a still one: the loop stops rather than
-      // repainting sixty circles for ever behind an idle reader.
       if (alpha > COLD) frame = requestAnimationFrame(tick)
     }
 
@@ -579,13 +481,8 @@ function useSimulation(graph: Neighbourhood | null, bodies: Map<string, Body>,
 }
 
 /**
- * Dragging a node.
- *
- * The listeners go on the window, for the reason the panel's resizer does:
- * a pointer routinely leaves a 20px circle mid-drag, and the drag must not
- * end when it does. A dragged node is pinned while it is held and let go
- * again after, so the reader can tease a cluster apart without the layout
- * fighting them and without freezing it.
+ * Drag a node, pinned while held.  Listeners are on the window so leaving
+ * the circle mid-drag does not end it.
  */
 function useDrag(bodies: Map<string, Body>,
                  camera: React.RefObject<View>,
@@ -595,11 +492,9 @@ function useDrag(bodies: Map<string, Body>,
     const point = bodies.get(uid)
     const frame = box.current?.getBoundingClientRect()
     if (!point || !frame) return
-    event.stopPropagation()  // otherwise the background pan starts too
+    event.stopPropagation()  // don't also start the background pan
     const wasPinned = point.pinned
     point.pinned = true
-    // Moving a node is arranging the picture, so the framing stops being
-    // ours to redo.
     claim()
 
     const move = (moved: PointerEvent) => {
@@ -634,7 +529,7 @@ function usePan(setView: React.Dispatch<React.SetStateAction<View>>,
       const k = Math.min(ZOOM_RANGE[1],
                          Math.max(ZOOM_RANGE[0],
                                   current.k * Math.exp(-event.deltaY * 0.0015)))
-      // Keep whatever is under the pointer under the pointer.
+      // Zoom about the pointer.
       const scale = k / current.k
       return { k, x: px - (px - current.x) * scale,
                y: py - (py - current.y) * scale }
@@ -662,7 +557,5 @@ function usePan(setView: React.Dispatch<React.SetStateAction<View>>,
 
   return { onWheel, onPointerDown }
 }
-
-/* ── plumbing ──────────────────────────────────────────────────────── */
 
 

@@ -1,14 +1,7 @@
 """
-The typed contract between the mapper and the loader.
+Node and edge batches: what ``mapping`` produces and ``loader`` writes.
 
-``mapping`` produces :class:`NodeBatch` and :class:`EdgeBatch` objects and
-knows nothing about Neo4j; ``loader`` consumes them and knows nothing about
-the SRD.  Keeping the seam here is what lets the whole JSON → graph
-translation be tested without a database.
-
-A batch is one label (or one relationship type) plus the rows for it.  Rows
-are already flattened to values Neo4j accepts — primitives and homogeneous
-arrays — because the artifact is full of nested dicts and Neo4j is not.
+Rows hold only values Neo4j accepts (primitives and homogeneous arrays).
 """
 
 from __future__ import annotations
@@ -37,9 +30,16 @@ class NodeBatch(BaseModel):
 
     @property
     def signature(self) -> str:
+        """All labels joined with ``:``, e.g. ``Section:Spell``."""
         return ":".join(self.labels)
 
     def add(self, **row: Any) -> None:
+        """
+        Append a row of properties.
+
+        Raises:
+            TypeError: A property is not a Neo4j value; see ``clean``.
+        """
         self.rows.append(clean(row))
 
     def __len__(self) -> int:
@@ -50,8 +50,7 @@ class EdgeBatch(BaseModel):
     """
     Rows that MATCH both endpoints and MERGE a relationship between them.
 
-    Endpoints are matched, never merged: an edge whose target is missing is a
-    finding to report, not a licence to invent an empty node.
+    Endpoints are never merged, so a missing target creates no node.
     """
 
     type: str
@@ -62,6 +61,17 @@ class EdgeBatch(BaseModel):
     rows: list[dict[str, Any]] = Field(default_factory=list)
 
     def add(self, start: str, end: str, **properties: Any) -> None:
+        """
+        Append an edge.
+
+        Args:
+            start: Value of ``start_key`` on the start node.
+            end: Value of ``end_key`` on the end node.
+            **properties: Relationship properties.
+
+        Raises:
+            TypeError: A property is not a Neo4j value; see ``clean``.
+        """
         self.rows.append({"start": start, "end": end,
                           "properties": clean(properties)})
 
@@ -70,7 +80,7 @@ class EdgeBatch(BaseModel):
 
 
 class GraphData(BaseModel):
-    """Everything the loader needs, plus what the mapper noticed on the way."""
+    """Every batch, plus unresolved reference targets and mapper warnings."""
 
     nodes: list[NodeBatch] = Field(default_factory=list)
     edges: list[EdgeBatch] = Field(default_factory=list)
@@ -79,16 +89,20 @@ class GraphData(BaseModel):
 
     @property
     def node_count(self) -> int:
+        """Rows across all node batches."""
         return sum(len(batch) for batch in self.nodes)
 
     @property
     def edge_count(self) -> int:
+        """Rows across all edge batches."""
         return sum(len(batch) for batch in self.edges)
 
     def counts_by_label(self) -> dict[str, int]:
+        """Rows per batch, keyed by ``signature``."""
         return {batch.signature: len(batch) for batch in self.nodes}
 
     def counts_by_type(self) -> dict[str, int]:
+        """Rows per relationship type, summed across batches."""
         counts: dict[str, int] = {}
         for batch in self.edges:
             counts[batch.type] = counts.get(batch.type, 0) + len(batch)
@@ -97,12 +111,19 @@ class GraphData(BaseModel):
 
 def clean(row: dict[str, Any]) -> dict[str, Any]:
     """
-    Drop keys Neo4j would store as null anyway, keeping properties sparse,
-    and reject anything Neo4j could not hold.
+    Drop None and empty-list values, and reject what Neo4j cannot store.
 
-    The artifact is full of nested dicts, and a stray one otherwise surfaces
-    as a ``CypherTypeError`` partway through a load, naming the value but not
-    the field it came from.  Failing here names both.
+    Fails at map time naming the field; Neo4j's ``CypherTypeError`` mid-load
+    names only the value.
+
+    Args:
+        row: Property name to value.
+
+    Returns:
+        The row without None or ``[]`` values.
+
+    Raises:
+        TypeError: A value is not a primitive or a list of primitives.
     """
     kept = {k: v for k, v in row.items() if v is not None and v != []}
     for key, value in kept.items():
@@ -119,11 +140,13 @@ def clean(row: dict[str, Any]) -> dict[str, Any]:
 
 def as_json(value: Any) -> str | None:
     """
-    Keep a nested structure that has no useful flat form.
+    Serialise a nested value that is carried but never queried on.
 
-    Used for the handful of fields — a creature action's ``outcomes``, a
-    spell's raw component block — that are worth carrying for retrieval but
-    are not worth querying on.
+    Args:
+        value: e.g. a creature action's ``outcomes``.
+
+    Returns:
+        Sorted-key JSON, or None for None, ``{}`` and ``[]``.
     """
     if value is None or value == {} or value == []:
         return None

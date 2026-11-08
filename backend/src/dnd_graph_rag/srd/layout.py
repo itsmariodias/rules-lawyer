@@ -1,33 +1,15 @@
 """
-Layout-aware text extraction for the SRD PDF.
+Line-level PDF extraction in reading order, and its markdown rendering.
 
-The SRD is laid out in columns, and a naive extraction reads across them.
-PyMuPDF's own reading order (and pymupdf4llm's) merges paragraphs into
-blocks and sometimes sorts a bottom-of-column fragment after the whole
-facing column, which detaches a creature's ``AC / Initiative / HP / Speed``
-line from its stat block and silently attributes it to a neighbour.
+PyMuPDF's block order sometimes sorts a bottom-of-column fragment after the
+facing column, which detached stat block lines from their creature.  So:
 
-This module works at the *line* level instead:
-
-  1. every text line is extracted with its bounding box and span styles
-  2. running headers and footers are dropped
-  3. the page's column frames are measured from the empty vertical strips
-     between them, then checked against the grid the book as a whole uses
-  4. tables are lifted out as units and their cells rebuilt from the exact
-     x positions of the text, since most SRD rows have no ruling lines
-  5. lines that span more than one frame split the page into *bands*, and
-     within a band each column is read top to bottom in turn
-  6. lines sharing a baseline are merged left to right, which is what
-     reassembles a stat block's ability grid
-
-Typography carries the structure: heading level comes from font size, stat
-block titles and section headers have their own sizes, and small-caps
-sidebar headings are recased.
-
-The result is a list of ``Line`` records in true reading order.
-``lines_to_markdown`` renders them as markdown, reports where each stat
-block title landed so a creature can be tied back to its section, and keeps
-each part's page rectangles so a character range can be drawn on the PDF.
+  1. extract every line with its bbox and span styles; drop the footer
+  2. measure column frames from empty vertical strips, snapped to the
+     book-wide grid
+  3. lift tables out whole and rebuild cells from text x positions
+  4. band the page on full-width lines; read each column top to bottom
+  5. merge lines sharing a baseline (stat block ability grids)
 """
 
 from __future__ import annotations
@@ -64,7 +46,7 @@ STATBLOCK_NAME_SIZE = 14.8
 STATBLOCK_NAME_LEVEL = 5
 
 # Stat block section headers ("Traits", "Actions", ...) are plain GillSans 12,
-# NOT GillSans-SemiBold — that distinction separates them from real headings.
+# not GillSans-SemiBold, which is what separates them from real headings.
 STATBLOCK_SECTION_SIZE = 12.0
 STATBLOCK_SECTIONS = {
     "traits", "actions", "bonus actions", "reactions",
@@ -89,6 +71,8 @@ _FOOTER_RE = re.compile(r"^\s*\d*\s*System Reference Document", re.IGNORECASE)
 
 @dataclass
 class Line:
+    """One visual line of the PDF, or a table anchor carrying its rows."""
+
     page: int
     x0: float
     y0: float
@@ -106,7 +90,7 @@ class Line:
     is_small_caps: bool = False
     starts_paragraph: bool = False
     # Fragments that shared this baseline, left to right, with their left
-    # edges — the raw material for rebuilding tables.
+    # edges; tables are rebuilt from these.
     cells: list[str] = field(default_factory=list)
     cell_x: list[float] = field(default_factory=list)
     table_id: int | None = None
@@ -115,6 +99,7 @@ class Line:
 
     @property
     def is_heading(self) -> bool:
+        """Whether ``heading_level`` is set."""
         return self.heading_level is not None
 
 
@@ -195,17 +180,11 @@ def _merge_markup(markup: str) -> str:
 
 def _page_frames(page: pymupdf.Page, rects: list[pymupdf.Rect]) -> list[float]:
     """
-    Infer the left edge of each text frame on a page.
+    Left edge of each text frame, from empty strips in the x projection.
 
-    A column boundary is a strip of the page that no line of text crosses, so
-    frames are found by projecting every line onto the x axis and looking for
-    empty runs.  That is far steadier than clustering line start positions,
-    which cannot tell a real column from a table's second cell.
-
-    Lines inside a table are left out of the projection — a table's internal
-    gutters are not page columns — and a table tall enough to fill a column
-    on its own then contributes its left edge, since it leaves no loose lines
-    to mark that column with.
+    Lines inside tables are excluded, since a table's internal gutters are not
+    page columns.  A table tall enough to fill a column contributes its own
+    left edge instead, as it leaves no loose lines to project.
     """
     width = int(page.rect.width) + 1
     coverage = [0] * width
@@ -252,11 +231,14 @@ def _page_frames(page: pymupdf.Page, rects: list[pymupdf.Rect]) -> list[float]:
 
 def document_grid(frames_per_page: list[list[float]]) -> list[float]:
     """
-    The column grid the book is laid out on, as the most common frame set.
+    The most common frame set across the book.
 
-    Individual pages can still be misread — a table the finder missed leaves
-    its cell columns looking like page columns — so the grid found across the
-    whole document is used to sanity-check each page in ``snap_to_grid``.
+    Args:
+        frames_per_page: Each page's measured frame left edges.
+
+    Returns:
+        The book's column grid, used by ``snap_to_grid`` to correct pages
+        whose undetected tables look like extra columns.
     """
     counts = Counter(tuple(round(f) for f in frames) for frames in frames_per_page)
     return [float(f) for f in counts.most_common(1)[0][0]]
@@ -264,34 +246,30 @@ def document_grid(frames_per_page: list[list[float]]) -> list[float]:
 
 def snap_to_grid(frames: list[float], grid: list[float]) -> list[float]:
     """
-    Discard frames that the book's grid does not know about.
+    Reconcile one page's measured frames with the book's grid.
 
-    A page that lines up with at least two grid columns is an ordinary page
-    of the book, and any extra frame on it is an artefact of a table; a page
-    that lines up with fewer is genuinely laid out differently (the contents
-    run three and four columns) and keeps what it measured.
+    Args:
+        frames: The page's measured frame left edges.
+        grid: The result of ``document_grid``.
+
+    Returns:
+        ``grid`` when every frame is on it (a table spanning the gutter can
+        hide a column); the on-grid frames when at least two match; otherwise
+        ``frames`` unchanged, since the contents pages genuinely run three
+        and four columns.
     """
     matched = [f for f in frames if any(abs(f - g) <= FRAME_SNAP for g in grid)]
     if len(matched) == len(frames):
-        # Every frame is a grid column, so the page is an ordinary one and any
-        # column the measurement missed is a column all the same: a table laid
-        # across the gutter hides it by leaving no empty strip behind.
         return grid
     return matched if len(matched) >= 2 else frames
 
 
 def _column_of(x0: float, x1: float, frames: list[float]) -> int:
     """
-    Assign a line to a frame, or -1 when it spans more than one.
+    Index of the frame a line sits in, or -1 when it spans into the next.
 
-    A line that starts in one frame and reaches into the next is full width
-    (a section title, or a table laid across the page) and acts as a band
-    boundary rather than as column content.
-
-    A frame's measured position is the leftmost thing that happens to sit in
-    it, so content can begin a few points to its left; the same slack used
-    to match a page against the book's grid applies here, or a table would
-    read as spilling out of the column it fills.
+    ``FRAME_SNAP`` slack on the left edge: a frame's measured edge is its
+    leftmost content, so a table can start a few points left of it.
     """
     idx = 0
     for i, fx in enumerate(frames):
@@ -363,9 +341,8 @@ def _merge_baselines(lines: list[Line]) -> list[Line]:
     """
     Merge lines that share a baseline into one logical line, left to right.
 
-    Stat block ability grids and the ``AC … Initiative …`` line are laid out
-    as several independent text runs on the same baseline; without this they
-    arrive as separate lines and the values lose their association.
+    Stat block ability grids and the ``AC … Initiative …`` line are printed
+    as separate runs on one baseline.
     """
     if not lines:
         return []
@@ -374,8 +351,7 @@ def _merge_baselines(lines: list[Line]) -> list[Line]:
     for ln in lines[1:]:
         head = bucket[0]
         same_baseline = abs(ln.baseline - head.baseline) <= BASELINE_TOLERANCE
-        # A heading never absorbs the body text it sits next to: their bounding
-        # boxes overlap because of font metrics, but they are different things.
+        # Font metrics make a heading's bbox overlap adjacent body text.
         same_kind = (
             ln.heading_level == head.heading_level
             and ln.is_statblock_section == head.is_statblock_section
@@ -418,12 +394,10 @@ def _join(bucket: list[Line]) -> Line:
 
 def _mark_paragraphs(run: list[Line]) -> None:
     """
-    Flag the lines in one column run that begin a new paragraph.
+    Set ``starts_paragraph`` on lines in one column run.
 
-    The SRD sets body text on a fixed baseline grid, so the *modal* baseline
-    step in a run is its leading; anything meaningfully larger is a paragraph
-    break.  Deriving the leading per run rather than hard-coding it keeps the
-    rule working across the sizes the book uses (9, 9.5 and 10 pt).
+    The modal baseline step is the run's leading (the book uses 9, 9.5 and
+    10pt body text); a larger step or a leading tab starts a paragraph.
     """
     body = [l for l in run if not (l.is_heading or l.is_statblock_section)]
     if len(body) < 2:
@@ -444,18 +418,15 @@ COLUMN_TOLERANCE = 15.0   # max x gap (pt) within one table column
 
 def _table_rects(page: pymupdf.Page) -> list[pymupdf.Rect]:
     """
-    Locate table *regions* on a page.
+    Table regions on a page.
 
-    PyMuPDF's table finder is good at spotting where a table is but poor at
-    splitting SRD rows into cells, because most rows have no ruling lines.
-    So the region is all we take from it — the cells are rebuilt from the
-    exact x positions of the text fragments, which the SRD aligns precisely.
+    Only the region is used: most SRD rows have no ruling lines, so the
+    finder's cell split is wrong and cells are rebuilt from text x positions.
     """
     try:
         return [pymupdf.Rect(t.bbox) for t in page.find_tables().tables]
     except (ValueError, RuntimeError):
-        # The table finder gives up on a few pages; flowing text is the
-        # correct fallback there, so a failure is not worth propagating.
+        # The finder fails on a few pages; those read as flowing text.
         return []
 
 
@@ -471,11 +442,9 @@ def _rect_of(line: Line, rects: list[pymupdf.Rect]) -> int | None:
 def _build_table(rows: list[Line], table_id: int, rect: pymupdf.Rect,
                  frames: list[float]) -> Line:
     """
-    Turn the lines inside a table region into one anchor Line carrying its rows.
+    Collapse a table region's lines into one anchor ``Line`` holding its rows.
 
-    Rows are baseline groups; cells are the fragments on that baseline in
-    left-to-right order.  The anchor is what participates in page ordering,
-    so a table always stays intact and in place.
+    Only the anchor takes part in page ordering, so the table stays intact.
     """
     grouped = _merge_baselines(sorted(rows, key=lambda l: (l.baseline, l.x0)))
     for g in grouped:
@@ -492,15 +461,12 @@ def _build_table(rows: list[Line], table_id: int, rect: pymupdf.Rect,
 
 def _join_split_headings(lines: list[Line]) -> list[Line]:
     """
-    Rejoin a heading that the PDF set over two lines.
+    Rejoin headings the PDF set over two lines.
 
-    "Curses and Magical Contagions" and "Index of Stat Blocks" are both set
-    over two lines; left alone they become the sections "Curses and" and
-    "Index of Stat", which are neither real headings nor usable graph
-    entities.  Two heading lines belong together when they are the same
-    level, overlap horizontally, and sit one line apart — which is checked
-    across the whole page, because a heading can be split while the column
-    it sits in is being read in a different order around it.
+    "Curses and Magical Contagions" and "Index of Stat Blocks" otherwise
+    become sections called "Curses and" and "Index of Stat".  Two heading
+    lines join when they share level and size, overlap horizontally, and
+    sit one line apart.
     """
     by_column: dict[int, list[Line]] = {}
     for line in lines:
@@ -536,16 +502,20 @@ TABLE_ROW_REACH = 20.0    # how far outside a rect a stray row may sit
 
 def _absorb_edge_rows(rows: list[Line], rect: pymupdf.Rect, free: list[Line]) -> list[Line]:
     """
-    Reclaim a row that sits just outside its table's detected rectangle.
+    Reclaim rows just outside a table's detected rectangle.
 
-    PyMuPDF bounds a table by the shaded rows it can see, so an unshaded
-    first or last row falls outside — which is why the Bard cantrip list lost
-    "Vicious Mockery" and the Apparatus of the Crab lost lever 10.  Such a row
-    is recognised by geometry, not guessed: it must sit within a line or two
-    of the rect and place at least two fragments under the table's own column
-    positions.  Ordinary prose is a single fragment and never qualifies.
+    PyMuPDF bounds a table by its shaded rows, so an unshaded first or last
+    row falls outside (the Bard cantrip list lost "Vicious Mockery").  A row
+    qualifies when it is within ``TABLE_ROW_REACH`` of the rect and puts at
+    least two fragments under the table's columns; prose is one fragment.
 
-    Absorbed lines are removed from *free* and returned.
+    Args:
+        rows: Lines already inside the table.
+        rect: The table's detected rectangle.
+        free: Lines not in any table.  Absorbed lines are removed from it.
+
+    Returns:
+        The absorbed lines.
     """
     columns = {round(l.x0) for l in rows}
 
@@ -577,17 +547,11 @@ def _absorb_edge_rows(rows: list[Line], rect: pymupdf.Rect, free: list[Line]) ->
 
 def _promote_table_captions(anchors: list[Line], free: list[Line]) -> None:
     """
-    Keep a full-width table's caption heading with the table.
+    Make a full-width table's caption full width, so it orders before it.
 
-    The SRD names a table in a heading directly above it.  When the table
-    runs the width of the page but its caption sits at the foot of a column
-    — "Apparatus of the Crab Levers" on p210 — reading order puts the entire
-    facing column between the two, which is correct for the prose and wrong
-    for the table: the caption belongs to it and nothing else.
-
-    Making the caption full width too pins it immediately before its table,
-    which is where a reader sees it.  Only the heading directly above the
-    table qualifies, and only when nothing else in its column sits between.
+    Otherwise a caption at the foot of a column (e.g. "Apparatus of the Crab
+    Levers", p210) is followed by the whole facing column before its table.
+    Only the nearest heading above, with nothing between in its column.
     """
     for anchor in anchors:
         if anchor.column != -1:
@@ -614,8 +578,11 @@ def _promote_table_captions(anchors: list[Line], free: list[Line]) -> None:
 def _order_page(lines: list[Line], rects: list[pymupdf.Rect],
                 frames: list[float], next_table_id: int) -> tuple[list[Line], int]:
     """
-    Order one page: pull tables out as atomic units, band the rest on
-    full-width lines, then read the left column before the right.
+    Order one page: tables as units, bands split on full-width lines, and
+    columns left to right within a band.
+
+    Returns:
+        The ordered lines and the next unused table id.
     """
     if not lines:
         return [], next_table_id
@@ -673,7 +640,15 @@ def _order_page(lines: list[Line], rects: list[pymupdf.Rect],
 
 
 def extract_lines(pdf_path: Path) -> list[Line]:
-    """Extract every text line of the PDF in true reading order."""
+    """
+    Extract every text line of the PDF in reading order.
+
+    Args:
+        pdf_path: The SRD PDF.
+
+    Returns:
+        Lines across all pages, tables collapsed to anchor lines.
+    """
     doc = pymupdf.open(str(pdf_path))
 
     rects_per_page = [_table_rects(doc[pno]) for pno in range(doc.page_count)]
@@ -708,40 +683,28 @@ def lines_to_markdown(
     """
     Render ordered lines as markdown with ``<!-- PAGE:n -->`` markers.
 
-    Consecutive body lines are joined into paragraphs, undoing the PDF's
-    hard line wrapping (including hyphenation across line breaks).  A new
-    paragraph starts on a heading, a column or page change, an unusually
-    large vertical gap, or an indented first line.
+    Body lines are reflowed into paragraphs.  Stat block titles are emitted
+    at ``STATBLOCK_NAME_LEVEL`` regardless of type size, so a creature
+    printed inside a spell nests under it instead of outranking it.
 
-    Returns three things: the markdown; for each stat block title, its
-    character offset within it — the anchor that ties a creature record to
-    the section of the book it was printed in; and an *anchor* per emitted
-    part, recording the character range it occupies alongside the page and
-    bounding box of every line that produced it.
+    Args:
+        lines: Output of ``extract_lines``.
 
-    Anchors are per part, not per character: reflowing a paragraph destroys
-    any character-level correspondence with the page.  Part-level is enough,
-    because a section begins and ends on a part boundary, so its character
-    range maps to whole parts and those to rectangles on the PDF.
-
-    Stat block titles are emitted at the deepest heading level rather than
-    the level their type size implies.  Honouring the size would let a
-    creature summoned by a spell outrank the spell descriptions around it and
-    swallow them; at the deepest level a card always nests inside whatever it
-    was printed in.
+    Returns:
+        A tuple of the markdown; a map from the index in ``lines`` of each
+        stat block title to its character offset in the markdown; and one
+        anchor per emitted part, ``{"start", "end", "boxes"}``.  Anchors are
+        per part because reflowing destroys character-level correspondence;
+        section boundaries always fall on part boundaries.
     """
     parts: list[str] = []
     offsets: dict[int, int] = {}
     anchors: list[dict] = []
     para: list[str] = []
-    # The lines behind the paragraph being accumulated, so a flushed
-    # paragraph knows which boxes on the page it came from.
     para_lines: list[Line] = []
     page = None
     prev: Line | None = None
-    # Parts are joined with a blank line, so each contributes its own length
-    # plus the two newlines that follow it.  Tracking the running total lets
-    # a stat block title record where it will land in the finished markdown.
+    # Running length of the joined output; parts are separated by "\n\n".
     written = 0
 
     def emit(part: str, sources: list[Line] = []) -> None:
@@ -793,21 +756,23 @@ def lines_to_markdown(
     return "\n\n".join(parts), offsets, anchors
 
 
-# A line's box is built from its baseline and type size, not from the
-# reported bbox: on 95 of the 107 lines of a typical page PyMuPDF inflates
-# the vertical extent to 56pt, which is the same unreliability that makes
-# the whole pipeline order by baseline.  Horizontal extent *is* trustworthy
-# — column detection and table cells already depend on it.
+# Vertical extent comes from baseline and size: PyMuPDF reports 95 of 107
+# lines on a typical page as 56pt tall.  Horizontal extent is reliable.
 ASCENT = 0.80   # em above the baseline
 DESCENT = 0.24  # em below it
 
 
 def box(line: Line) -> dict:
     """
-    One line's rectangle, in PDF points with the origin at the top left.
+    One line's rectangle in PDF points, origin top left.
 
-    PyMuPDF's convention, and also pdf.js's viewport convention, so the
-    browser draws these by scaling alone — no axis flip, no page height.
+    That is also pdf.js's viewport convention, so the browser only scales.
+
+    Args:
+        line: A line or table anchor.
+
+    Returns:
+        ``{"page", "x0", "y0", "x1", "y1"}``, rounded to 0.1pt.
     """
     return {
         "page": line.page,
@@ -820,12 +785,10 @@ def box(line: Line) -> dict:
 
 def _table_columns(anchor: Line) -> list[float]:
     """
-    Cluster every cell's left edge into the table's column positions.
+    Cluster cell left edges into column positions.
 
-    Clustering is on the *gap* between adjacent x values, not on distance
-    from the cluster's first member: cells in one column drift by a few
-    points (numeric columns are right-aligned) while real columns sit tens
-    of points apart, so a gap threshold separates them cleanly.
+    Split on the gap between adjacent x values: right-aligned numeric cells
+    drift a few points within a column, while columns sit tens apart.
     """
     xs = sorted(x for r in anchor.rows for x in r.cell_x)
     if not xs:
@@ -841,10 +804,9 @@ def _render_table(anchor: Line) -> str:
     """
     Render a table anchor as a markdown pipe table.
 
-    Cells are placed by their x position rather than by order, so a row that
-    leaves a column empty stays aligned.  A row that puts nothing in the
-    first column is a wrapped continuation of the row above (SRD tables wrap
-    long Properties cells) and is folded back into it.
+    Cells are placed by x position so sparse rows stay aligned.  A row with
+    an empty first cell is a wrapped continuation and folds into the row
+    above.
     """
     cols = _table_columns(anchor)
     grid: list[list[str]] = []
@@ -858,8 +820,7 @@ def _render_table(anchor: Line) -> str:
         if grid and not row[0] and any(row):
             for i, cell in enumerate(row):
                 if cell:
-                    # A cell wraps mid-word just as a paragraph does, so the
-                    # continuation is joined the same way — "Athlet-" + "ics".
+                    # Cells hyphenate across wraps too: "Athlet-" + "ics".
                     grid[-1][i] = reflow([grid[-1][i], cell]).strip()
         else:
             grid.append(row)
@@ -879,14 +840,10 @@ def _normalize_ws(text: str) -> str:
 
 def _splice_emphasis(out: str, piece: str) -> str:
     """
-    Join two wrapped lines, mending an emphasis run broken across the break.
+    Join two wrapped lines, mending an emphasis run split across the break.
 
-    A spell subtitle set over two lines arrives as
-    ``_Level 2 Abjuration (Bard, Cleric,_`` + ``_Ranger)_``: the run is closed
-    at the end of one line and reopened at the start of the next.  Left alone
-    it reads as two separate italic runs, and every parser downstream sees a
-    subtitle it cannot match.  Only the join between two lines is examined,
-    so genuinely adjacent runs on one line are untouched.
+    ``_Level 2 Abjuration (Bard, Cleric,_`` + ``_Ranger)_`` becomes one italic
+    run, which the spell subtitle parser requires.
     """
     for marker in ("**", "_"):
         if out.endswith(marker) and piece.startswith(marker):
@@ -895,7 +852,15 @@ def _splice_emphasis(out: str, piece: str) -> str:
 
 
 def reflow(chunk: list[str]) -> str:
-    """Join wrapped lines, healing words split by a trailing hyphen."""
+    """
+    Join wrapped lines into one paragraph, healing hyphenated breaks.
+
+    Args:
+        chunk: Consecutive lines of markup.
+
+    Returns:
+        The joined text, NFC-normalised.
+    """
     out = ""
     for piece in chunk:
         piece = piece.strip()
@@ -908,10 +873,8 @@ def reflow(chunk: list[str]) -> str:
             if not m:
                 out = _splice_emphasis(out, piece)
                 continue
-            # Drop the hyphen and glue the halves.  When the break falls
-            # inside an emphasis run the run is closed on one line and
-            # reopened on the next; splice those markers out so the healed
-            # word stays a single emphasised token.
+            # If the hyphen sits inside an emphasis run that reopens on the
+            # next line, drop the reopening markers too.
             markers = m.group(2)
             head = out[: m.start()] + m.group(1)
             if markers and piece.startswith(markers):

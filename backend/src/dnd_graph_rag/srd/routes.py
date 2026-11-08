@@ -30,6 +30,7 @@ class ParseRequest(BaseModel):
 
 @router.get("/health", response_model=Health)
 def health() -> Health:
+    """Configured input and output paths, and whether each exists."""
     settings = get_settings()
     return Health(
         status="ok",
@@ -43,11 +44,17 @@ def health() -> Health:
 @router.post("/parse")
 async def parse(request: ParseRequest | None = None) -> dict:
     """
-    Run the pipeline, writing the same JSON and markdown ``srd-parse`` writes.
+    Run the pipeline in a worker thread, writing what ``srd-parse`` writes.
 
-    Returns the metadata, the validation report and the paths written; the
-    document itself is several megabytes and is meant to be read from disk.
-    Parsing takes about half a minute, hence the worker thread.
+    Args:
+        request: Optional ``pdf`` and ``out`` paths overriding the settings.
+
+    Returns:
+        ``meta``, ``validation`` and the ``written`` paths.  The document
+        itself (several MB) stays on disk.
+
+    Raises:
+        HTTPException: 404 if the PDF does not exist.
     """
     request = request or ParseRequest()
     out_path = request.out or get_settings().output_path
@@ -69,10 +76,10 @@ async def parse(request: ParseRequest | None = None) -> dict:
 @router.get("/pdf")
 async def pdf() -> FileResponse:
     """
-    The source PDF, for the facsimile the chat shows beside a citation.
+    The source PDF.  ``FileResponse`` honours pdf.js's range requests.
 
-    Served whole rather than per page: pdf.js requests byte ranges, which
-    ``FileResponse`` honours, so the browser pulls only the pages it renders.
+    Raises:
+        HTTPException: 404 if the PDF does not exist.
     """
     path = get_settings().pdf_path
     if not path.exists():
@@ -80,7 +87,6 @@ async def pdf() -> FileResponse:
     return FileResponse(
         path,
         media_type="application/pdf",
-        # The one checked-in input, so it never changes; without this the
-        # browser refetches 5.8 MB per citation.
+        # Immutable input; avoids refetching 5.8 MB per citation.
         headers={"Cache-Control": "public, max-age=86400"},
     )

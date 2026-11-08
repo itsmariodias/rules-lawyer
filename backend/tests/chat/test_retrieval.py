@@ -1,13 +1,3 @@
-"""
-The graph, read: search — lexical, dense, and the two fused — and one section
-by id.
-
-The escaping and the fusion are pure; the queries need a loaded graph and skip
-without one, and the dense arm needs a key on top of that.  Everything returns
-a ``Passage``, which is what carries a citation back to the markdown and to
-the printed page.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -16,10 +6,7 @@ from dnd_graph_rag.chat import retrieval
 
 
 class TestEscapeLucene:
-    """A rules question, matched as words rather than as syntax."""
-
     def test_given_lucene_syntax_in_a_question_when_escaped_then_it_is_literal(self):
-        """A rules question is natural language: "the target's AC (+2)"."""
         # Given a question full of characters Lucene reads as syntax
         question = "the target's AC (+2) vs. Fire/Cold"
 
@@ -38,10 +25,7 @@ class TestEscapeLucene:
 
 
 class TestPassage:
-    """A citable piece of the book."""
-
     def test_given_a_row_when_read_then_the_label_every_node_carries_is_dropped(self):
-        """``:Section`` is on 2368 nodes and carries no information."""
         # Given a row as the search query returns it
         row = {"id": "1", "heading": "h", "entity_type": "spell",
                "content": "", "labels": ["Section", "Spell"]}
@@ -81,8 +65,6 @@ class TestPassage:
                             "labels": ["Condition"]}
 
     def test_given_a_passage_when_rendered_for_the_model_then_the_id_leads(self):
-        """The prompt asks for citations by id, and the model copies what it
-        can see."""
         # Given a long passage
         passage = retrieval.Passage(
             section_id="11.2.114", heading="Prone [Condition]",
@@ -120,8 +102,6 @@ class TestPassage:
 
 
 class TestSearch:
-    """Lexical search over every section's heading and prose."""
-
     def test_given_an_empty_query_when_searched_then_the_index_is_never_reached(self):
         # Given a question of nothing but whitespace
         # When it is searched
@@ -140,11 +120,6 @@ class TestSearch:
 
     def test_given_a_type_filter_when_searched_then_only_that_type_comes_back(
             self, graph):
-        """
-        Filtering happens after the index rather than before it: the index is
-        the only thing that can rank, so the limit is raised and the surplus
-        discarded.
-        """
         # Given a loaded graph
         # When a search is filtered to spells
         passages = retrieval.search("fireball", limit=5, types=["spell"])
@@ -163,14 +138,8 @@ class TestSearch:
 
 
 class TestEmbedQuery:
-    """One query, embedded in the space the book was embedded in."""
-
     def test_given_no_key_when_a_query_is_embedded_then_it_is_absent_not_an_error(
             self, settings_env):
-        """
-        The one degradation this module makes: the shared ``.idx`` covers the
-        book but cannot cover a question nobody has asked yet.
-        """
         # Given a checkout whose key has been blanked out
         settings_env(GOOGLE_API_KEY="")
         retrieval.embed_query.cache_clear()
@@ -182,10 +151,6 @@ class TestEmbedQuery:
 
     def test_given_a_key_when_a_query_is_embedded_then_it_is_sent_as_a_query(
             self, settings_env, monkeypatch):
-        """
-        The document side embeds under ``RETRIEVAL_DOCUMENT``; a question is
-        not a document, and the model places the two differently.
-        """
         # Given a key, and an embedder that records how it was asked
         settings_env(GOOGLE_API_KEY="not-a-real-key")
         retrieval.embed_query.cache_clear()
@@ -208,7 +173,6 @@ class TestEmbedQuery:
 
     def test_given_a_repeated_query_when_embedded_then_it_is_not_asked_twice(
             self, settings_env, monkeypatch):
-        """A follow-up turn routinely repeats a query, and each one costs."""
         # Given a key and an embedder that counts its calls
         settings_env(GOOGLE_API_KEY="not-a-real-key")
         retrieval.embed_query.cache_clear()
@@ -227,8 +191,6 @@ class TestEmbedQuery:
 
 
 class TestVectorSearch:
-    """Nearest neighbours of the question, over the loaded vectors."""
-
     def test_given_an_empty_query_when_searched_then_nothing_is_embedded(self):
         # Given a question of nothing but whitespace
         # When it is searched
@@ -248,7 +210,6 @@ class TestVectorSearch:
 
     def test_given_a_paraphrase_when_searched_then_the_book_is_still_found(
             self, graph, embedding_key):
-        """The arm exists for the query that shares no words with the book."""
         # Given a loaded graph with vectors on it
         # When a question is asked in words the SRD does not use
         passages = retrieval.vector_search(
@@ -271,18 +232,12 @@ class TestVectorSearch:
 
 
 class TestFuse:
-    """Several rankings of the same book, folded into one."""
-
     @staticmethod
     def _passage(section_id: str) -> retrieval.Passage:
         return retrieval.Passage(section_id=section_id, heading=section_id,
                                  entity_type="rule", content="…")
 
     def test_given_a_passage_both_arms_like_when_fused_then_it_leads(self):
-        """
-        Ranked second by each arm and first by neither, it still wins: that
-        is the whole point of fusing by rank rather than by score.
-        """
         # Given two rankings that agree on their second choice
         a, b, shared = (self._passage("1"), self._passage("2"),
                         self._passage("3"))
@@ -309,7 +264,6 @@ class TestFuse:
 
     def test_given_a_fused_ranking_when_read_then_the_score_is_the_fused_one(
             self):
-        """A BM25 score and a cosine similarity are not on the same scale."""
         # Given one arm's ranking, whose passage carries the index's own score
         passage = self._passage("1")
         passage.score = 8.4
@@ -339,11 +293,8 @@ class TestFuse:
 
 
 class TestHybridSearch:
-    """The search the agent actually calls: keywords and meaning at once."""
-
     def test_given_no_key_when_searched_then_it_is_the_lexical_arm_alone(
             self, graph, settings_env):
-        """Lexical alone is a narrower search and still a working one."""
         # Given a loaded graph and no key
         settings_env(GOOGLE_API_KEY="")
         retrieval.embed_query.cache_clear()
@@ -378,8 +329,6 @@ class TestHybridSearch:
 
 
 class TestGetSection:
-    """One section, plus the two hops that let a reader move around it."""
-
     def test_given_a_section_when_fetched_then_it_carries_its_offsets(self, graph):
         # Given a loaded graph
         # When a section is fetched
@@ -401,7 +350,9 @@ class TestGetSection:
         assert context["parent"]["id"]
 
     def test_given_a_leaf_section_when_fetched_then_it_has_no_children(self, graph):
-        """``collect`` over a missing OPTIONAL MATCH yields one null-filled map."""
+        """
+        ``collect`` over an unmatched OPTIONAL MATCH yields one all-null map.
+        """
         # Given a loaded graph
         # When a section with no subsections is fetched
         _, context = retrieval.get_section("11.2.114")
@@ -418,14 +369,9 @@ class TestGetSection:
 
 
 class TestQuery:
-    """The one call every read goes through."""
-
     def test_given_a_parameter_called_query_when_run_then_it_is_not_the_cypher(
             self, graph):
-        """
-        Parameters go to Neo4j as a dict, never as keywords: one of them is
-        called ``query``, which is also ``Session.run``'s first argument.
-        """
+        """``query`` is also the name of ``Session.run``'s first parameter."""
         # Given a Cypher statement taking a parameter of that name
         # When it is run
         rows = retrieval.query("RETURN $query AS echoed", {"query": "prone"})

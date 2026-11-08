@@ -1,11 +1,3 @@
-/**
- * When a turn happened, and how long it is taking.
- *
- * The counter is the part worth testing: an agentic turn is quiet for a
- * whole round trip before it says anything, and a number that moves is the
- * difference between waiting and wondering.
- */
-
 import { render, screen } from '@testing-library/react'
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -14,8 +6,6 @@ import { Clock, Elapsed, formatDuration, formatMoment } from './Timing'
 
 describe('formatDuration', () => {
   it('given a short wait, when read, then tenths are kept', () => {
-    /** Under ten seconds, the difference between 1.2s and 4.8s is the
-        interesting part. */
     // Given a wait of a few seconds
     // When it is formatted
     // Then the tenth survives
@@ -57,10 +47,6 @@ describe('formatMoment', () => {
   })
 
   it('given an earlier day this year, when read, then the date appears', () => {
-    /**
-     * The one this exists for: a conversation from three days ago reading
-     * "11:15 PM" invites the reader to take it for this evening.
-     */
     // Given a turn from earlier in the year
     const shown = formatMoment(new Date('2026-03-02T13:15:00'), now)
 
@@ -80,8 +66,8 @@ describe('formatMoment', () => {
 
   it('given the turn of the year, when read, then a day apart is still a date', () => {
     /**
-     * A December 31st turn read on January 1st is neither today nor this
-     * year, and "Yesterday" is the one thing a reader will not misread.
+     * Read on January 1st, a December 31st turn is neither today nor this
+     * year.
      */
     // Given a turn from the last day of the previous year
     const shown = formatMoment(new Date('2025-12-31T23:30:00'),
@@ -104,8 +90,6 @@ describe('Clock', () => {
   })
 
   it('given no moment, when rendered, then nothing is drawn', () => {
-    /** A conversation stored before turns were dated is still a
-        conversation. */
     // Given a turn with no timestamp
     const { container } = render(<Clock />)
 

@@ -1,12 +1,4 @@
-/**
- * A citation, drawn on the page it was printed on.
- *
- * pdf.js itself is mocked — what is worth testing here is ours: that the
- * rectangles `layout.py` computed are scaled by the viewport and drawn over
- * the right page, that the text layer is told the variable name its own
- * rules actually read, and that the book reserves the space of pages it has
- * not drawn yet.
- */
+/** pdf.js is mocked. */
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -49,16 +41,14 @@ const excerpt = (overrides: Partial<SourceExcerpt> = {}): SourceExcerpt => ({
 })
 
 beforeEach(() => {
-  // jsdom's canvas has no 2D context, and the render and the copy onto the
-  // page's own canvas both need one.
+  // jsdom's canvas has no 2D context.
   HTMLCanvasElement.prototype.getContext = vi.fn(() => ({ drawImage: vi.fn() })) as never
   renders.mockClear()
   Element.prototype.scrollIntoView = vi.fn()
   Object.defineProperty(HTMLElement.prototype, 'clientWidth',
                         { value: 612, configurable: true })
-  // jsdom has no layout, so its own scroll accessors are read-only zeroes
-  // and nothing overflows anything. Writable data properties on the
-  // prototype leave each element its own value once it is written to.
+  // jsdom has no layout: replace its read-only zero scroll metrics with
+  // writable per-element values that overflow.
   for (const [name, value] of [['scrollLeft', 0], ['scrollTop', 0],
                                ['clientHeight', 500], ['scrollHeight', 2000]]) {
     Object.defineProperty(HTMLElement.prototype, name,
@@ -67,7 +57,7 @@ beforeEach(() => {
   document.body.className = ''
 })
 
-/** A page open in something that scrolls, which is how the panel holds it. */
+/** Render a page inside a scrolling container, as the panel does. */
 function inAPane(zoom = 2) {
   const pane = document.createElement('div')
   pane.style.overflowY = 'auto'
@@ -91,7 +81,6 @@ describe('PdfPage', () => {
   })
 
   it('given a citation across two pages, when drawn, then both are shown', async () => {
-    /** A passage that runs over a page break is cited on both. */
     // Given a citation whose lines fall on two pages
     render(<PdfPage excerpt={excerpt({ pages: [186, 187] })} zoom={1} />)
 
@@ -102,7 +91,6 @@ describe('PdfPage', () => {
   })
 
   it('given no page list, when drawn, then the section’s own page is used', async () => {
-    /** An artifact from before the anchors existed carries no boxes. */
     // Given an excerpt with geometry but no page list
     render(<PdfPage excerpt={excerpt({ pages: [], boxes: [] })} zoom={1} />)
 
@@ -112,10 +100,6 @@ describe('PdfPage', () => {
   })
 
   it('given rectangles, when drawn, then they are scaled by the viewport', async () => {
-    /**
-     * The boxes are in PDF points with the origin top-left — the same space
-     * pdf.js's viewport uses — so the scale is the only conversion needed.
-     */
     // Given a citation whose lines are boxed
     const { container } = render(<PdfPage excerpt={excerpt()} zoom={2} />)
 
@@ -132,10 +116,6 @@ describe('PdfPage', () => {
   })
 
   it('given a rectangle, when drawn, then the panel scrolls to the first one', async () => {
-    /**
-     * At a readable zoom the page is taller than the panel, and a citation
-     * that opens at the top of page 186 has not actually shown you anything.
-     */
     // Given a citation partway down a page
     render(<PdfPage excerpt={excerpt()} zoom={1} />)
 
@@ -148,11 +128,7 @@ describe('PdfPage', () => {
   })
 
   it('given a rendered page, when the text layer is built, then it gets the right variable', async () => {
-    /**
-     * `--total-scale-factor`, not `--scale-factor`: it is the name the text
-     * layer's own rules read, and without it every span renders at font-size
-     * 0 and selection lands nowhere near the glyphs.
-     */
+    /** Regression: setting --scale-factor gave every span font-size 0. */
     // Given a page rendered at 1×
     const { container } = render(<PdfPage excerpt={excerpt()} zoom={1} />)
 
@@ -168,12 +144,6 @@ describe('PdfPage', () => {
   })
 
   it('given a drawn page, when the panel is dragged wider, then the page fills it', async () => {
-    /**
-     * The page is rendered to fit the panel, so a wider panel is a larger
-     * page. It follows the drag at once, stretched, and is redrawn sharp
-     * only once the width holds still: a render per pointer move is a
-     * render per pixel.
-     */
     // Given a page drawn at Fit in a 612px panel, and an observer to drive
     let resized = () => {}
     vi.stubGlobal('ResizeObserver', class {
@@ -209,7 +179,6 @@ describe('PdfPage', () => {
 
 describe('PdfBook', () => {
   it('given no citation, when opened, then every page of the book is listed', async () => {
-    /** The panel is a reader before it is a citation viewer. */
     // Given the book with nothing cited
     render(<PdfBook zoom={1} jumpTo={null} />)
 
@@ -233,7 +202,6 @@ describe('PdfBook', () => {
   })
 
   it('given the same page twice, when asked for again, then it still scrolls', async () => {
-    /** The same page twice in a row is still a request to go back to it. */
     // Given the book already scrolled to a page
     const { rerender } = render(
       <PdfBook zoom={1} jumpTo={{ page: 186, nth: 1 }} />)
@@ -265,7 +233,6 @@ describe('verticalScroller', () => {
   })
 
   it('given nothing that scrolls, when asked, then there is no pane', () => {
-    /** The drag still moves sideways; there is simply nowhere to go down. */
     // Given a page with no scrolling ancestor
     const page = document.createElement('figure')
     document.body.append(page)
@@ -278,10 +245,6 @@ describe('verticalScroller', () => {
 
 describe('usePan', () => {
   it('given Space held, when the page is dragged, then both axes follow', async () => {
-    /**
-     * Two axes, two scroll containers: the figure sideways and the pane
-     * above it downwards, moved by one gesture.
-     */
     // Given a page zoomed past the panel, with Space held
     const { pane, container } = inAPane()
     await screen.findByText('p. 186')
@@ -302,10 +265,6 @@ describe('usePan', () => {
   })
 
   it('given no Space, when the page is dragged, then the text is selected instead', async () => {
-    /**
-     * The text layer is rendered to be selectable, which is the one thing a
-     * bitmap of the page would cost. The primary button keeps meaning it.
-     */
     // Given a page with nothing arming the hand
     const { pane, container } = inAPane()
     await screen.findByText('p. 186')
@@ -359,7 +318,6 @@ describe('usePan', () => {
 
 describe('useSpaceHeld', () => {
   it('given Space, when it is held and released, then the hand comes and goes', async () => {
-    /** The cursor has to say the gesture is armed before anything moves. */
     // Given the page
     const { container } = inAPane()
     await screen.findByText('p. 186')
@@ -376,7 +334,6 @@ describe('useSpaceHeld', () => {
   })
 
   it('given a window losing focus, when Space was held, then the hand is dropped', async () => {
-    /** A blurred window never delivers the keyup that would release it. */
     // Given Space held
     const { container } = inAPane()
     await screen.findByText('p. 186')
@@ -391,7 +348,6 @@ describe('useSpaceHeld', () => {
   })
 
   it('given a space typed into a field, when it is pressed, then nothing is armed', async () => {
-    /** A space typed into the composer is a space. */
     // Given the page open beside somewhere to type
     const { container } = inAPane()
     await screen.findByText('p. 186')
@@ -409,11 +365,6 @@ describe('useSpaceHeld', () => {
 
 describe('useSelecting', () => {
   it('given a rendered page, when the text layer is built, then it ends in a catch-all', async () => {
-    /**
-     * Most of a page is gap, and a pointer in one is over no span at all,
-     * so without something last in DOM order to land on the browser
-     * extends the selection to the nearest text anywhere on the page.
-     */
     // Given a page whose text layer has been built
     const { container } = inAPane()
     await waitFor(() => expect(textLayer).toHaveBeenCalled())
@@ -427,7 +378,6 @@ describe('useSelecting', () => {
   })
 
   it('given a drag, when it starts and ends, then the catch-all covers the page for its length', async () => {
-    /** It is only in the way while a selection is being dragged out. */
     // Given a page with a text layer
     const { container } = inAPane()
     await waitFor(() => expect(textLayer).toHaveBeenCalled())
@@ -444,7 +394,6 @@ describe('useSelecting', () => {
   })
 
   it('given a window losing focus, when a drag was running, then the catch-all drops', async () => {
-    /** A blurred window never sends the pointerup that would end it. */
     // Given a drag in progress
     const { container } = inAPane()
     await waitFor(() => expect(textLayer).toHaveBeenCalled())

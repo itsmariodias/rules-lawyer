@@ -1,10 +1,4 @@
-/**
- * The application shell: conversations, the chat, and the book beside it.
- *
- * `useChat` and the side panel are mocked — each is tested on its own — so
- * what is left here is the shell's own decisions: which tab a citation
- * opens, what the toolbar toggles do, and the two dialogs guarding a delete.
- */
+/** `useChat` and `SidePanel` are mocked; each has its own tests. */
 
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -28,8 +22,7 @@ const chat = {
 }
 
 vi.mock('./useChat', () => ({ useChat: () => chat }))
-// Tested on its own; here it would be one fetch the shell's tests do not
-// care about. Connected is the ordinary case the rest of these assume.
+// Has its own tests; the shell's tests assume a connected graph.
 vi.mock('./useGraphStatus', () => ({ useGraphStatus: () => 'connected' }))
 vi.mock('./components/SidePanel', () => ({
   SidePanel: ({ sectionId, tab }: { sectionId: string | null; tab: string }) =>
@@ -46,8 +39,8 @@ beforeEach(() => {
   Object.assign(chat, { messages: [], threads: [], threadId: null,
                         streaming: false })
   chat.forget.mockResolvedValue(undefined)
-  // jsdom implements neither method; without the `open` attribute a
-  // <dialog>'s contents are not in the accessibility tree at all.
+  // jsdom lacks showModal/close; without `open`, dialog contents are not
+  // in the accessibility tree.
   HTMLDialogElement.prototype.showModal = vi.fn(function (
       this: HTMLDialogElement) { this.open = true })
   HTMLDialogElement.prototype.close = vi.fn(function (
@@ -94,7 +87,6 @@ describe('the composer', () => {
   })
 
   it('given a question, when Enter is pressed, then it is sent', async () => {
-    /** The convention every chat interface has trained people into. */
     // Given a typed question
     render(<App />)
     const box = screen.getByPlaceholderText('Ask a rules question…')
@@ -136,11 +128,6 @@ describe('the composer', () => {
 
 describe('the conversation', () => {
   it('given a failed turn, when rendered, then the error is the answer', () => {
-    /**
-     * The model is required.  There is nothing to offer in its place, so the
-     * failure stands on its own rather than under something that reads as a
-     * reply.
-     */
     // Given a turn the model could not answer
     chat.messages = [
       { role: 'user', content: 'Prone?' },
@@ -157,10 +144,6 @@ describe('the conversation', () => {
   })
 
   it('given a failed turn, when retried, then the question is asked again', async () => {
-    /**
-     * Retyping the question was the only way past a spent quota or a stalled
-     * call, and the failure is where a reader is looking when they need it.
-     */
     // Given a turn the model could not answer, in a stored conversation
     chat.threadId = 't1'
     chat.messages = [
@@ -179,10 +162,6 @@ describe('the conversation', () => {
   })
 
   it('given a turn being written, when rendered, then it cannot be retried', () => {
-    /**
-     * A retry rewinds the checkpoint, and rewinding the turn that is
-     * currently writing into it is not a thing to offer.
-     */
     // Given an answer still streaming
     chat.threadId = 't1'
     chat.streaming = true
@@ -200,13 +179,6 @@ describe('the conversation', () => {
   })
 
   it('given an answer, when rendered, then only the last turn offers a retry', () => {
-    /**
-     * The rewind drops everything after the checkpoint it branches from, so
-     * only the end of a conversation can be asked again without quietly
-     * taking the turns under it too. Both halves of that turn offer it: the
-     * question is what you reach for to ask it differently, the answer is
-     * what you are looking at when you decide it was not good enough.
-     */
     // Given a conversation of two answered turns
     chat.threadId = 't1'
     chat.messages = [
@@ -231,11 +203,6 @@ describe('the conversation', () => {
   })
 
   it('given an answer, when copied, then the markdown goes to the clipboard', () => {
-    /**
-     * What a reader pastes into a note should still say which section of the
-     * book it came from, so it is the model's own text with its ids in it
-     * rather than the numbered prose on screen.
-     */
     // Given an answered turn and a clipboard to write to
     const writeText = vi.fn(() => Promise.resolve())
     vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
@@ -254,7 +221,6 @@ describe('the conversation', () => {
   })
 
   it('given a copy, when it lands, then the button says so', async () => {
-    /** A clipboard write is silent, so nothing else on screen would change. */
     // Given an answered turn
     vi.stubGlobal('navigator',
                   { ...navigator, clipboard: { writeText: () => Promise.resolve() } })
@@ -273,7 +239,6 @@ describe('the conversation', () => {
   })
 
   it('given a conversation, when rendered, then every answer can be copied', () => {
-    /** Any answer is worth keeping, not only the one at the end. */
     // Given two answered turns
     chat.messages = [
       { role: 'user', content: 'Prone?' },
@@ -292,9 +257,8 @@ describe('the conversation', () => {
 
   it('given any screen, when rendered, then the SRD attribution is on it', () => {
     /**
-     * CC BY 4.0 requires the statement word for word wherever the material
-     * appears, and every answer here quotes the book. It is not conditional
-     * on there being a conversation, so it is asserted on the empty screen.
+     * CC BY 4.0 requires the attribution verbatim, with or without a
+     * conversation.
      */
     // Given nothing asked yet
     chat.messages = []
@@ -329,7 +293,6 @@ describe('the conversation', () => {
   })
 
   it('given a turn in flight, when rendered, then the wait is counted up', () => {
-    /** A number that moves is the difference between waiting and wondering. */
     // Given a turn that has been running for a few seconds
     chat.streaming = true
     chat.messages = [
@@ -385,7 +348,6 @@ describe('the conversation', () => {
   })
 
   it('given citations, when a chip is pressed, then the panel opens on the page', async () => {
-    /** What someone clicking a rules claim out of an answer is usually after. */
     // Given an answer with a citation chip
     chat.messages = [
       { role: 'user', content: 'Prone?' },
@@ -422,8 +384,6 @@ describe('the conversation', () => {
 
 describe('the toolbar', () => {
   it('given a closed panel, when a tab is pressed, then it opens on that tab', async () => {
-    /** The book and the graph are reachable before an answer has cited
-        anything. */
     // Given the panel closed
     render(<App />)
 
@@ -435,7 +395,6 @@ describe('the toolbar', () => {
   })
 
   it('given the tab already showing, when pressed again, then the panel closes', async () => {
-    /** The tab you are already looking at closes the panel. */
     // Given the panel open on the book
     render(<App />)
     await userEvent.click(screen.getByRole('button', { name: 'Book page' }))
@@ -460,10 +419,6 @@ describe('the toolbar', () => {
   })
 
   it('given the graph tab is open, when a citation is made, then it stays on the graph', async () => {
-    /**
-     * A citation names one passage and both tabs answer a question about
-     * it, so it re-seeds whichever tab is already open.
-     */
     // Given the panel open on the graph
     chat.messages = [{ role: 'assistant', content: 'See [11.2.114].' }]
     render(<App />)
@@ -491,10 +446,6 @@ describe('the thread list', () => {
   })
 
   it('given a pinned conversation, when listed, then it has a section of its own', () => {
-    /**
-     * Ordering alone said which came first and nothing about why, so a pin
-     * looked like luck; a heading says what the group *is*.
-     */
     // Given one pinned conversation and one not
     chat.threads = [thread({ thread_id: 'p', title: 'Kept', pinned: true }),
                     thread()]
@@ -589,7 +540,6 @@ describe('deleting a conversation', () => {
   }
 
   it('given delete is chosen, when the dialog opens, then it asks first', async () => {
-    /** There is no undo — the checkpointer is the whole store. */
     // Given a conversation
     // When delete is chosen
     await armDelete()
@@ -603,10 +553,6 @@ describe('deleting a conversation', () => {
   })
 
   it('given the dialog, when it opens, then Cancel has the focus', async () => {
-    /**
-     * With no undo, the key someone presses without reading has to be the
-     * one that changes nothing.
-     */
     // Given the dialog
     await armDelete()
 
@@ -642,10 +588,6 @@ describe('deleting a conversation', () => {
   })
 
   it('given a delete that fails, when confirmed, then the dialog stays open', async () => {
-    /**
-     * Closing it would leave the reader believing a conversation was
-     * deleted that is still there.
-     */
     // Given a server that refuses the delete
     chat.forget.mockImplementationOnce(async () => { throw new Error('503') })
     await armDelete()
@@ -662,10 +604,6 @@ describe('deleting a conversation', () => {
 
 describe('the sidebar', () => {
   it('given the thread list, when it is hidden, then a rail keeps its controls', async () => {
-    /**
-     * Collapsed, the pane keeps the width of its own controls: the one that
-     * brings it back, and the one thing you would have opened it to do.
-     */
     // Given the open pane
     render(<App />)
 
@@ -695,7 +633,6 @@ describe('the sidebar', () => {
   })
 
   it('given the thread list, when the window is read, then it has no handle to drag', async () => {
-    /** A title is one line of text; its width is a fact about the text. */
     // Given the panel closed
     render(<App />)
 
@@ -712,8 +649,8 @@ describe('the sidebar', () => {
 
   it('given a panel width stored on a wider screen, when the app loads, then the panel gives way', async () => {
     /**
-     * Clamped only on a resize, a 1000px panel remembered from a large
-     * display squeezed the conversation to a column on a laptop.
+     * Regression: a 1000px panel stored on a large display squeezed the
+     * conversation on a laptop.
      */
     // Given a width stored on a large display, and a laptop-sized window
     const width = window.innerWidth
@@ -735,7 +672,7 @@ describe('the sidebar', () => {
   })
 })
 
-/** Re-render from scratch, as a reload would. */
+/** Unmount and render again, as a reload would. */
 function cleanupAndRender() {
   document.body.innerHTML = ''
   render(<App />)

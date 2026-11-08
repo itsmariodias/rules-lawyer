@@ -1,11 +1,3 @@
-"""
-The FastAPI app itself: assembly, and the stores its lifespan holds open.
-
-``api.py`` only assembles each package's router, so what is worth asserting
-is that all three stages are mounted, that importing a pipeline pulls in no
-web framework, and that the lifespan opens both conversation stores.
-"""
-
 from __future__ import annotations
 
 import subprocess
@@ -18,13 +10,11 @@ from dnd_graph_rag.api import app
 
 
 def routes_of(application) -> set[str]:
-    """Every path the app serves, read from the schema it publishes."""
+    """Every path in the app's OpenAPI schema."""
     return set(application.openapi()["paths"])
 
 
 class TestApp:
-    """What the assembled application exposes."""
-
     def test_given_the_app_when_built_then_every_stage_is_mounted(self):
         # Given the assembled application
         # When its routes are read
@@ -37,8 +27,6 @@ class TestApp:
                 "/neighbourhood"} <= paths                     # stage 3
 
     def test_given_the_app_when_built_then_the_vite_dev_server_may_call_it(self):
-        """A built frontend is served from here, so this matches nothing in
-        production; the dev server is a different origin."""
         # Given the assembled application
         # When its middleware is read
         origins = [origin
@@ -70,13 +58,6 @@ class TestApp:
 
 
 class TestRouteIsolation:
-    """
-    Routes are never imported by a package's ``__init__``.
-
-    That is the invariant that keeps every stage runnable as a script:
-    ``from dnd_graph_rag.srd import build`` must pull in no web framework.
-    """
-
     @pytest.mark.parametrize("package", ["srd", "graph", "chat"])
     def test_given_a_package_when_imported_then_no_web_framework_comes_with_it(
             self, package):
@@ -101,11 +82,9 @@ class TestRouteIsolation:
 
 
 class TestLifespan:
-    """The checkpointer and the store, opened once for the process."""
-
     @pytest.fixture
     def isolated(self, settings_env, tmp_path):
-        """Settings pointing the conversation stores at a temporary directory."""
+        """Settings with the conversation stores in a temporary directory."""
         return settings_env(DND_GRAPH_RAG_DATA=str(tmp_path))
 
     def test_given_the_app_starts_when_the_lifespan_runs_then_both_stores_are_open(

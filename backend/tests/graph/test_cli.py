@@ -1,10 +1,3 @@
-"""
-The ``srd-graph-load`` console script.
-
-The CLI's job is to turn a report into an exit code and something readable on
-the way past, so that is what is asserted: the pipeline itself is stubbed.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -15,7 +8,7 @@ from dnd_graph_rag.graph.embeddings import MissingEmbeddings
 
 @pytest.fixture
 def run(monkeypatch, capsys):
-    """Run ``main`` with stubbed arguments and a stubbed pipeline."""
+    """Run ``main`` with the given argv and a stubbed ``build_graph``."""
     def go(argv: list[str], result: dict | Exception):
         monkeypatch.setattr("sys.argv", ["srd-graph-load", *argv])
         seen: dict = {}
@@ -46,8 +39,6 @@ def report(ok: bool = True, failures: list | None = None) -> dict:
 
 
 class TestMain:
-    """Arguments in, exit code out."""
-
     def test_given_a_passing_load_when_run_then_it_succeeds_quietly(self, run):
         # Given a load whose checks all passed
         code, output, _ = run([], report())
@@ -59,7 +50,6 @@ class TestMain:
         assert "4260 nodes" in output.out
 
     def test_given_a_failing_check_when_run_then_it_exits_non_zero(self, run):
-        """A non-zero failure count must fail the command, not just print."""
         # Given a load with a failed check
         failure = [{"check": "sections", "expected": 2368, "found": 2367,
                     "ok": False}]
@@ -91,11 +81,6 @@ class TestMain:
         assert "artifact not found" in output.err
 
     def test_given_no_embeddings_when_run_then_it_reports_and_exits(self, run):
-        """
-        Embeddings are required, not an enrichment: a load that can neither
-        read them nor generate them fails rather than writing a graph with a
-        hole in it.  The message is the feature, so it is what is asserted.
-        """
         # Given a pipeline with neither vectors on disk nor a key
         code, output, _ = run([], MissingEmbeddings(
             "2156 of 2156 sections have no embedding and GOOGLE_API_KEY is "
@@ -109,10 +94,6 @@ class TestMain:
         assert "DND_GRAPH_RAG_EMBEDDINGS" in output.err
 
     def test_given_no_arguments_when_run_then_it_resets_and_verifies(self, run):
-        """
-        A full reset is the default because the artifact is the whole truth:
-        merging alone leaves behind nodes a re-parse has since dropped.
-        """
         # Given no flags
         _, _, seen = run([], report())
 
@@ -145,7 +126,6 @@ class TestMain:
         assert seen["input"] == elsewhere
 
     def test_given_an_embeddings_path_when_run_then_it_is_used(self, run, tmp_path):
-        """The flag form of ``DND_GRAPH_RAG_EMBEDDINGS``."""
         # Given a downloaded file somewhere of the reader's choosing
         elsewhere = tmp_path / "srd_embeddings.idx"
 

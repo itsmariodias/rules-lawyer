@@ -1,14 +1,3 @@
-"""
-The JSON → graph translation.  No database.
-
-``mapping`` is where every decision about the graph lives — what becomes a
-node, what folds into a section, what is matched rather than merged — so this
-is where the coverage belongs; the loader below it only batches and writes.
-
-The helpers below read a built ``GraphData`` the way an assertion wants to:
-by label set, by a matching row, or by relationship type.
-"""
-
 from __future__ import annotations
 
 import json
@@ -33,7 +22,7 @@ def one(data, *labels, **match) -> dict:
 
 
 def count_with(data, *labels) -> int:
-    """Rows in every batch carrying at least these labels, folded ones too."""
+    """Rows across batches whose labels include all of ``labels``."""
     wanted = set(labels)
     return sum(len(b) for b in data.nodes if wanted <= set(b.labels))
 
@@ -44,8 +33,6 @@ def edges_of(data, type_: str) -> list[dict]:
 
 
 class TestWalk:
-    """Every node of the section tree, in document order."""
-
     def test_given_a_nested_tree_when_walked_then_parents_come_first(self):
         # Given a tree two levels deep
         tree = [{"id": "1", "subsections": [{"id": "1.1", "subsections": []}]}]
@@ -56,15 +43,8 @@ class TestWalk:
 
 
 class TestAbilityKey:
-    """The key a `:CreatureAbility` node merges on."""
-
     def test_given_a_creature_and_an_entry_when_keyed_then_it_matches_the_reference(
             self, tiny_document):
-        """
-        A creature-sourced reference names the entry it came from in ``part``
-        ("actions/Bite"), and the key is that same string — without it all
-        1542 of those edges would smear across the whole stat block.
-        """
         # Given a reference naming the part it came from
         part = tiny_document["references"][0]["source"]["part"]
 
@@ -85,11 +65,9 @@ class TestAbilityKey:
 
 
 class TestMapperLookup:
-    """Resolving a reference target's name to the node that holds it."""
-
     def test_given_a_name_printed_twice_when_looked_up_then_the_real_entity_wins(
             self, tiny_document):
-        """"Deck of Illusions" is printed twice; the one with metadata is it."""
+        """"Deck of Illusions" heads two sections."""
         # Given a document with the same magic item name on two sections
         mapper = mapping.Mapper(tiny_document)
         mapping.add_sections(mapper)
@@ -111,11 +89,8 @@ class TestMapperLookup:
 
 
 class TestBuildSections:
-    """The section tree, which is the spine of the graph."""
-
     def test_given_typed_sections_when_built_then_each_gains_its_entity_label(
             self, tiny_document):
-        """A spell is not a `:Spell` beside its section — it *is* the section."""
         # Given a document of typed sections
         # When it is built
         counts = mapping.build(tiny_document).counts_by_label()
@@ -126,10 +101,6 @@ class TestBuildSections:
         assert counts["Section:MagicItem"] == 2
 
     def test_given_a_section_when_built_then_it_keeps_its_offsets(self, tiny_document):
-        """
-        What makes the graph usable for retrieval rather than only for
-        counting: anything a traversal finds resolves back to its own text.
-        """
         # Given the mapped document
         # When a section node is read
         spell = one(mapping.build(tiny_document), "Section", "Spell")
@@ -162,8 +133,6 @@ class TestBuildSections:
 
     def test_given_a_damage_list_when_built_then_it_becomes_parallel_arrays(
             self, tiny_document):
-        """Neo4j stores no nested maps, and a damage list's parts correspond
-        by position."""
         # Given a spell that deals damage
         # When it is built
         spell = one(mapping.build(tiny_document), "Section", "Spell")
@@ -175,7 +144,6 @@ class TestBuildSections:
 
     def test_given_dice_with_no_average_when_built_then_no_average_is_stored(
             self, tiny_document):
-        """A sentinel would read as a number the book never printed."""
         # Given a spell whose damage has no printed average
         tiny_document["sections"][1]["spell"]["damage"] = [
             {"average": None, "dice": "8d6", "type": "Fire"}]
@@ -189,14 +157,8 @@ class TestBuildSections:
 
 
 class TestBuildCreatures:
-    """Stat blocks, and the abilities references point at."""
-
     def test_given_a_stat_block_when_built_then_it_folds_into_its_section(
             self, tiny_document):
-        """
-        A stat block *is* its section, so a second node would store the same
-        paragraph twice and draw every edge from it twice over.
-        """
         # Given a creature whose name matches its section's heading
         # When the document is built
         data = mapping.build(tiny_document)
@@ -222,10 +184,6 @@ class TestBuildCreatures:
 
     def test_given_a_creature_with_no_section_when_built_then_the_load_fails(
             self, tiny_document):
-        """
-        336 stat blocks on both sides with unique names is the invariant; a
-        creature with nothing to fold into means the two have diverged.
-        """
         # Given a creature whose name matches no section
         tiny_document["creatures"][0]["name"] = "Hobgoblin"
 
@@ -261,8 +219,6 @@ class TestBuildCreatures:
 
 
 class TestBuildGlossary:
-    """The typed terms the rest of the book points at."""
-
     def test_given_a_term_when_built_then_its_type_becomes_a_label(
             self, tiny_document):
         # Given glossary entries of two types
@@ -275,14 +231,8 @@ class TestBuildGlossary:
 
 
 class TestBuildEquipment:
-    """Weapons, armour, gear and poisons."""
-
     def test_given_an_item_printed_as_a_section_when_built_then_it_folds_in(
             self, tiny_document):
-        """
-        Gear and poisons are printed as a heading with prose, so they *are*
-        that section — the reason ``extract_poisons`` records ``section_id``.
-        """
         # Given a poison naming the section that prints it
         # When the document is built
         folded = one(mapping.build(tiny_document),
@@ -307,11 +257,8 @@ class TestBuildEquipment:
 
 
 class TestBuildClasses:
-    """Classes, their levels and the features they grant."""
-
     def test_given_a_levels_resources_when_built_then_they_become_two_arrays(
             self, tiny_document):
-        """Neo4j stores no nested maps; the two correspond by position."""
         # Given a class level carrying a resources map
         # When it is built
         level = one(mapping.build(tiny_document), "ClassLevel", key="Wizard|1")
@@ -323,14 +270,8 @@ class TestBuildClasses:
 
 
 class TestBuildReferences:
-    """The book's own cross-references, as edges."""
-
     def test_given_a_creature_sourced_reference_when_built_then_it_lands_on_the_ability(
             self, tiny_document):
-        """
-        Otherwise "which creatures can Frighten, and *how*" loses its second
-        half: the edge would smear across the whole stat block.
-        """
         # Given a reference naming the action it came from
         # When the document is built
         edges = edges_of(mapping.build(tiny_document), "IMPOSES_CONDITION")
@@ -350,10 +291,6 @@ class TestBuildReferences:
 
     def test_given_a_target_that_resolves_to_nothing_when_built_then_it_is_reported(
             self, tiny_document):
-        """
-        Merging on a name that fails to resolve would invent an empty node
-        and hide exactly the drift this stage exists to catch.
-        """
         # Given a reference to a condition nothing defines
         # When the document is built
         data = mapping.build(tiny_document)
@@ -367,8 +304,6 @@ class TestBuildReferences:
 
 
 class TestBuildDerived:
-    """Edges already implied by parsed list fields."""
-
     def test_given_a_creatures_defences_when_built_then_they_become_edges(
             self, tiny_document):
         # Given a creature with immunities and carried gear
@@ -382,10 +317,6 @@ class TestBuildDerived:
 
     def test_given_a_poison_when_built_then_it_links_to_the_type_explaining_it(
             self, tiny_document):
-        """
-        Nothing refers to a poison type, so without this edge the paragraph
-        defining "Injury" is unreachable from the poison it describes.
-        """
         # Given a poison naming its delivery type
         # When the document is built
         data = mapping.build(tiny_document)
@@ -406,8 +337,6 @@ class TestBuildDerived:
 
 
 class TestBuildAgainstTheRealArtifact:
-    """The mapper held against the artifact's own statement of its contents."""
-
     def test_given_the_artifact_when_mapped_then_the_counts_are_what_it_claims(
             self, document):
         # Given the artifact and the counts it carries
@@ -447,9 +376,8 @@ class TestBuildAgainstTheRealArtifact:
     def test_given_the_artifact_when_mapped_then_no_equipment_is_stored_twice(
             self, document):
         """
-        Before the extractors recorded ``section_id`` this was 95 duplicated
-        nodes and 60 duplicated edges, and "which things deal Poison damage"
-        counted Serpent Venom twice.
+        Regression: before gear and poisons carried ``section_id`` there were
+        95 duplicate nodes and 60 duplicate edges.
         """
         # Given every section's prose, keyed by its own content
         sections = {n["content"]: n["id"]

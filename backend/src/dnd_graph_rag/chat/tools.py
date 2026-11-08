@@ -1,16 +1,10 @@
 """
-The four tools the agent may call.
+The agent's four tools.
 
-Two read the book — a hybrid search, and one section by id.  Two read the
-*graph*, which is the question prose cannot answer and the whole reason
-stage 2 exists: ``explore_srd_graph`` for what one section is joined to, and
-``query_srd_graph`` for the exhaustive question a bounded walk can only
-sample.
-
-Results are prose rather than JSON: the model reads them, and every result
-leads with its section id so the model can cite it.  The UI gets the
-structured form by another route — ``service`` reads the tool calls off the
-message stream — so nothing here serialises for two audiences at once.
+Each tool's docstring is its description to the model, parsed by LangChain,
+so it is prompt text.  Results are prose led by ``[section_id]`` so the
+model can cite them.  Each also returns an artifact (see ``Result``) that
+the UI reads and the model never sees.
 """
 
 from __future__ import annotations
@@ -20,35 +14,29 @@ from langchain_core.tools import tool
 from ..config import get_settings
 from . import cypher, neighbourhood, retrieval
 
-# Entity types a question tends to be *about*, offered to the model as a
-# filter.  Deliberately not the full list from the artifact: the long tail
-# ("front_matter", "creature_group") narrows nothing a reader would ask for.
-# What the trace shows beside each row.  The tools return prose because the
-# model reads them, but the UI needs to know how a call went without parsing
-# that prose, so every tool also returns an *artifact*: a status and one
-# short line.  LangChain puts it on the ToolMessage and never shows it to the
-# model, which is the same "structured half by another route" split the tool
-# results already use.
+# ``(content, artifact)``.  The artifact rides on the ToolMessage, hidden from
+# the model, and drives the UI's trace row.
 #
 # ``status`` is one of:
 #   ok       the call did what was asked
 #   empty    it ran and matched nothing, which is an answer, not a fault
 #   refused  we would not run it (an unknown filter, a banned procedure)
 #   failed   it ran and broke (bad Cypher, a dead connection)
-# ``subject`` is what the row should say it looked *at*, for the calls whose
-# own argument is a dotted id.  Nobody knows what `11.2.70` is, and the only
-# thing that does is the graph we just read it from.
+# ``subject`` replaces a dotted-id argument with the heading it names.
 Result = tuple[str, dict]
 
 
 def _result(content: str, status: str, summary: str,
             subject: str | None = None) -> Result:
+    """Pair tool content with its trace artifact."""
     artifact = {"status": status, "summary": summary}
     if subject:
         artifact["subject"] = subject
     return content, artifact
 
 
+# Not every entity_type: "front_matter" and "creature_group" narrow nothing
+# useful.
 SEARCHABLE_TYPES = [
     "spell", "creature", "magic_item", "rule", "class_feature",
     "glossary_term", "equipment", "feat", "origin", "trap",
@@ -85,11 +73,8 @@ def search_srd(query: str, entity_type: str | None = None) -> str:
         candidates=chat.search_limit,
         types=[entity_type] if entity_type else None,
     )
-    # Only reachable when both arms come back empty — a query of nothing, or
-    # a lexical miss in a checkout with no key.  With the dense arm live there
-    # is always a nearest neighbour, so "nothing matched" is not something
-    # this search can say; judging whether the best guesses answer the
-    # question is the model's job, and the prompt says so.
+    # Only when both arms are empty: the dense arm always has a nearest
+    # neighbour, so this needs a blank query or no API key.
     if not passages:
         return _result(
             f"No SRD sections matched {query!r}. Try fewer words, or the "
@@ -126,18 +111,12 @@ def get_srd_section(section_id: str) -> str:
         listed = ", ".join(f"[{c['id']}] {c['heading']}"
                            for c in context["children"][:25])
         parts.append(f"Subsections: {listed}")
-    # The heading, not the id: a dotted id says nothing to the person reading
-    # the trace, and the UI has nowhere else to learn what it names.
     return _result("\n\n".join(parts), "ok", passage.section_id,
                    subject=passage.heading or "(untitled)")
 
 
-
-
-# The section a derived node was printed in, where one edge says so.  An
-# ability belongs to the stat block that lists it; a glossary term to the
-# passage defining it.  Nothing else derived — a weapon row, a damage type —
-# has a section at all.
+# The section a derived node was printed in: the stat block owning an
+# ability, or the section a glossary term is DEFINED_IN.
 _PRINTED_IN = """
 MATCH (n) WHERE elementId(n) IN $uids
 OPTIONAL MATCH (owner:Section)-[:HAS_ABILITY]->(n)
@@ -151,11 +130,16 @@ RETURN elementId(n) AS uid, printed.id AS section_id,
 
 def _printed_in(nodes: list[dict]) -> dict[str, dict]:
     """
-    Where each uncitable node was printed, so the answer has an id to use.
+    The citable section each non-section node was printed in.
 
-    Without this the walk is a list of things the model may name and may not
-    cite, and the prompt requires a citation — so it goes and searches for
-    each one by name, a call apiece.  One query here replaces all of them.
+    Without it the model searched for each such node by name, one call apiece.
+
+    Args:
+        nodes: Nodes from ``neighbourhood``.
+
+    Returns:
+        Element id to ``{"uid", "section_id", "heading"}``, for the nodes
+        that have one.
     """
     uids = [n["uid"] for n in nodes if not n["section_id"]]
     if not uids:
@@ -166,37 +150,28 @@ def _printed_in(nodes: list[dict]) -> dict[str, dict]:
 
 def _describe(node: dict, printed: dict[str, dict] | None = None) -> str:
     """
-    One node on one line, and what to cite for it.
+    One node as a line, with the id to cite for it.
 
-    Only a node that *is* a section has an id the answer can put in brackets.
-    An ability is keyed ``Goblin|actions/Bite`` and a damage type on its name,
-    so each is named, said to be whose, and pointed at the section it was
-    printed in — the system prompt asks for a citation after every claim, and
-    left to itself the model invents one.
+    A section cites itself; a derived node cites where it was printed, or
+    is marked "do not cite" if it was printed nowhere.
     """
     labels = ", ".join(node["labels"]) or "node"
     if node["section_id"]:
         return f"[{node['section_id']}] {node['name']} ({labels})"
-    # An ability is named for its entry — "Swallow", "Bite" — and the book
-    # prints a dozen of each, so without its owner the line says nothing.
     where = (printed or {}).get(node["uid"])
     if where:
-        # The owner is not repeated here: the section it was printed in names
-        # the same creature, and twice reads as two facts.
         return (f"{node['name']} ({labels}; printed in "
                 f"[{where['section_id']}] {where['heading']} — cite that)")
     owner = node.get("owner")
+    # The book prints a dozen "Swallow"s; the owner disambiguates.
     whose = f" of {owner}" if owner else ""
     return f"{node['name']} ({labels}{whose}; no section id, do not cite)"
 
 
 def _anchor_of(edge: dict, nodes: dict[str, dict]) -> tuple[str, bool]:
     """
-    Which end of an edge the traversal came from, and whether it points away.
-
-    The shallower end, because that is the one the walk reached first; a tie
-    is broken towards the source, so the direction reads as the graph stores
-    it.
+    The end of an edge the walk reached first (the shallower; the source on a
+    tie), and whether the edge points away from it.
     """
     source, target = nodes[edge["source"]], nodes[edge["target"]]
     if target["depth"] < source["depth"]:
@@ -206,12 +181,9 @@ def _anchor_of(edge: dict, nodes: dict[str, dict]) -> tuple[str, bool]:
 
 def _render(data: dict) -> str:
     """
-    A drawable neighbourhood, spelled as prose for the model.
+    A neighbourhood as indented prose, grouped by anchor, type and direction.
 
-    The counts are the point.  ``truncated`` carries what the fan cap cut, so
-    a group reads "121 in the graph, 8 shown" rather than presenting eight
-    neighbours as the whole answer — the same honesty the Graph tab's dashed
-    halo gives a reader.
+    Groups the fan cap cut read "121 in the graph, 8 shown".
     """
     nodes = {node["uid"]: node for node in data["nodes"]}
     printed = _printed_in(data["nodes"])
@@ -250,10 +222,7 @@ def _render(data: dict) -> str:
     return "\n".join(lines)
 
 
-# What the model may raise ``fan`` to.  The walk is bounded by
-# ``neighbourhood.LIMIT`` nodes regardless, so this cannot run away; it only
-# decides how the budget is spent — a wide fan on one group, or a little of
-# everything.
+# Upper bound on the model's ``fan``.  The node limit bounds the walk anyway.
 MAX_FAN = 50
 
 
@@ -286,10 +255,8 @@ def explore_srd_graph(section_id: str, depth: int = 1,
     fan = max(1, min(fan, MAX_FAN))
     found = neighbourhood.neighbourhood(
         section_id=section_id.strip(), depth=depth, fan=fan,
-        # The node budget is spent in discovery order, so a fan raised
-        # against the default limit widens the first group and starves the
-        # rest — asking for more and getting less of what you asked for.
-        # It rises with the fan so that a deliberate ask is honoured.
+        # The node budget is spent in discovery order; without raising it, a
+        # wider fan fills the first group and starves the rest.
         limit=max(neighbourhood.LIMIT, fan * 3))
     if found is None:
         return _result(
@@ -310,7 +277,7 @@ def explore_srd_graph(section_id: str, depth: int = 1,
 def query_srd_graph(cypher_query: str) -> str:
     """Run a read-only Cypher query against the SRD rules graph.
 
-    This is the tool for an exhaustive question — every creature that imposes
+    This is the tool for an exhaustive question: every creature that imposes
     a condition, every spell on two class lists, every item dealing a damage
     type. A search returns passages and explore_srd_graph returns a sample;
     only this returns all of them, in one call, as rows you can read off.
@@ -320,8 +287,8 @@ def query_srd_graph(cypher_query: str) -> str:
 
     Args:
         cypher_query: The Cypher to run. RETURN named properties rather than
-            whole nodes — `RETURN c.id, c.name, a.name, a.save_dc`, never
-            `RETURN c` — since a node drags its whole `content` into every
+            whole nodes (`RETURN c.id, c.name, a.name, a.save_dc`, never
+            `RETURN c`), since a node drags its whole `content` into every
             row. RETURN the `id` of something citable alongside the answer,
             because an id in square brackets is what a claim is cited with.
             Use LIMIT when you want a few; leave it off when you want all.
@@ -336,9 +303,7 @@ def query_srd_graph(cypher_query: str) -> str:
         rows, truncated = cypher.read(cypher_query,
                                       timeout=chat.cypher_timeout_seconds,
                                       max_rows=chat.cypher_max_rows)
-    # The message is the model's to act on: a bad label or a wrong direction
-    # is a query it can fix and run again, which is the loop working rather
-    # than the turn failing.
+    # Returned, not raised: the model fixes the query and retries.
     except Exception as exc:
         return _result(
             f"The query failed: {_reason(exc)}\n\nCheck it against the "
@@ -350,15 +315,14 @@ def query_srd_graph(cypher_query: str) -> str:
                    f"{len(rows)} rows{', more' if truncated else ''}")
 
 
-# Neo4j's errors arrive with a GQL status object and a stack of framing
-# around the one sentence naming the mistake.
 _ERROR_CHARS = 300
 
 
 def _reason(exc: Exception) -> str:
+    """A Neo4j error as one short sentence for the model."""
     message = str(exc).strip() or exc.__class__.__name__
-    # The one the model can cause on purpose, and the one whose own wording
-    # ("Unexpected error has occurred. See debug log") tells it nothing.
+    # Neo4j's own AccessMode text is "Unexpected error has occurred. See debug
+    # log", which gives the model nothing to act on.
     if "AccessMode" in message:
         return ("this is a read-only connection, so no CREATE, MERGE, SET, "
                 "DELETE or REMOVE. Only MATCH and RETURN.")

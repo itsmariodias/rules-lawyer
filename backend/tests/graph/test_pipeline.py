@@ -1,11 +1,3 @@
-"""
-Stage 2's orchestration: artifact on disk → batches → Neo4j → verification.
-
-``build_graph`` is the whole run.  Its failure mode worth testing without a
-database is the missing artifact, which must be the same kind of error
-``srd-parse`` reports for a missing PDF; the rest needs Neo4j.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -14,8 +6,6 @@ from dnd_graph_rag.graph import pipeline
 
 
 class TestBuildGraph:
-    """The run, end to end."""
-
     def test_given_no_artifact_when_run_then_the_error_says_what_to_do(
             self, tmp_path):
         # Given a path the parser has never written to
@@ -41,10 +31,6 @@ class TestBuildGraph:
 
     def test_given_verification_is_skipped_when_run_then_it_says_so(
             self, document, graph_session):
-        """
-        ``--skip-verify`` must not look like a passing run: the CLI reads
-        ``ok`` and would otherwise print a success nobody checked.
-        """
         # Given a load that skips the checks
         result = pipeline.build_graph(skip_verify=True)
 
@@ -65,14 +51,8 @@ class TestBuildGraph:
 
 
 class TestCounts:
-    """Node and relationship totals, for the health endpoint."""
-
     def test_given_a_loaded_graph_when_counted_then_it_answers_both_questions(
             self, graph):
-        """
-        The counts are queried rather than remembered from a load, so this
-        answers "is the graph loaded?" as well as "is Neo4j up?".
-        """
         # Given a database that is up, with the graph in it
         # When the counts are taken
         counts = pipeline.counts()

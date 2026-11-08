@@ -1,13 +1,6 @@
 """
-Shared fixtures.
-
-The unit tests run anywhere; the ones that need real data or a real database
-skip cleanly when neither is present, so ``uv run pytest`` is useful before
-``srd-parse`` has ever been run and without Docker.
-
-Test files mirror the package they cover — ``tests/graph/test_mapping.py``
-for ``graph/mapping.py`` — and every test inside one is a method on a class
-named after the function under test, written Given / When / Then.
+Shared fixtures.  Tests needing the artifact, vectors, an API key or Neo4j skip
+without them.
 """
 
 from __future__ import annotations
@@ -22,7 +15,7 @@ from dnd_graph_rag.config import (anchors_path_for, get_settings,
 
 @pytest.fixture(scope="session")
 def document() -> dict:
-    """The real artifact, if it has been generated."""
+    """The real artifact; skips if it has not been generated."""
     from dnd_graph_rag.srd import load
 
     settings = get_settings()
@@ -33,7 +26,7 @@ def document() -> dict:
 
 @pytest.fixture(scope="session")
 def graph_session():
-    """A Neo4j session, or a skip when the database is not up."""
+    """A Neo4j session; skips if the database is not up."""
     from dnd_graph_rag.graph.loader import session
 
     try:
@@ -47,12 +40,10 @@ def graph_session():
 @pytest.fixture
 def tiny_document() -> dict:
     """
-    A hand-built document exercising the awkward parts of the mapping.
-
-    It carries the shapes that cost real thought: a stat block that must fold
-    into its section, an ability whose name is what a reference's ``part``
-    points at, a damage list, a two-part weapon range, a class level's
-    resources map, and a magic-item name that appears twice.
+    A hand-built document covering the mapper's awkward cases: a stat block
+    folding into its section, an ability referenced by ``part``, a damage list,
+    a two-part weapon range, a resources map, and a magic item name printed
+    twice.
     """
     return {
         "meta": {"counts": {}},
@@ -192,7 +183,7 @@ def tiny_document() -> dict:
 
 @pytest.fixture(scope="session")
 def anchors() -> list[dict]:
-    """The page geometry written beside the markdown, if it has been."""
+    """The anchors file; skips if it has not been generated."""
     path = anchors_path_for(markdown_path_for(get_settings().output_path))
     if not path.exists():
         pytest.skip(f"no anchors at {path}; re-run srd-parse")
@@ -201,7 +192,7 @@ def anchors() -> list[dict]:
 
 @pytest.fixture(scope="session")
 def markdown() -> str:
-    """The intermediate markdown every character offset resolves into."""
+    """The stage 1 markdown; skips if it has not been generated."""
     path = markdown_path_for(get_settings().output_path)
     if not path.exists():
         pytest.skip(f"no markdown at {path}; run srd-parse")
@@ -210,12 +201,7 @@ def markdown() -> str:
 
 @pytest.fixture(scope="session")
 def vectors():
-    """
-    The embeddings, if they have been generated or downloaded.
-
-    ``srd-graph-load`` fails without them, deliberately — but the test suite
-    skips, the same courtesy ``document`` extends for a missing artifact.
-    """
+    """The embeddings file; skips if it is absent."""
     from dnd_graph_rag.graph import embeddings
 
     path = get_settings().embeddings_path
@@ -226,21 +212,14 @@ def vectors():
 
 @pytest.fixture
 def embedding_key():
-    """
-    A live key, which the dense arm of the search needs and no file supplies.
-
-    ``srd_embeddings.idx`` covers every section of the book, so a loaded graph
-    needs no key — but a query nobody has asked yet has to be embedded when it
-    is asked, so these tests skip rather than searching lexically and calling
-    it hybrid.
-    """
+    """Skips without a live API key, which embedding a query needs."""
     if get_settings().embedding.google_api_key is None:
         pytest.skip("no GOOGLE_API_KEY; a query cannot be embedded")
 
 
 @pytest.fixture(scope="module")
 def graph(graph_session):
-    """A *loaded* graph: skips with Neo4j, and again when nothing is in it."""
+    """A session on a loaded graph; skips if Neo4j is down or empty."""
     if graph_session.run("MATCH (n:Section) RETURN count(n)").single()[0] == 0:
         pytest.skip("graph is empty; run srd-graph-load")
     return graph_session
@@ -249,10 +228,8 @@ def graph(graph_session):
 @pytest.fixture
 def settings_env(monkeypatch):
     """
-    Set environment variables past ``get_settings``'s cache, for one test.
-
-    ``get_settings`` is ``lru_cache``d for the life of the process, so an
-    environment variable set without clearing it changes nothing.
+    Set environment variables for one test, clearing the ``get_settings`` cache
+    either side.
     """
     def apply(**environment: str):
         for name, value in environment.items():
@@ -267,11 +244,9 @@ def settings_env(monkeypatch):
 @pytest.fixture
 def stub_model(settings_env):
     """
-    Run the scripted model for one test, so no key and no quota are needed.
-
-    ``build_agent`` is cached, so the cache is cleared either side: an agent
-    built around the real model would otherwise be handed to a test that
-    asked for the stub, and the other way about.
+    Use the scripted model for one test.  Clears the ``build_agent`` cache
+    either side, since it would otherwise hand back an agent built with the
+    other model.
     """
     from dnd_graph_rag.chat.agent import build_agent
 
@@ -282,7 +257,7 @@ def stub_model(settings_env):
 
 @pytest.fixture
 def saver():
-    """A checkpointer that lives only for one test."""
+    """An in-memory checkpointer."""
     from langgraph.checkpoint.memory import InMemorySaver
 
     return InMemorySaver()
@@ -290,7 +265,7 @@ def saver():
 
 @pytest.fixture
 def store():
-    """The store pins live in, beside the checkpointer."""
+    """An in-memory pin and title store."""
     from langgraph.store.memory import InMemoryStore
 
     return InMemoryStore()

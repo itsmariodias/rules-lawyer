@@ -1,15 +1,3 @@
-"""
-The graph, asked a question directly.
-
-The guard, the label forms and the rendering are pure and run anywhere; the
-read and the derived schema need a loaded graph and skip without one.
-
-The test that matters most is the one asserting a write is refused, and it
-asserts it against the *database* rather than against a word list: the
-boundary is the read transaction, and a test of the word list would pass
-while the boundary was broken.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -18,8 +6,6 @@ from dnd_graph_rag.chat import cypher
 
 
 class TestGuard:
-    """What a read transaction would run and we will not."""
-
     def test_given_a_plain_match_when_guarded_then_it_passes(self):
         # Given an ordinary query
         # When it is guarded
@@ -29,9 +15,8 @@ class TestGuard:
     def test_given_a_procedure_outside_the_allowlist_when_guarded_then_it_is_refused(
             self):
         """
-        ``dbms.listConfig`` is a *read*, so the transaction runs it happily
-        and hands back the server's configuration.  It is the one class of
-        thing read access does not cover.
+        ``dbms.listConfig`` is a read, so the read-only transaction would run
+        it.
         """
         # Given a query calling a procedure that reads the server's config
         # When it is guarded
@@ -47,8 +32,6 @@ class TestGuard:
                      "YIELD node RETURN node.id")
 
     def test_given_a_call_subquery_when_guarded_then_it_is_not_a_procedure(self):
-        """``CALL {`` and ``CALL (n) {`` are subqueries, and the good answers
-        to "eight per group" are written with them."""
         # Given a query using a scoped subquery
         # When it is guarded
         # Then it is not mistaken for a procedure call
@@ -64,11 +47,7 @@ class TestGuard:
                          "RETURN row")
 
     def test_given_a_spell_named_like_a_write_when_guarded_then_it_passes(self):
-        """
-        The reason the guard is not a list of forbidden words: the SRD has a
-        spell called *Create Undead*, and a name is exactly what a WHERE
-        clause is full of.  The write itself is refused by the database.
-        """
+        """The SRD has a spell called Create Undead."""
         # Given a query whose string literal contains a write keyword
         # When it is guarded
         # Then the book's own vocabulary is not mistaken for Cypher
@@ -85,12 +64,10 @@ class TestGuard:
 
 
 class TestRead:
-    """One query, in a transaction that cannot write."""
-
     def test_given_a_write_when_read_then_the_database_refuses_it(self, graph):
         """
-        The boundary, asserted where it actually lives.  A test of the word
-        list would pass while this was broken.
+        The write boundary is the read-only transaction, so it is tested
+        against the database.
         """
         # Given a loaded graph and a query that would change it
         # When it is run through the read path
@@ -128,10 +105,7 @@ class TestRead:
 
 
 class TestForm:
-    """A label set as it would be written in a MATCH."""
-
     def test_given_a_multi_label_node_when_formed_then_section_is_dropped(self):
-        """``:Section`` is on 2368 nodes and says nothing about which one."""
         # Given the labels of a spell node
         # When they are formed for the schema
         # Then only the label that identifies it survives
@@ -145,14 +119,8 @@ class TestForm:
 
 
 class TestShapes:
-    """Which labels each relationship actually joins."""
-
     def test_given_a_loaded_graph_when_read_then_the_edges_are_described(
             self, graph):
-        """
-        Derived rather than written down, so it cannot drift from the loader
-        the way a hand-kept schema in a prompt would.
-        """
         # Given a loaded graph
         cypher.shapes.cache_clear()
 
@@ -179,8 +147,6 @@ class TestShapes:
 
 
 class TestRender:
-    """Rows as a table the model can read and quote from."""
-
     def test_given_rows_when_rendered_then_the_columns_are_the_ones_asked_for(
             self):
         # Given two rows as the driver returns them
@@ -196,8 +162,6 @@ class TestRender:
 
     def test_given_a_complete_result_when_rendered_then_it_says_it_is_complete(
             self):
-        """The whole reason for the tool: a list the model can trust as the
-        list, rather than a sample it goes and verifies."""
         # Given every row there is
         # When it is rendered
         rendered = cypher.render([{"a": 1}], truncated=False)
@@ -215,8 +179,6 @@ class TestRender:
         assert "there are more" in rendered
 
     def test_given_a_long_value_when_rendered_then_it_is_cut(self):
-        """A query returning whole nodes drags a creature's ``content`` into
-        every row."""
         # Given a row carrying a whole passage
         rows = [{"content": "x" * 5000}]
 
@@ -228,13 +190,7 @@ class TestRender:
         assert rendered.endswith("…")
 
     def test_given_a_description_length_cell_when_rendered_then_it_survives(self):
-        """
-        At 200 the cap cut 22% of ability descriptions, and the ones it cut
-        were the interesting ones: a trait with a saving throw and a duration
-        is longer than a trait without.  The model read the truncated
-        mechanics and went to get_srd_section for the rest, a call per row
-        for a column it had already been given.
-        """
+        """At 200 characters the cap cut 22% of ability descriptions."""
         # Given a cell the size of a real ability description
         text = ("_Wisdom Saving Throw:_ DC 18, each enemy in a 30-foot "
                 "Emanation. _Failure:_ 28 (8d6) Psychic damage, and the "
@@ -249,10 +205,6 @@ class TestRender:
 
     def test_given_more_rows_than_fit_when_rendered_then_whole_rows_are_dropped(
             self):
-        """
-        A half-populated row reads as a fact about the book, so the budget
-        cuts rows rather than squeezing cells.
-        """
         # Given far more text than the output budget allows
         rows = [{"id": str(i), "text": "x" * 500} for i in range(200)]
 
@@ -286,8 +238,6 @@ class TestRender:
         assert "Fire, Cold" in rendered
 
     def test_given_a_null_when_rendered_then_the_cell_is_empty_not_none(self):
-        """The loader drops nulls, so an optional property is simply absent;
-        the word "None" in a table reads as a value."""
         # Given a row whose optional property is absent
         # When it is rendered
         rendered = cypher.render([{"dc": None}], truncated=False)

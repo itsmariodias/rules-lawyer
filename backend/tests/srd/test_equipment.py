@@ -1,11 +1,3 @@
-"""
-Weapons, armour, adventuring gear — and the table reader they all share.
-
-Equipment is printed as tables, so most of the work is reading cells: costs
-in five coinages, weights with vulgar fractions, and a Properties column that
-cannot be split on commas because half its values contain them.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -14,8 +6,6 @@ from dnd_graph_rag.srd import equipment
 
 
 class TestParseCost:
-    """A price cell, as printed and as gold."""
-
     def test_given_a_price_in_gold_when_parsed_then_it_is_itself(self):
         # Given a price already in gold
         # When it is parsed
@@ -52,8 +42,6 @@ class TestParseCost:
 
 
 class TestParseWeight:
-    """A weight cell, in pounds."""
-
     def test_given_whole_pounds_when_parsed_then_the_number_is_read(self):
         # Given a plain weight
         # When it is parsed
@@ -78,8 +66,6 @@ class TestParseWeight:
 
 
 class TestParseDamage:
-    """A weapon's damage cell."""
-
     def test_given_dice_and_a_type_when_parsed_then_both_are_split_out(self):
         # Given an ordinary weapon damage cell
         # When it is parsed
@@ -88,7 +74,7 @@ class TestParseDamage:
                                                           "type": "Slashing"}
 
     def test_given_flat_damage_when_parsed_then_it_is_still_read(self):
-        """The Blowgun deals a flat 1 Piercing, with no dice at all."""
+        """The Blowgun deals a flat 1 Piercing."""
         # Given the one weapon that rolls nothing
         # When it is parsed
         # Then the flat number is kept where the dice would be
@@ -103,8 +89,6 @@ class TestParseDamage:
 
 
 class TestSplitProperties:
-    """The Properties column, which cannot be split on commas naively."""
-
     def test_given_plain_properties_when_split_then_each_is_its_own(self):
         # Given a list of simple properties
         # When it is split
@@ -113,7 +97,7 @@ class TestSplitProperties:
                                                                 "Light"]
 
     def test_given_a_parenthesised_value_when_split_then_it_stays_intact(self):
-        """"Ammunition (Range 80/320; Bolt)" is one property, not two."""
+        """"Ammunition (Range 80/320; Bolt)" is one property."""
         # Given a property whose value contains its own punctuation
         text = "Ammunition (Range 80/320; Bolt), Loading, Two-Handed"
 
@@ -139,8 +123,6 @@ class TestSplitProperties:
 
 
 class TestReadTables:
-    """Every markdown table in a piece of content, as rows of cells."""
-
     def test_given_one_table_when_read_then_its_rows_come_back_as_cells(self):
         # Given a markdown table
         content = ("| Name | Cost |\n|---|---|\n"
@@ -174,7 +156,6 @@ class TestReadTables:
         assert tables == [[["Name"], ["Dagger"]]]
 
     def test_given_markup_is_asked_for_when_read_then_it_survives(self):
-        """A label can only be told from its value while the markers remain."""
         # Given the same table
         content = "| **Name** |\n|---|\n| _Dagger_ |"
 
@@ -192,8 +173,6 @@ class TestReadTables:
 
 
 class TestFindTable:
-    """One logical table, located by its own header row."""
-
     def test_given_a_matching_header_when_found_then_the_table_is_returned(self):
         # Given a section holding a table
         nodes = [{"heading": "Weapons",
@@ -210,10 +189,7 @@ class TestFindTable:
         assert node["heading"] == "Weapons"
 
     def test_given_a_table_continued_on_the_next_page_when_found_then_it_is_one_table(self):
-        """
-        A long table repeats its header under the page break; the Adventuring
-        Gear table runs to 81 items that way.
-        """
+        """The Adventuring Gear table repeats its header across pages."""
         # Given the same table printed in two pieces, each with a header
         nodes = [
             {"heading": "Gear", "content": "| Item | Cost |\n|---|---|\n"
@@ -241,8 +217,6 @@ class TestFindTable:
 
 
 class TestSubtree:
-    """A heading and everything printed under it, flattened."""
-
     def test_given_a_nested_heading_when_flattened_then_every_descendant_is_included(self):
         # Given a section with children and grandchildren
         nodes = [{"heading": "Weapons", "content": "", "subsections": [

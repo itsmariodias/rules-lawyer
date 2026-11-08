@@ -1,11 +1,3 @@
-"""
-Stat blocks: the numeric helpers, the field parsers and the entry splitter.
-
-A stat block is a card rather than a heading, and the checks the pipeline
-makes against it — a modifier against its score, an average against its dice —
-are only as good as these.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -14,8 +6,6 @@ from dnd_graph_rag.srd import statblocks
 
 
 class TestAbilityModifier:
-    """The standard modifier, floor((score - 10) / 2)."""
-
     @pytest.mark.parametrize("score,modifier", [
         (1, -5), (8, -1), (9, -1), (10, 0), (11, 0), (12, 1), (20, 5), (30, 10),
     ])
@@ -28,8 +18,6 @@ class TestAbilityModifier:
 
 
 class TestAverageHp:
-    """Expected hit points for a dice expression."""
-
     def test_given_dice_and_a_bonus_when_averaged_then_both_are_counted(self):
         # Given a hit point formula
         # When it is averaged
@@ -49,7 +37,6 @@ class TestAverageHp:
         assert statblocks.average_hp("2d6 − 2") == 5
 
     def test_given_prose_instead_of_dice_when_averaged_then_nothing_is_claimed(self):
-        """Some summoned creatures scale with the caster and print prose."""
         # Given a hit point field that is not a dice expression
         # When it is averaged
         # Then no number is invented for it
@@ -57,8 +44,6 @@ class TestAverageHp:
 
 
 class TestParseSpeed:
-    """The Speed line, as a mapping of movement kinds to feet."""
-
     def test_given_a_bare_distance_when_parsed_then_it_is_the_walking_speed(self):
         # Given a speed with no kind named
         # When it is parsed
@@ -75,8 +60,6 @@ class TestParseSpeed:
 
 
 class TestParseBonusList:
-    """A Skills or Senses line, as a mapping of name to bonus."""
-
     def test_given_several_skills_when_parsed_then_each_carries_its_bonus(self):
         # Given a Skills line
         # When it is parsed
@@ -92,10 +75,7 @@ class TestParseBonusList:
 
 
 class TestParseDefenses:
-    """An Immunities line, split into damage types and conditions."""
-
     def test_given_a_semicolon_when_split_then_conditions_follow_it(self):
-        """The SRD writes damage types, a semicolon, then conditions."""
         # Given a line carrying both
         raw = "Poison; Charmed, Exhaustion, Poisoned"
 
@@ -114,8 +94,6 @@ class TestParseDefenses:
 
 
 class TestParseAbilities:
-    """The six ability scores, out of a flattened ability grid."""
-
     def test_given_a_full_grid_when_parsed_then_every_ability_is_read(self):
         # Given all six abilities as the grid flattens
         raw = ("**Str** 21 +5 +5 **Dex** 10 +0 +0 **Con** 20 +5 +5 "
@@ -153,7 +131,7 @@ class TestParseAbilities:
         assert abilities["str"]["modifier_valid"] is False
 
     def test_given_a_save_printed_without_its_sign_when_parsed_then_the_grid_survives(self):
-        """Young White Dragon prints "Int 6 −2 2", dropping the save's sign."""
+        """Young White Dragon prints "Int 6 −2 2"."""
         # Given the grid as the book actually prints it there
         raw = ("**Str** 10 +0 +0 **Dex** 10 +0 +0 **Con** 10 +0 +0 "
                "**Int** 6 −2 2 **Wis** 10 +0 +0 **Cha** 10 +0 +0")
@@ -173,8 +151,6 @@ class TestParseAbilities:
 
 
 class TestParseChallenge:
-    """The CR line, and everything the book folds into its parentheses."""
-
     def test_given_a_full_cr_line_when_parsed_then_every_part_is_read(self):
         # Given the most detailed form the book prints
         raw = "**CR** 21 (XP 33,000, or 41,000 in lair; PB +7)"
@@ -208,8 +184,6 @@ class TestParseChallenge:
 
 
 class TestParseEntries:
-    """A stat block section, split into its named traits or actions."""
-
     def test_given_named_entries_when_split_then_each_keeps_its_own_prose(self):
         # Given two actions printed in one section
         text = ("**_Multiattack._** It attacks twice. "
@@ -247,12 +221,10 @@ class TestParseEntries:
 
 
 class TestHasInitiativeAdvantage:
-    """Whether the stat block grants Advantage on Initiative rolls."""
-
     def test_given_a_permanently_invisible_creature_when_asked_then_it_has_advantage(self):
         """
-        The Invisible Stalker's "+7 (22)" is correct: the Invisible condition
-        gives Advantage on Initiative, and it is permanently Invisible.
+        The Invisible Stalker prints "+7 (22)": Invisible grants Advantage on
+        Initiative.
         """
         # Given a creature whose trait says it is Invisible
         record = {"traits": [{"name": "Invisibility",
@@ -265,8 +237,7 @@ class TestHasInitiativeAdvantage:
 
     def test_given_the_condition_taken_by_an_action_when_asked_then_it_does_not_count(self):
         """
-        The Will-o'-Wisp turns Invisible with a Bonus Action, which is not
-        true when Initiative is rolled, and its printed score reflects that.
+        The Will-o'-Wisp turns Invisible as a Bonus Action, after Initiative.
         """
         # Given a creature that becomes Invisible only by acting
         record = {"traits": [],

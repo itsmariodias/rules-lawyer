@@ -1,12 +1,3 @@
-"""
-One turn of conversation, as a flat stream of typed events.
-
-Nothing here knows about HTTP: ``chat.routes`` encodes these dicts as SSE and
-these tests iterate them directly.  The module also owns what a thread *is* —
-listing, reading back, pinning and deleting — which lives in the checkpointer
-and its store.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -17,13 +8,13 @@ from dnd_graph_rag.chat import service, titles
 
 
 async def answer(saver, thread_id: str, question: str = "Prone condition") -> None:
-    """One stored conversation, answered by the scripted model."""
+    """Run one stub turn and return the stored thread id."""
     async for _ in service.stream_turn(question, thread_id, saver):
         pass
 
 
 def raising(exc: Exception):
-    """A ``build_agent`` that fails, standing in for a model that will."""
+    """A ``build_agent`` replacement that raises ``exc``."""
     def build(_checkpointer):
         raise exc
 
@@ -36,10 +27,7 @@ async def collect(message, saver) -> list[dict]:
 
 
 class TestCitation:
-    """A citation as the prompt asks for it."""
-
     def test_given_a_mix_of_brackets_when_matched_then_only_dotted_ids_count(self):
-        """Anchored on the digits, so prose brackets never match."""
         # Given an answer carrying both kinds of bracket
         text = "Prone [11.2.114] and see [below] and [3] and [4.8.2.3]."
 
@@ -51,14 +39,7 @@ class TestCitation:
 
 
 class TestResolveCitations:
-    """The ids the model wrote, turned into citations the UI can open."""
-
     def test_given_an_invented_id_when_resolved_then_it_is_dropped(self, graph):
-        """
-        Driven by the finished answer rather than by what was retrieved, so
-        an id the model invented resolves to nothing rather than rendering as
-        a dead chip.
-        """
         # Given an answer citing one real id and one invented one, twice
         text = "Real [11.2.114], invented [99.99.99], and again [11.2.114]."
 
@@ -77,8 +58,6 @@ class TestResolveCitations:
 
 
 class TestExplain:
-    """A provider error as a sentence the reader can act on."""
-
     def test_given_a_missing_key_when_explained_then_the_fix_is_in_the_sentence(self):
         # Given the error a missing key raises
         # When it is explained
@@ -89,7 +68,7 @@ class TestExplain:
         assert ".env" in explained
 
     def test_given_a_rejected_key_when_explained_then_it_is_not_the_providers_json(self):
-        """The invalid-key error is 600 characters carrying it twice."""
+        """Google's invalid-key error is about 600 characters of JSON."""
         # Given Google's own rejection
         error = RuntimeError("400 INVALID_ARGUMENT {'reason': 'API_KEY_INVALID'}")
 
@@ -114,7 +93,6 @@ class TestExplain:
         assert "stopped responding" in explained
 
     def test_given_an_error_nobody_anticipated_when_explained_then_it_stays_readable(self):
-        """The error is now the answer, so it has to be readable."""
         # Given an enormous unrecognised error
         # When it is explained
         explained = service._explain(RuntimeError("boom " * 200))
@@ -133,8 +111,6 @@ class TestExplain:
 
 
 class TestFromUpdate:
-    """The tool node's state write, flattened into a ``tool_end`` event."""
-
     @staticmethod
     def _update(**kwargs):
         from langchain_core.messages import ToolMessage
@@ -145,10 +121,6 @@ class TestFromUpdate:
 
     def test_given_an_artifact_when_read_then_the_outcome_reaches_the_browser(
             self):
-        """
-        Without it the trace can only say a call finished, so a refused query
-        and a perfect one draw the same grey dot.
-        """
         # Given a tool result carrying the status and summary a tool attaches
         update = self._update(artifact={"status": "ok", "summary": "12 rows"})
 
@@ -171,10 +143,6 @@ class TestFromUpdate:
         assert event["status"] == "refused"
 
     def test_given_a_tool_that_raised_when_read_then_it_is_marked_failed(self):
-        """
-        The tools catch their own errors, but one that does not has no
-        artifact at all, and LangChain marks the message instead.
-        """
         # Given a tool result LangChain marked as an error
         update = self._update(status="error")
 
@@ -185,7 +153,6 @@ class TestFromUpdate:
         assert event["status"] == "failed"
 
     def test_given_no_artifact_when_read_then_the_event_is_still_whole(self):
-        """A tool written without one must not break the trace."""
         # Given a plain tool result
         update = self._update()
 
@@ -199,8 +166,6 @@ class TestFromUpdate:
 
 
 class TestUsageOf:
-    """What a turn cost in tokens, summed over every model call in it."""
-
     @staticmethod
     def _call(content: str, input_tokens: int, output_tokens: int):
         from langchain_core.messages import AIMessage
@@ -209,7 +174,6 @@ class TestUsageOf:
             "total_tokens": input_tokens + output_tokens})
 
     def test_given_several_calls_when_counted_then_they_are_summed(self):
-        """One answer is a search, a query and the answer: each is a call."""
         # Given a turn of three model calls
         messages = [self._call("", 4000, 20), self._call("", 5200, 35),
                     self._call("It is [11.2.114].", 6100, 410)]
@@ -232,7 +196,6 @@ class TestUsageOf:
         assert service.usage_of(messages)["calls"] == 1
 
     def test_given_no_counts_when_counted_then_there_is_no_usage(self):
-        """Nothing shown beats a confident "0 tokens"."""
         # Given calls that carry no counts, as a conversation stored before might
         from langchain_core.messages import AIMessage
 
@@ -243,12 +206,10 @@ class TestUsageOf:
 
 
 class TestTurnsOf:
-    """A stored conversation, as the turns a UI draws."""
-
     @staticmethod
     def _turn(question: str, call_id: str, query: str, answer: str,
               artifact: dict | None = None):
-        """One complete turn: a question, a search, its result, an answer."""
+        """Messages for one turn: question, search call, result, answer."""
         from langchain_core.messages import (AIMessage, HumanMessage,
                                              ToolMessage)
         if artifact is None:
@@ -264,10 +225,6 @@ class TestTurnsOf:
         ]
 
     def test_given_a_stored_turn_when_read_then_its_lookup_comes_with_it(self):
-        """
-        Dropped here, an answer reopened from the list had no retrieval under
-        it and the trace read as something that had never happened.
-        """
         # Given one complete turn
         messages = self._turn("Prone?", "c1", "prone", "It is [11.2.114].")
 
@@ -282,7 +239,6 @@ class TestTurnsOf:
             "subject": None}]
 
     def test_given_two_turns_when_read_then_each_counts_only_its_own_calls(self):
-        """So a reopened conversation shows what each answer cost."""
         # Given two turns, every call in them counted
         messages = (self._turn("Prone?", "c1", "prone", "It is [11.2.114].")
                     + self._turn("Grappled?", "c2", "grappled", "It is [11.2.60]."))
@@ -300,7 +256,6 @@ class TestTurnsOf:
             {"input": 2000, "output": 20, "total": 2020, "calls": 2}] * 2
 
     def test_given_two_turns_when_read_then_each_keeps_its_own_lookups(self):
-        """A lookup belongs to the turn that made it, not to the thread."""
         # Given two complete turns in one conversation
         messages = (self._turn("Prone?", "c1", "prone", "First.")
                     + self._turn("Restrained?", "c2", "restrained", "Second."))
@@ -316,10 +271,6 @@ class TestTurnsOf:
 
     def test_given_a_turn_that_never_answered_when_read_then_it_leaks_nothing(
             self):
-        """
-        A turn that ended in an error leaves its lookups behind. They belong
-        to that turn, not to the next question.
-        """
         # Given a turn whose search never reached an answer
         from langchain_core.messages import AIMessage, HumanMessage
 
@@ -361,7 +312,6 @@ class TestTurnsOf:
 
     def test_given_a_result_with_no_artifact_when_read_then_it_reads_as_done(
             self):
-        """Conversations stored before the tools carried one."""
         # Given a turn whose tool result predates the artifact
         messages = self._turn("Prone?", "c1", "prone", "Answer.",
                               artifact={})
@@ -408,14 +358,8 @@ class TestTurnsOf:
 
 
 class TestWrittenAt:
-    """When each message in a thread was first written."""
-
     def test_given_a_dated_conversation_when_read_then_each_turn_carries_its_moment(
             self):
-        """
-        The checkpoint's own timestamp, not anything the model said, so a
-        reopened conversation is dated by when it happened.
-        """
         # Given a conversation whose messages were stamped as they were stored
         from langchain_core.messages import AIMessage, HumanMessage
 
@@ -432,7 +376,6 @@ class TestWrittenAt:
 
     def test_given_an_undated_conversation_when_read_then_the_turns_still_come_back(
             self):
-        """One stored before this was read is still a conversation."""
         # Given messages with nothing known about when they were written
         from langchain_core.messages import AIMessage, HumanMessage
 
@@ -446,8 +389,6 @@ class TestWrittenAt:
 
 
 class TestFindResult:
-    """One lookup's stored result, by the id that joins it to its call."""
-
     @staticmethod
     def _messages(*results):
         from langchain_core.messages import AIMessage, ToolMessage
@@ -457,10 +398,6 @@ class TestFindResult:
             for call_id, body in results]
 
     def test_given_a_call_id_when_looked_up_then_its_own_result_comes_back(self):
-        """
-        The whole of it. The model was given the whole thing, and a reader
-        asking to see what the model saw should get the same.
-        """
         # Given a conversation with two lookups in it
         messages = self._messages(("a", "first result"), ("b", "second result"))
 
@@ -479,7 +416,6 @@ class TestFindResult:
         assert service.find_result(self._messages(("a", "x")), "zzz") is None
 
     def test_given_an_enormous_result_when_looked_up_then_it_is_capped(self):
-        """A wide query renders a whole table, and a browser has to draw it."""
         # Given a result longer than anything worth sending
         messages = self._messages(("a", "x" * (service.RESULT_CHARS + 500)))
 
@@ -492,8 +428,6 @@ class TestFindResult:
 
 
 class TestNameMissingSubjects:
-    """What a stored lookup looked at, where the tool did not say."""
-
     @staticmethod
     def _turn(**call):
         return [{"role": "assistant", "content": "…", "tools": [
@@ -503,10 +437,6 @@ class TestNameMissingSubjects:
 
     def test_given_a_legacy_lookup_when_read_then_the_graph_names_it(
             self, graph):
-        """
-        A conversation answered before the tools carried an artifact has only
-        the dotted id it was called with, and `11.2.114` names nothing.
-        """
         # Given a stored lookup with an id and no subject
         turns = self._turn(args={"section_id": "11.2.114"})
 
@@ -529,8 +459,6 @@ class TestNameMissingSubjects:
         assert turns[0]["tools"][0]["subject"] == "Something else"
 
     def test_given_a_lookup_with_no_id_when_read_then_nothing_is_invented(self):
-        """A search argument is the words someone chose; there is nothing to
-        look up and no round trip to make."""
         # Given a search, which carries no section id
         turns = self._turn(name="search_srd", args={"query": "prone"})
 
@@ -542,7 +470,6 @@ class TestNameMissingSubjects:
 
     def test_given_an_id_that_resolves_to_nothing_when_read_then_it_stays_empty(
             self, graph):
-        """A re-parse can drop an id a stored conversation still names."""
         # Given a lookup of a section that is no longer there
         turns = self._turn(args={"section_id": "999.999"})
 
@@ -554,7 +481,6 @@ class TestNameMissingSubjects:
 
     def test_given_one_id_read_twice_when_filled_then_it_is_looked_up_once(
             self, monkeypatch):
-        """A long conversation revisits the same section repeatedly."""
         # Given two lookups of the same section, and a counted resolver
         calls = []
         monkeypatch.setattr(
@@ -571,14 +497,8 @@ class TestNameMissingSubjects:
 
 
 class TestUntilSilent:
-    """The agent's own stream, failed after a period of silence."""
-
     @pytest.mark.asyncio
     async def test_given_a_stalled_stream_when_run_then_the_turn_fails(self):
-        """
-        A stalled call never yields and never raises, so without this the
-        turn hangs with no answer, no error and no offer.
-        """
         # Given a stream that says nothing at all
         async def never_speaks():
             await asyncio.sleep(30)
@@ -592,7 +512,6 @@ class TestUntilSilent:
 
     @pytest.mark.asyncio
     async def test_given_a_slow_but_steady_stream_when_run_then_it_is_never_cut_off(self):
-        """The limit is on silence, not on how long an answer may take."""
         # Given a stream slower overall than the limit but never silent for it
         async def slow_but_steady():
             for index in range(4):
@@ -620,8 +539,6 @@ class TestUntilSilent:
 
 
 class TestStreamTurn:
-    """One user message, run until the answer is complete."""
-
     @pytest.mark.asyncio
     async def test_given_a_turn_when_run_then_what_it_cost_comes_before_done(
             self, graph, stub_model, saver):
@@ -639,10 +556,6 @@ class TestStreamTurn:
     @pytest.mark.asyncio
     async def test_given_a_failed_model_when_run_then_the_error_is_the_answer(
             self, graph, saver, monkeypatch):
-        """
-        The model is required, so nothing stands in for it: a spent quota is
-        a broken model, and saying so is the honest reply.
-        """
         # Given a model that fails on the first call
         monkeypatch.setattr(service, "build_agent",
                             raising(RuntimeError("429 RESOURCE_EXHAUSTED")))
@@ -658,10 +571,6 @@ class TestStreamTurn:
     @pytest.mark.asyncio
     async def test_given_a_failed_model_when_run_then_nothing_is_offered(
             self, graph, saver, monkeypatch):
-        """
-        There used to be a button here offering the passages instead.  An
-        error that carries a way to not be an error is not an error.
-        """
         # Given a model that fails
         monkeypatch.setattr(service, "build_agent",
                             raising(RuntimeError("429 RESOURCE_EXHAUSTED")))
@@ -689,10 +598,6 @@ class TestStreamTurn:
     @pytest.mark.asyncio
     async def test_given_a_finished_answer_when_it_ends_then_it_cites_the_book(
             self, graph, stub_model, saver):
-        """
-        Citations are driven by the answer, so one that resolves proves the
-        whole chain: search, answer, id, lookup.
-        """
         # Given a turn
         # When it finishes
         events = await collect("Prone condition", saver)
@@ -715,8 +620,6 @@ class TestStreamTurn:
 
 
 class TestHistory:
-    """The stored turns of one thread, for a UI reopening it."""
-
     @pytest.mark.asyncio
     async def test_given_a_stored_thread_when_read_then_the_turns_come_back(
             self, graph, stub_model, saver):
@@ -743,8 +646,6 @@ class TestHistory:
 
 
 class TestLastQuestion:
-    """The final question in a conversation, and the message it is."""
-
     def test_given_a_conversation_when_read_then_the_latest_question_wins(self):
         # Given a conversation of two answered turns
         from langchain_core.messages import AIMessage, HumanMessage
@@ -759,8 +660,6 @@ class TestLastQuestion:
 
     def test_given_a_turn_that_failed_when_read_then_the_question_still_stands(
             self):
-        """A turn the model could not answer stores the question and nothing
-        else, which is exactly the turn somebody retries."""
         # Given a question with no answer under it
         from langchain_core.messages import HumanMessage
         messages = [HumanMessage(content="Prone?")]
@@ -777,15 +676,9 @@ class TestLastQuestion:
 
 
 class TestRewind:
-    """Undoing the last turn, which is what makes a retry a retry."""
-
     @pytest.mark.asyncio
     async def test_given_a_later_turn_when_rewound_then_it_branches_before_it(
             self, graph, stub_model, saver):
-        """
-        Re-asking without this would append, and the conversation would hold
-        the same question twice for as long as it existed.
-        """
         # Given a conversation of two answered turns
         await answer(saver, "again", "Prone condition")
         await answer(saver, "again", "Restrained condition")
@@ -806,10 +699,8 @@ class TestRewind:
     async def test_given_the_only_turn_when_rewound_then_it_branches_before_it(
             self, graph, stub_model, saver):
         """
-        The first question is not a special case: the graph checkpoints a
-        step before the input reaches it, so even the opening turn has an
-        empty state to branch from.  The thread id survives the rewind either
-        way, which is what the browser is holding and what a pin is keyed on.
+        The graph checkpoints once before the input, so the first turn has an
+        empty state to branch from.
         """
         # Given a conversation of one answered turn
         await answer(saver, "first", "Prone condition")
@@ -835,8 +726,6 @@ class TestRewind:
 
 
 class TestThreads:
-    """Every conversation on disk, pinned first and newest first within that."""
-
     @pytest.mark.asyncio
     async def test_given_two_conversations_when_listed_then_the_newest_leads(
             self, graph, stub_model, saver, store):
@@ -853,10 +742,6 @@ class TestThreads:
     @pytest.mark.asyncio
     async def test_given_a_pinned_conversation_when_listed_then_it_sorts_above(
             self, graph, stub_model, saver, store):
-        """
-        Newest-first is the right default and the wrong answer for the three
-        conversations someone keeps coming back to.
-        """
         # Given two conversations with the older one pinned
         await answer(saver, "older", "Prone condition")
         await answer(saver, "newer", "Restrained condition")
@@ -872,7 +757,6 @@ class TestThreads:
     @pytest.mark.asyncio
     async def test_given_no_store_when_listed_then_nothing_is_pinned(
             self, graph, stub_model, saver):
-        """The pins are a second store, and a caller may not have opened one."""
         # Given a conversation and no store to ask
         await answer(saver, "alone")
 
@@ -900,7 +784,6 @@ class TestThreads:
     @pytest.mark.asyncio
     async def test_given_a_stored_title_when_listed_then_it_names_the_conversation(
             self, graph, stub_model, saver, store):
-        """The cut question is what a conversation without one falls back to."""
         # Given two conversations, only one of them titled
         await answer(saver, "titled", "What exactly does the Prone condition do?")
         await answer(saver, "untitled", "Restrained condition")
@@ -915,8 +798,6 @@ class TestThreads:
 
 
 class TestPinned:
-    """The pinned thread ids."""
-
     @pytest.mark.asyncio
     async def test_given_no_store_when_asked_then_nothing_is_pinned(self):
         # Given no store at all
@@ -926,7 +807,7 @@ class TestPinned:
 
     @pytest.mark.asyncio
     async def test_given_many_pins_when_asked_then_every_one_comes_back(self, store):
-        """``asearch`` defaults to ten, which silently unpinned the eleventh."""
+        """``BaseStore.asearch`` returns ten results by default."""
         # Given more pins than a default page holds
         for n in range(11):
             await service.set_pinned(store, f"t{n}", True)
@@ -937,12 +818,9 @@ class TestPinned:
 
 
 class TestSetPinned:
-    """Pinning and unpinning one conversation."""
-
     @pytest.mark.asyncio
     async def test_given_a_pin_when_removed_then_the_row_is_deleted(
             self, graph, stub_model, saver, store):
-        """A pin is its own presence; the value carries nothing the key does not."""
         # Given a pinned conversation
         await answer(saver, "kept")
         await service.set_pinned(store, "kept", True)
@@ -957,15 +835,9 @@ class TestSetPinned:
 
 
 class TestForget:
-    """Dropping one conversation and everything checkpointed under it."""
-
     @pytest.mark.asyncio
     async def test_given_a_conversation_when_deleted_then_nothing_of_it_remains(
             self, graph, stub_model, saver):
-        """
-        There is no thread table, so dropping the checkpoints is what
-        deleting a conversation *is*.
-        """
         # Given a stored conversation
         await answer(saver, "doomed")
         assert [t["thread_id"] for t in await service.threads(saver)] == ["doomed"]
@@ -981,7 +853,6 @@ class TestForget:
     @pytest.mark.asyncio
     async def test_given_a_pinned_conversation_when_deleted_then_the_pin_goes_too(
             self, graph, stub_model, saver, store):
-        """Otherwise the pin is a row nothing reads and nothing cleans up."""
         # Given a pinned conversation
         await answer(saver, "doomed")
         await service.set_pinned(store, "doomed", True)
@@ -1008,7 +879,6 @@ class TestForget:
     @pytest.mark.asyncio
     async def test_given_an_id_nobody_used_when_deleted_then_it_is_not_a_delete(
             self, saver):
-        """So the route can answer 404 rather than reporting a success."""
         # Given an id nothing was stored under
         # When it is deleted
         # Then nothing was deleted, and the caller is told

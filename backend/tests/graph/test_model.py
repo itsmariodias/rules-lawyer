@@ -1,12 +1,3 @@
-"""
-The typed contract between the mapper and the loader.
-
-``clean`` is the piece that earns its own tests: Neo4j stores primitives and
-homogeneous arrays only, and the artifact is full of nested dicts.  Failing
-here names the offending *field*; Neo4j's own error names only the value, and
-arrives partway through a load.
-"""
-
 from __future__ import annotations
 
 import json
@@ -18,8 +9,6 @@ from dnd_graph_rag.graph.model import (EdgeBatch, GraphData, NodeBatch,
 
 
 class TestNodeBatch:
-    """Rows that MERGE on a key and carry a label set."""
-
     def test_given_labels_when_read_then_the_first_is_the_one_merged_on(self):
         # Given a batch carrying several labels
         batch = NodeBatch(labels=["Section", "Spell"], key="id")
@@ -60,8 +49,6 @@ class TestNodeBatch:
 
 
 class TestEdgeBatch:
-    """Rows that MATCH both endpoints and MERGE a relationship between them."""
-
     def test_given_an_edge_when_added_then_both_endpoints_are_recorded(self):
         # Given a relationship batch
         batch = EdgeBatch(type="HAS_SUBSECTION", start_label="Section",
@@ -86,8 +73,6 @@ class TestEdgeBatch:
 
 
 class TestGraphData:
-    """Everything the loader needs, plus what the mapper noticed on the way."""
-
     @pytest.fixture
     def data(self) -> GraphData:
         sections = NodeBatch(labels=["Section"], key="id")
@@ -109,10 +94,6 @@ class TestGraphData:
         assert data.edge_count == 1
 
     def test_given_batches_when_summarised_then_labels_are_the_exact_set(self):
-        """
-        An entity that folds into its section adds labels to it, so counting
-        `:Section` alone would also count what folded in.
-        """
         # Given batches whose label sets differ
         sections = NodeBatch(labels=["Section"], key="id")
         sections.add(id="1")
@@ -143,8 +124,6 @@ class TestGraphData:
 
 
 class TestClean:
-    """Sparse properties in, nothing Neo4j could not hold out."""
-
     def test_given_nulls_and_empty_lists_when_cleaned_then_they_are_dropped(self):
         # Given a row with properties that would be stored as null anyway
         # When it is cleaned
@@ -175,10 +154,7 @@ class TestClean:
 
 
 class TestAsJson:
-    """Keeping a nested structure that has no useful flat form."""
-
     def test_given_a_nested_value_when_serialised_then_it_is_stable(self):
-        """Sorted keys, so a re-map produces the same string and MERGE is a no-op."""
         # Given a structure worth carrying but not worth querying on
         outcomes = {"hit": {"text": "5 Piercing damage"}, "miss": {"text": "None"}}
 
