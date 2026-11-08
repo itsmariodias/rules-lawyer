@@ -165,7 +165,8 @@ GET  /chat/threads/{id}/lookups/{call_id}  one tool call's stored result
 POST /chat/threads/{id}/retry         re-ask the last question -> SSE; 404 empty
 PUT  /chat/threads/{id}/pin           {"pinned"}; 404 if no such thread
 DEL  /chat/threads/{id}               delete; 404 if no such thread
-GET  /source/{id}?context=400         markdown slice, highlight offsets, boxes
+GET  /source/{id}?context=400         markdown slice, highlight offsets, boxes,
+                                      ancestors, parent, children
 GET  /neighbourhood?section=|node=    &depth &fan &limit
 ```
 
@@ -522,6 +523,19 @@ A LangGraph tool-calling agent (`langchain.agents.create_agent`) on Gemini
 - The Page tab is a pdf.js render with highlight boxes from
   `/source/{id}`, so a citation is checkable against the printed page. With
   nothing cited it is the whole book, lazily rendered, with a page-jump box.
+- **A citation shows its place in the book:** a breadcrumb from the
+  top-level section down to the cited one (`ancestors`, read from the
+  `HAS_SUBSECTION` path), every ancestor clickable, and its subsections
+  listed below the page in book order.
+- **A section is boxed with everything under it,** since its `char_end`
+  covers every descendant: 16 pages for Rules Definitions, 87 for
+  Monsters A-Z. So only the first page with boxes renders at once and
+  scrolls itself into view; the rest have placeholders sized from page 1's
+  aspect and render as they scroll near. (When every page scrolled itself
+  into view, the last to render won, and the panel opened at a seemingly
+  random page.)
+- **Closing the panel clears the citation** (the close button or the active
+  toolbar tab), so reopening it shows the whole book.
 - **Width is the reader's choice:** a dragged handle (listeners on the
   window, 4px grip in a 13px target, a real grid column) with a remembered
   width, defaulting to half the window and clamped to leave the conversation
@@ -646,11 +660,10 @@ used and the printed one kept in `printed_score`.
   the model at `query_srd_graph`.
 - The graph view opens only on a citation; there is no node search to start
   from.
-- **A citation is a dead end for reading the book.** A cited section shows
-  only its one or two pages, with no page-jump, and `App.tsx` never clears
-  `cited`, so the whole-book reader is reachable only before the first
-  citation of a session. Clearing it is a one-line fix; the larger question
-  is whether a citation should open the whole book at that position, boxed.
+- A cited section shows only its one or two pages, with no page-jump and
+  no paging past the passage. The open question is whether a citation should
+  open the whole book at that position, boxed, so the two states differ only
+  by the highlight.
 - The panel shows the PDF; nothing renders the markdown `/source` returns.
 - No CI. A workflow needs an `srd-parse` step (the artifact is gitignored),
   a `neo4j:5.26-community` service for graph and chat tests, and a decision

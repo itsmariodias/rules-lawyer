@@ -25,8 +25,14 @@ vi.mock('./useChat', () => ({ useChat: () => chat }))
 // Has its own tests; the shell's tests assume a connected graph.
 vi.mock('./useGraphStatus', () => ({ useGraphStatus: () => 'connected' }))
 vi.mock('./components/SidePanel', () => ({
-  SidePanel: ({ sectionId, tab }: { sectionId: string | null; tab: string }) =>
-    <div data-testid="panel">{`${tab}:${sectionId ?? 'none'}`}</div>,
+  SidePanel: ({ sectionId, tab, onClose }: {
+    sectionId: string | null; tab: string; onClose: () => void
+  }) => (
+    <div data-testid="panel">
+      {`${tab}:${sectionId ?? 'none'}`}
+      <button onClick={onClose}>Close panel</button>
+    </div>
+  ),
 }))
 vi.mock('./logo.svg?raw', () => ({ default: '<svg></svg>' }))
 
@@ -363,6 +369,40 @@ describe('the conversation', () => {
 
     // Then the panel opens on that passage's page
     expect(screen.getByTestId('panel')).toHaveTextContent('page:11.2.114')
+  })
+
+  it('given an open citation, when the panel is closed and reopened, then it shows the whole book', async () => {
+    // Given a citation open in the panel
+    chat.messages = [
+      { role: 'user', content: 'Prone?' },
+      { role: 'assistant', content: 'Disadvantage [11.2.114].' },
+    ]
+    render(<App />)
+    await userEvent.click(screen.getByRole('button', { name: '1' }))
+
+    // When the panel is closed and the book is opened from the toolbar
+    await userEvent.click(screen.getByRole('button', { name: 'Close panel' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Book page' }))
+
+    // Then it opens on the whole book, not the old citation
+    expect(screen.getByTestId('panel')).toHaveTextContent('page:none')
+  })
+
+  it('given an open citation, when its toolbar tab closes the panel, then the citation is cleared', async () => {
+    // Given a citation open on the Page tab
+    chat.messages = [
+      { role: 'user', content: 'Prone?' },
+      { role: 'assistant', content: 'Disadvantage [11.2.114].' },
+    ]
+    render(<App />)
+    await userEvent.click(screen.getByRole('button', { name: '1' }))
+
+    // When the Page tab is pressed twice: once to close, once to reopen
+    await userEvent.click(screen.getByRole('button', { name: 'Book page' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Book page' }))
+
+    // Then it reopens on the whole book
+    expect(screen.getByTestId('panel')).toHaveTextContent('page:none')
   })
 
   it('given an inline citation, when pressed, then it opens the same passage', async () => {

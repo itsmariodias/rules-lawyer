@@ -93,18 +93,36 @@ test.describe('the page panel', () => {
     expect(size).toBeGreaterThan(1)
   })
 
-  test('given a parent section, when followed, then the panel moves to it',
+  test('given a nested citation, when its top-level ancestor is followed, then the panel moves to it',
        async ({ app }) => {
-    // Given a cited passage printed inside another section
+    // Given a cited passage, with its path through the book above the page
     await citation(app)
-    const parent = panel(app).locator('.meta button.link')
-    const heading = await parent.innerText()
+    const crumbs = panel(app).getByRole('navigation',
+                                        { name: 'Location in the book' })
+    const cited = await panel(app).locator('h2').innerText()
+    await expect(crumbs.locator('[aria-current]')).toHaveText(cited)
+    const top = crumbs.getByRole('button').first()
+    const heading = await top.innerText()
 
-    // When the parent is followed
-    await parent.click()
+    // When the top of that path is followed
+    await top.click()
 
-    // Then the panel is showing that section instead
+    // Then the panel is showing that section, which has no path above it
     await expect(panel(app).locator('h2')).toHaveText(heading)
+    await expect(crumbs).toHaveCount(0)
+  })
+
+  test('given a citation, when the panel is closed and reopened, then it is the whole book',
+       async ({ app }) => {
+    // Given a cited passage open in the panel
+    await citation(app)
+
+    // When the panel is closed and opened again from the toolbar
+    await panel(app).getByRole('button', { name: 'Close panel' }).click()
+    await app.getByRole('button', { name: 'Book page' }).click()
+
+    // Then it is the whole book, with the page-jump to move through it
+    await expect(panel(app).getByLabel('Page')).toBeVisible()
   })
 
   test('given nothing cited, when the panel is opened, then the book is browsable',

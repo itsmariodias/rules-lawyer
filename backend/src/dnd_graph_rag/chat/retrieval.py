@@ -311,34 +311,46 @@ def hybrid_search(text: str, limit: int = 3, types: list[str] | None = None,
 
 _SECTION = """
 MATCH (n:Section {id: $id})
+CALL (n) {
+  OPTIONAL MATCH path = (root:Section)-[:HAS_SUBSECTION*]->(n)
+  WHERE NOT ()-[:HAS_SUBSECTION]->(root)
+  RETURN coalesce([a IN nodes(path)[..-1] | {id: a.id, heading: a.heading}],
+                  []) AS ancestors
+}
 OPTIONAL MATCH (parent:Section)-[:HAS_SUBSECTION]->(n)
 OPTIONAL MATCH (n)-[:HAS_SUBSECTION]->(child:Section)
 RETURN n.id AS id, n.heading AS heading, n.entity_type AS entity_type,
        n.content AS content, n.page_start AS page_start,
        n.char_start AS char_start, n.char_end AS char_end, labels(n) AS labels,
-       parent.id AS parent_id, parent.heading AS parent_heading,
-       collect(DISTINCT {id: child.id, heading: child.heading}) AS children
+       parent.id AS parent_id, parent.heading AS parent_heading, ancestors,
+       collect(DISTINCT {id: child.id, heading: child.heading,
+                         char_start: child.char_start}) AS children
 """
 
 
 def get_section(section_id: str) -> tuple[Passage, dict] | None:
     """
-    One section by dotted id, with its parent and children.
+    One section by dotted id, with its place in the tree.
 
     Args:
         section_id: e.g. ``"11.2.114"``.
 
     Returns:
-        ``(passage, {"parent", "children"})``, or None if no such section.
+        ``(passage, {"ancestors", "parent", "children"})``, or None if no
+        such section.  ``ancestors`` runs from the top-level section down to
+        the parent, and is empty for a top-level section.  ``children`` are
+        in book order and carry ``char_start``.
     """
     rows = query(_SECTION, {"id": section_id})
     if not rows:
         return None
     row = rows[0]
     context = {
+        "ancestors": row["ancestors"],
         "parent": ({"id": row["parent_id"], "heading": row["parent_heading"]}
                    if row["parent_id"] else None),
         # collect() over an unmatched OPTIONAL MATCH yields one all-null map.
-        "children": [c for c in row["children"] if c["id"]],
+        "children": sorted((c for c in row["children"] if c["id"]),
+                           key=lambda c: c["char_start"] or 0),
     }
     return Passage.from_row(row), context

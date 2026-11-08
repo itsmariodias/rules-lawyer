@@ -115,8 +115,8 @@ export default function App() {
   const graph = useGraphStatus()
   const [draft, setDraft] = useState('')
   const [theme, setTheme] = useTheme()
-  // Separate from `panelOpen`: the panel can open with nothing cited, and
-  // closing it keeps the citation.
+  // Separate from `panelOpen`: the panel can open with nothing cited.
+  // Closing it clears the citation, so the toolbar reopens the whole book.
   const [cited, setCited] = useState<string | null>(null)
   const [tab, setTab] = useState<Tab>('page')
   const [panelOpen, setPanelOpen] = useState(false)
@@ -176,9 +176,14 @@ export default function App() {
     </ul>
   )
 
+  const closePanel = () => {
+    setPanelOpen(false)
+    setCited(null)
+  }
+
   // Clicking the active tab closes the panel; another tab switches to it.
   const toggle = (next: Tab) => {
-    if (panelOpen && tab === next) setPanelOpen(false)
+    if (panelOpen && tab === next) closePanel()
     else { setTab(next); setPanelOpen(true) }
   }
 
@@ -396,7 +401,7 @@ export default function App() {
                              onResize={setPanel} />}
       {panelOpen && (
         <SidePanel sectionId={cited} tab={tab} onTab={setTab}
-                   onClose={() => setPanelOpen(false)} onNavigate={setCited} />
+                   onClose={closePanel} onNavigate={setCited} />
       )}
       {arming && (
         <ConfirmDelete

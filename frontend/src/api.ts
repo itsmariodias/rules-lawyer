@@ -88,6 +88,8 @@ export type SourceExcerpt = {
   boxes: Box[]
   /** Pages the boxes fall on, ascending. */
   pages: number[]
+  /** From the top-level section down to the parent; empty at the top. */
+  ancestors: { id: string; heading: string }[]
   parent: { id: string; heading: string } | null
   children: { id: string; heading: string }[]
 }

@@ -20,19 +20,63 @@ let document_: Promise<pdfjs.PDFDocumentProxy> | null = null
 const load = () =>
   (document_ ??= pdfjs.getDocument({ url: '/api/pdf' }).promise)
 
+/**
+ * The page count and page 1's height/width.  Every SRD page is the same
+ * size, so this sizes the placeholders of pages not yet rendered.
+ */
+function useShape() {
+  const [shape, setShape] = useState<{ count: number; aspect: number } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const pdf = await load()
+        const viewport = (await pdf.getPage(1)).getViewport({ scale: 1 })
+        if (!cancelled) {
+          setShape({ count: pdf.numPages, aspect: viewport.height / viewport.width })
+        }
+      } catch (failure) {
+        if (!cancelled) setError(String(failure))
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  return { shape, error }
+}
+
 type Props = { excerpt: SourceExcerpt; zoom: number }
 
+/**
+ * The pages a section is printed on, boxed.  A top-level section covers
+ * dozens of pages, so only the first page with boxes renders at once; the
+ * rest render as they scroll near, like `PdfBook`.
+ */
 export function PdfPage({ excerpt, zoom }: Props) {
   const [error, setError] = useState<string | null>(null)
+  const { shape, error: shapeError } = useShape()
   const armed = useSpaceHeld()
   const pages = excerpt.pages?.length ? excerpt.pages : [excerpt.page ?? 1]
+  // Only one page may scroll itself into view: otherwise whichever renders
+  // last wins and the panel opens partway through the section.
+  const first = excerpt.boxes[0]?.page ?? pages[0]
+
+  // Placeholders need the aspect, or every unrendered page is 0px tall and
+  // all of them count as near.
+  if (!shape) {
+    return shapeError ? <p className="error">{shapeError}</p>
+                      : <p className="muted">Loading the page…</p>
+  }
 
   return (
     <div className={armed ? 'pdf grabbable' : 'pdf'}>
       {error && <p className="error">{error}</p>}
       {pages.map((page) => (
-        <Page key={page} page={page} zoom={zoom} onError={setError} eager
-              armed={armed}
+        <Page key={page} page={page} zoom={zoom} onError={setError}
+              eager={page === first} aspect={shape.aspect}
+              armed={armed} scrollToBox={page === first}
               boxes={excerpt.boxes.filter((b) => b.page === page)} />
       ))}
     </div>
@@ -48,27 +92,12 @@ export function PdfBook({ zoom, jumpTo }: {
   /** `nth` changes per request, so the same page twice still scrolls. */
   jumpTo: { page: number; nth: number } | null
 }) {
-  const [book, setBook] = useState<{ count: number; aspect: number } | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const { shape: book, error: shapeError } = useShape()
+  const [pageError, setError] = useState<string | null>(null)
+  const error = shapeError ?? pageError
   // Once here rather than in each of the 364 pages.
   const armed = useSpaceHeld()
   const root = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      try {
-        const pdf = await load()
-        const viewport = (await pdf.getPage(1)).getViewport({ scale: 1 })
-        if (!cancelled) {
-          setBook({ count: pdf.numPages, aspect: viewport.height / viewport.width })
-        }
-      } catch (failure) {
-        if (!cancelled) setError(String(failure))
-      }
-    })()
-    return () => { cancelled = true }
-  }, [])
 
   // Also on `book`, so a jump requested before the list existed still lands.
   useEffect(() => {
@@ -90,10 +119,12 @@ export function PdfBook({ zoom, jumpTo }: {
   )
 }
 
-function Page({ page, zoom, boxes, aspect, eager, armed, onError }: {
+function Page({ page, zoom, boxes, aspect, eager, armed, scrollToBox, onError }: {
   page: number
   zoom: number
   boxes: SourceExcerpt['boxes']
+  /** Scroll this page's first box into view on mount. */
+  scrollToBox?: boolean
   /** Height/width, for sizing the placeholder before render. */
   aspect?: number
   /** Render without waiting to scroll near. */
@@ -230,8 +261,7 @@ function Page({ page, zoom, boxes, aspect, eager, armed, onError }: {
         <div className="pdf-boxes">
           {boxes.map((box, index) => (
             <span key={index}
-                  // Scroll the first box into view.
-                  ref={index === 0 ? scrollTo : undefined}
+                  ref={scrollToBox && index === 0 ? scrollTo : undefined}
                   style={{
                     left: box.x0 * scale,
                     top: box.y0 * scale,

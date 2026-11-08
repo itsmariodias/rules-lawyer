@@ -37,7 +37,7 @@ const excerpt = (overrides: Partial<SourceExcerpt> = {}): SourceExcerpt => ({
   entity_type: 'glossary_term', page: 186, text: 'While you have…',
   highlight: null, pages: [186],
   boxes: [{ page: 186, x0: 57, y0: 100, x1: 300, y1: 112 }],
-  parent: null, children: [], ...overrides,
+  ancestors: [], parent: null, children: [], ...overrides,
 })
 
 beforeEach(() => {
@@ -125,6 +125,42 @@ describe('PdfPage', () => {
     // Then the reader is taken to the passage rather than to the page
     await waitFor(() => expect(Element.prototype.scrollIntoView)
       .toHaveBeenCalledWith({ block: 'center' }))
+  })
+
+  it('given a passage across two pages, when drawn, then only the first page scrolls into view', async () => {
+    /** Regression: every page scrolled itself, so the last to render won. */
+    // Given a passage boxed on two pages
+    const { container } = render(<PdfPage zoom={1} excerpt={excerpt({
+      pages: [186, 187],
+      boxes: [{ page: 186, x0: 57, y0: 600, x1: 300, y1: 612 },
+              { page: 187, x0: 57, y0: 100, x1: 300, y1: 112 }],
+    })} />)
+
+    // When both pages are drawn
+    await screen.findByText('p. 187')
+    await waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalled())
+
+    // Then the only box scrolled to is the first one, on the first page
+    const scrolled = vi.mocked(Element.prototype.scrollIntoView).mock.contexts
+    const first = container.querySelector('[data-page="186"] .pdf-boxes span')
+    expect(scrolled).toEqual([first])
+  })
+
+  it('given a section across many pages, when drawn, then only its first page renders at once', async () => {
+    // Given a section boxed across five pages
+    const pages = [176, 177, 178, 179, 180]
+    render(<PdfPage zoom={1} excerpt={excerpt({
+      pages,
+      boxes: pages.map((page) => ({ page, x0: 57, y0: 100, x1: 300, y1: 112 })),
+    })} />)
+
+    // When it is drawn
+    await screen.findByText('p. 180')
+
+    // Then every page has its place, but only the first is rendered; the
+    // rest wait until they are scrolled near
+    await waitFor(() => expect(renders).toHaveBeenCalledTimes(1))
+    expect(screen.getAllByText(/^p\. \d+$/)).toHaveLength(5)
   })
 
   it('given a rendered page, when the text layer is built, then it gets the right variable', async () => {

@@ -52,11 +52,14 @@ def excerpt(section_id: str, context: int = 0) -> dict | None:
         section_id: Dotted section id.
         context: Extra characters of markdown on each side of the section.
 
+    A section covers all its subsections, so a top-level section's boxes can
+    run to dozens of pages (87 for Monsters A-Z).
+
     Returns:
         ``text`` (the widened slice), ``highlight`` (the section's offsets
         within ``text``), ``boxes`` and ``pages`` (for the section alone),
-        heading, type, labels, ``parent`` and ``children``.  None if no such
-        section.
+        heading, type, labels, ``ancestors``, ``parent`` and ``children``.
+        None if no such section.
 
     Raises:
         FileNotFoundError: The markdown has not been generated.

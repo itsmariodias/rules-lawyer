@@ -103,16 +103,8 @@ export function SidePanel({ sectionId, tab, onTab, onClose, onNavigate }: Props)
               <p className="meta">
                 <code>{excerpt.section_id}</code>
                 {excerpt.entity_type && <span> · {excerpt.entity_type}</span>}
-                {excerpt.parent && (
-                  <>
-                    {' · in '}
-                    <button className="link"
-                            onClick={() => onNavigate(excerpt.parent!.id)}>
-                      {excerpt.parent.heading}
-                    </button>
-                  </>
-                )}
               </p>
+              <Breadcrumb excerpt={excerpt} onNavigate={onNavigate} />
               <Suspense fallback={<p className="muted">Loading the page…</p>}>
                 <PdfPage excerpt={excerpt} zoom={zoom} />
               </Suspense>
@@ -136,6 +128,32 @@ export function SidePanel({ sectionId, tab, onTab, onClose, onNavigate }: Props)
         </div>
       )}
     </aside>
+  )
+}
+
+/** The cited section's path from its top-level section, ancestors clickable. */
+function Breadcrumb({ excerpt, onNavigate }: {
+  excerpt: SourceExcerpt
+  onNavigate: (sectionId: string) => void
+}) {
+  const ancestors = excerpt.ancestors ?? []
+  if (ancestors.length === 0) return null
+  return (
+    <nav className="crumbs" aria-label="Location in the book">
+      <ol>
+        {ancestors.map((ancestor) => (
+          <li key={ancestor.id}>
+            <button className="link" title={ancestor.id}
+                    onClick={() => onNavigate(ancestor.id)}>
+              {ancestor.heading}
+            </button>
+          </li>
+        ))}
+        <li aria-current="location">
+          {excerpt.heading ?? excerpt.section_id}
+        </li>
+      </ol>
+    </nav>
   )
 }
 

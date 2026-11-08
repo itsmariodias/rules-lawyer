@@ -1,6 +1,6 @@
 /** pdf.js and the graph view are mocked. */
 
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -25,6 +25,8 @@ const excerpt = (overrides: Partial<SourceExcerpt> = {}): SourceExcerpt => ({
   section_id: '11.2.114', heading: 'Prone [Condition]',
   entity_type: 'glossary_term', page: 186, text: 'While you have…',
   highlight: { start: 0, end: 10 }, boxes: [], pages: [186],
+  ancestors: [{ id: '11', heading: 'Rules Glossary' },
+              { id: '11.2', heading: 'Rules Definitions' }],
   parent: { id: '11.2', heading: 'Rules Definitions' }, children: [],
   ...overrides,
 })
@@ -129,16 +131,48 @@ describe('SidePanel', () => {
     expect(await screen.findByTestId('pdf-page')).toHaveTextContent('page at 2')
   })
 
-  it('given a parent section, when it is pressed, then the panel navigates to it', async () => {
-    // Given a citation printed inside another section
-    const { props } = panel()
+  it('given a nested citation, when shown, then its path runs from the top of the book', async () => {
+    // Given a citation two levels below a top-level section
+    panel()
 
-    // When the parent is pressed
-    await userEvent.click(await screen.findByRole('button',
-                                                  { name: 'Rules Definitions' }))
+    // When the panel shows it
+    const crumbs = await screen.findByRole('navigation',
+                                           { name: 'Location in the book' })
+
+    // Then every ancestor is listed in order, ending on the cited section
+    expect(within(crumbs).getAllByRole('listitem').map((item) => item.textContent))
+      .toEqual(['Rules Glossary', 'Rules Definitions', 'Prone [Condition]'])
+    expect(within(crumbs).getByText('Prone [Condition]'))
+      .toHaveAttribute('aria-current', 'location')
+  })
+
+  it('given any ancestor, when it is pressed, then the panel navigates to it', async () => {
+    // Given a nested citation
+    const { props } = panel()
+    const crumbs = await screen.findByRole('navigation',
+                                           { name: 'Location in the book' })
+
+    // When the top-level section is pressed
+    await userEvent.click(within(crumbs).getByRole('button',
+                                                   { name: 'Rules Glossary' }))
 
     // Then the panel is asked to open it
-    expect(props.onNavigate).toHaveBeenCalledWith('11.2')
+    expect(props.onNavigate).toHaveBeenCalledWith('11')
+  })
+
+  it('given a top-level section, when shown, then there is no path to draw', async () => {
+    // Given a citation of a top-level section
+    vi.mocked(api.loadSource).mockResolvedValue(
+      excerpt({ section_id: '11', heading: 'Rules Glossary', ancestors: [],
+                parent: null }))
+    panel({ sectionId: '11' })
+
+    // When the panel shows it
+    await screen.findByRole('heading', { name: 'Rules Glossary' })
+
+    // Then no breadcrumb is drawn
+    expect(screen.queryByRole('navigation', { name: 'Location in the book' }))
+      .toBeNull()
   })
 
   it('given subsections, when one is pressed, then the panel navigates to it', async () => {

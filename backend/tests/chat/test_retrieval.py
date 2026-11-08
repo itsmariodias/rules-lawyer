@@ -361,6 +361,39 @@ class TestGetSection:
         assert context["parent"] is not None
         assert context["parent"]["id"]
 
+    def test_given_a_nested_section_when_fetched_then_its_ancestors_run_from_the_root(
+            self, graph):
+        # Given a loaded graph
+        # When a section three levels deep is fetched
+        _, context = retrieval.get_section("11.2.114")
+
+        # Then its ancestors run from the top-level section to its parent
+        ids = [ancestor["id"] for ancestor in context["ancestors"]]
+        assert ids == ["11", "11.2"]
+        assert all(ancestor["heading"] for ancestor in context["ancestors"])
+        assert context["ancestors"][-1]["id"] == context["parent"]["id"]
+
+    def test_given_many_subsections_when_fetched_then_they_are_in_book_order(
+            self, graph):
+        # Given a section with 155 subsections
+        # When it is fetched
+        _, context = retrieval.get_section("11.2")
+
+        # Then they come back in the order the book prints them
+        starts = [child["char_start"] for child in context["children"]]
+        assert starts == sorted(starts)
+        assert context["children"][0]["id"] == "11.2.1"
+
+    def test_given_a_top_level_section_when_fetched_then_it_has_no_ancestors(
+            self, graph):
+        # Given a loaded graph
+        # When a top-level section is fetched
+        _, context = retrieval.get_section("11")
+
+        # Then there is nothing above it
+        assert context["ancestors"] == []
+        assert context["parent"] is None
+
     def test_given_a_leaf_section_when_fetched_then_it_has_no_children(self, graph):
         """
         ``collect`` over an unmatched OPTIONAL MATCH yields one all-null map.

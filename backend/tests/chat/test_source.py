@@ -71,8 +71,20 @@ class TestExcerpt:
         excerpt = source.excerpt("11.2.114")
 
         # When its surroundings are read
-        # Then the parent and children come with it, as the graph knows them
+        # Then its ancestors, parent and children come with it
         assert "parent" in excerpt and "children" in excerpt
+        assert [a["id"] for a in excerpt["ancestors"]] == ["11", "11.2"]
+
+    def test_given_a_section_with_subsections_when_excerpted_then_all_of_it_is_marked(
+            self, graph):
+        # Given a section whose subsections run on for several pages
+        # When it is excerpted
+        excerpt = source.excerpt("11.2")
+
+        # Then its subsections are marked too, from its own first page on
+        assert excerpt["pages"][0] == excerpt["page"]
+        assert len(excerpt["pages"]) > 1
+        assert excerpt["boxes"][0]["page"] == excerpt["page"]
 
     def test_given_an_unknown_id_when_excerpted_then_it_is_absent(self, graph):
         # Given an id no section has
