@@ -166,6 +166,35 @@ class TestChatThreads:
         assert [t["thread_id"] for t in listed] == ["newer", "older"]
         assert listed[0]["title"] == "Restrained condition"
 
+    def test_given_a_new_conversation_when_listed_then_its_summary_is_the_title(
+            self, client, graph, monkeypatch):
+        """
+        Written beside the opening turn and stored before its stream ends,
+        which is when the browser refreshes the list.  Only the opening turn
+        asks for one: a follow-up does not retitle the conversation.
+        """
+        # Given a model that titles every question it is asked about
+        from dnd_graph_rag.chat import titles
+
+        asked: list[str] = []
+
+        async def summarise(question: str) -> str:
+            asked.append(question)
+            return "Prone condition effects"
+
+        monkeypatch.setattr(titles, "summarise", summarise)
+
+        # When a conversation is opened and then followed up
+        start = events_of(client.post(
+            "/chat", json={"message": "What exactly does Prone do?"}))[0]
+        client.post("/chat", json={"message": "And Restrained?",
+                                   "thread_id": start["thread_id"]})
+
+        # Then it is listed by its summary, written once
+        listed, = client.get("/chat/threads").json()["threads"]
+        assert listed["title"] == "Prone condition effects"
+        assert asked == ["What exactly does Prone do?"]
+
 
 class TestChatThread:
     """One conversation's turns, for reopening it in the UI."""

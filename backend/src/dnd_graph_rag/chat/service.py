@@ -23,7 +23,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.store.base import BaseStore
 
 from ..config import get_settings
-from . import retrieval
+from . import retrieval, titles
 from .agent import build_agent
 
 # A citation as the prompt asks for it: a dotted id in square brackets.
@@ -470,7 +470,8 @@ async def pinned(store: BaseStore | None) -> set[str]:
     """The pinned thread ids. Empty when there is no store to ask."""
     if store is None:
         return set()
-    return {item.key for item in await store.asearch(PINS)}
+    # ``asearch`` defaults to ten, which silently unpinned the eleventh.
+    return {item.key for item in await store.asearch(PINS, limit=titles.EVERY)}
 
 
 async def set_pinned(store: BaseStore, thread_id: str, pin: bool) -> None:
@@ -495,8 +496,11 @@ async def threads(checkpointer: BaseCheckpointSaver,
     Checkpoints are written per step and arrive newest first, so the first
     one seen for a thread is its latest.  Pins are merged here rather than in
     the route, so one place decides both what the list holds and its order.
+    A thread is called by its stored title, and by its opening question cut
+    to a line where it has none.
     """
     pins = await pinned(store)
+    named = await titles.titled(store)
     found: dict[str, dict] = {}
     async for item in checkpointer.alist(None, limit=limit * 40):
         thread_id = item.config["configurable"]["thread_id"]
@@ -508,7 +512,7 @@ async def threads(checkpointer: BaseCheckpointSaver,
             continue  # a thread whose first step is checkpointed before input
         found[thread_id] = {
             "thread_id": thread_id,
-            "title": _title(opening.text),
+            "title": named.get(thread_id) or _title(opening.text),
             "updated_at": item.checkpoint.get("ts"),
             "messages": sum(1 for m in messages if isinstance(m, HumanMessage)),
             "pinned": thread_id in pins,
@@ -531,8 +535,10 @@ async def forget(thread_id: str, checkpointer: BaseCheckpointSaver,
         return False
     await checkpointer.adelete_thread(thread_id)
     if store is not None:
-        # Otherwise the pin is a row nothing reads and nothing cleans up.
+        # Otherwise the pin and the title are rows nothing reads and nothing
+        # cleans up.
         await store.adelete(PINS, thread_id)
+        await titles.forget(store, thread_id)
     return True
 
 

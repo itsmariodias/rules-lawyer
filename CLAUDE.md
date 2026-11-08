@@ -63,6 +63,7 @@ backend/src/dnd_graph_rag/
                      rewind that asks the last one again
     source.py        a citation → its characters, and its page rectangles
     stub.py          a scripted model, for the suites.  Never a fallback
+    titles.py        a conversation's name: its first question, summarised
     neighbourhood.py the graph read as a graph: one node and what surrounds it
     routes.py        /chat, /chat/threads, /source/{id}, /neighbourhood
 
@@ -207,6 +208,28 @@ value carries nothing the key does not — and deleting a thread deletes its
 pin, which would otherwise be a row nothing reads and nothing cleans up.
 The pins are merged into `threads()` rather than by the route, so the one
 place that decides what the list *is* also decides its order.
+
+**A conversation is named by its first question, summarised.** The question
+cut to a line made every row in a 260px list read "What does the Prone
+conditio…", so six conversations about Prone looked like one. The opening
+turn now asks the model for a title of at most five words, in a call that
+runs *beside* the turn rather than before it, so the first token waits for
+nothing, and the route stores it in the same store as the pins before the
+stream ends, which is when the browser refreshes its list. Whether a turn is
+the opening one is asked of the checkpointer rather than read off a missing
+`thread_id`, since a client may mint its own. A follow-up never retitles.
+
+A title is a label rather than an answer, so this is the one model call
+whose failure is *not* the reply: no key, a spent quota, ten seconds of
+silence or the stub all leave no title, and `threads()` falls back to the cut
+question, which is still true. Conversations from before titles existed
+read the same way, and are not backfilled, since that would be a model call
+per row on listing. `clean()` is pure, and takes the first line of the reply
+with its quotes, bold, `Title:` label and full stop removed.
+
+Both the pins and the titles are read with an explicit `limit`:
+`BaseStore.asearch` defaults to ten, which silently unpinned an eleventh
+conversation.
 
 **Each row's actions live behind `⋯`, inside the row rather than beside
 it.** A button cannot contain a button, so the title and the `⋯` have to be

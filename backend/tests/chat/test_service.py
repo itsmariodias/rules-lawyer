@@ -13,7 +13,7 @@ import asyncio
 
 import pytest
 
-from dnd_graph_rag.chat import service
+from dnd_graph_rag.chat import service, titles
 
 
 async def answer(saver, thread_id: str, question: str = "Prone condition") -> None:
@@ -821,6 +821,22 @@ class TestThreads:
         assert listed["title"].endswith("…")
         assert len(listed["title"]) <= 61
 
+    @pytest.mark.asyncio
+    async def test_given_a_stored_title_when_listed_then_it_names_the_conversation(
+            self, graph, stub_model, saver, store):
+        """The cut question is what a conversation without one falls back to."""
+        # Given two conversations, only one of them titled
+        await answer(saver, "titled", "What exactly does the Prone condition do?")
+        await answer(saver, "untitled", "Restrained condition")
+        await titles.remember(store, "titled", "Prone condition effects")
+
+        # When they are listed
+        listed = {t["thread_id"]: t["title"] for t in await service.threads(saver, store)}
+
+        # Then the title is used where there is one, and the question elsewhere
+        assert listed == {"titled": "Prone condition effects",
+                          "untitled": "Restrained condition"}
+
 
 class TestPinned:
     """The pinned thread ids."""
@@ -831,6 +847,17 @@ class TestPinned:
         # When the pins are read
         # Then the absence is answered rather than raised
         assert await service.pinned(None) == set()
+
+    @pytest.mark.asyncio
+    async def test_given_many_pins_when_asked_then_every_one_comes_back(self, store):
+        """``asearch`` defaults to ten, which silently unpinned the eleventh."""
+        # Given more pins than a default page holds
+        for n in range(11):
+            await service.set_pinned(store, f"t{n}", True)
+
+        # When the pins are read
+        # Then none is missing
+        assert await service.pinned(store) == {f"t{n}" for n in range(11)}
 
 
 class TestSetPinned:
@@ -888,6 +915,19 @@ class TestForget:
 
         # Then its pin went with it
         assert await service.pinned(store) == set()
+
+    @pytest.mark.asyncio
+    async def test_given_a_titled_conversation_when_deleted_then_the_title_goes_too(
+            self, graph, stub_model, saver, store):
+        # Given a titled conversation
+        await answer(saver, "doomed")
+        await titles.remember(store, "doomed", "Prone condition effects")
+
+        # When it is deleted
+        await service.forget("doomed", saver, store)
+
+        # Then its title went with it
+        assert await titles.titled(store) == {}
 
     @pytest.mark.asyncio
     async def test_given_an_id_nobody_used_when_deleted_then_it_is_not_a_delete(

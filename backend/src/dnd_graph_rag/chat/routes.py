@@ -8,6 +8,7 @@ so a conversation is addressed only by the thread id the browser holds.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Annotated, AsyncIterator
 from uuid import uuid4
@@ -21,7 +22,7 @@ from starlette.concurrency import run_in_threadpool
 
 from . import agent as chat_agent
 from . import neighbourhood as graph_view
-from . import service
+from . import service, titles
 from .source import excerpt
 
 router = APIRouter(tags=["chat"])
@@ -57,8 +58,8 @@ def _sse(event: dict) -> str:
 
 
 @router.post("/chat")
-async def chat(request: ChatRequest,
-               checkpointer: Conversations) -> StreamingResponse:
+async def chat(request: ChatRequest, checkpointer: Conversations,
+               store: Flags) -> StreamingResponse:
     """
     One turn, streamed as server-sent events.
 
@@ -73,6 +74,11 @@ async def chat(request: ChatRequest,
     stream that had already announced itself as a turn.  Everything that can
     only fail mid-call — a rejected key, a spent quota, a stall — arrives as
     ``error``.
+
+    The opening turn of a conversation also has it titled, by a call that
+    runs beside the turn rather than before it, so the first token waits for
+    nothing. It is stored before the stream ends, which is when the browser
+    refreshes its thread list.
     """
     try:
         chat_agent.build_agent(checkpointer)
@@ -80,12 +86,25 @@ async def chat(request: ChatRequest,
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     thread_id = request.thread_id or uuid4().hex
+    # Whether this is the opening turn is asked of the checkpointer rather
+    # than read off a missing id, since a client may mint its own.
+    opening = await checkpointer.aget_tuple(
+        {"configurable": {"thread_id": thread_id}}) is None
 
     async def events() -> AsyncIterator[str]:
-        yield _sse({"type": "start", "thread_id": thread_id})
-        async for event in service.stream_turn(
-                request.message, thread_id, checkpointer):
-            yield _sse(event)
+        titling = (asyncio.create_task(titles.summarise(request.message))
+                   if opening else None)
+        try:
+            yield _sse({"type": "start", "thread_id": thread_id})
+            async for event in service.stream_turn(
+                    request.message, thread_id, checkpointer):
+                yield _sse(event)
+            if titling is not None and (title := await titling):
+                await titles.remember(store, thread_id, title)
+        finally:
+            # A reader who stops the turn has left; nothing is waiting on it.
+            if titling is not None:
+                titling.cancel()
 
     return StreamingResponse(
         events(),
