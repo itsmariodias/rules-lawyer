@@ -23,14 +23,14 @@ def client(settings_env, tmp_path):
     ``/source``.
     """
     from dnd_graph_rag.chat import source
-    from dnd_graph_rag.chat.agent import build_agent
+    from dnd_graph_rag.chat.agent import compile_agent
     from dnd_graph_rag.config import get_settings
 
     real = get_settings().data_dir
     for name in ("source", "output"):
         (tmp_path / name).symlink_to(real / name)
     settings_env(DND_GRAPH_RAG_DATA=str(tmp_path), CHAT_STUB="1")
-    build_agent.cache_clear()
+    compile_agent.cache_clear()
     source.markdown.cache_clear()
     source.anchors.cache_clear()
 
@@ -39,7 +39,7 @@ def client(settings_env, tmp_path):
 
     source.markdown.cache_clear()
     source.anchors.cache_clear()
-    build_agent.cache_clear()
+    compile_agent.cache_clear()
 
 
 class TestChat:
@@ -82,11 +82,11 @@ class TestChat:
     def test_given_no_api_key_when_posted_then_the_turn_is_refused_outright(
             self, client, settings_env, monkeypatch):
         # Given a server with the key blanked out and no stub
-        from dnd_graph_rag.chat.agent import build_agent
+        from dnd_graph_rag.chat.agent import compile_agent
 
         monkeypatch.setenv("GOOGLE_API_KEY", "")
         settings_env(CHAT_STUB="0")
-        build_agent.cache_clear()
+        compile_agent.cache_clear()
 
         # When a turn is posted
         response = client.post("/chat", json={"message": "Prone condition"})
@@ -94,7 +94,7 @@ class TestChat:
         # Then it is refused, in words naming what to fix
         assert response.status_code == 503
         assert "GOOGLE_API_KEY" in response.json()["detail"]
-        build_agent.cache_clear()
+        compile_agent.cache_clear()
 
     def test_given_a_thread_id_when_posted_then_the_turn_joins_that_conversation(
             self, client, graph):

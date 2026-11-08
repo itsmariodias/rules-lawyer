@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from .embeddings import Vectors
 from .model import GraphData
-from .schema import VECTOR_NAME
+from .schema import VECTOR_NAME, vector_index_width
 
 if TYPE_CHECKING:  # pragma: no cover
     from neo4j import Session
@@ -148,6 +148,8 @@ def verify(document: dict, data: GraphData, session: "Session",
               if row.get("name") == VECTOR_NAME]
     _check(checks, f"{VECTOR_NAME} index online", "ONLINE",
            online[0]["state"] if online else "missing")
+    _check(checks, f"{VECTOR_NAME} index width", vectors.dimensions,
+           vector_index_width(session))
 
     # Front matter and table-only weapon/armour rows are orphans in the book
     # itself, so they are reported, not failed.

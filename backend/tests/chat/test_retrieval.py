@@ -24,6 +24,18 @@ class TestEscapeLucene:
         assert retrieval.escape_lucene("  prone  ") == "prone"
 
 
+class TestCitation:
+    def test_given_a_mix_of_brackets_when_matched_then_only_dotted_ids_count(self):
+        # Given an answer carrying both kinds of bracket
+        text = "Prone [11.2.114] and see [below] and [3] and [4.8.2.3]."
+
+        # When the citations are found
+        found = retrieval.CITATION.findall(text)
+
+        # Then only the dotted ids are citations
+        assert found == ["11.2.114", "4.8.2.3"]
+
+
 class TestPassage:
     def test_given_a_row_when_read_then_the_label_every_node_carries_is_dropped(self):
         # Given a row as the search query returns it

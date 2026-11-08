@@ -51,8 +51,8 @@ def vector_statement(dimensions: int) -> str:
     """
     The vector index statement.
 
-    ``IF NOT EXISTS`` keeps an index of the old width after
-    ``EMBED_DIMENSIONS`` changes; drop ``srd_vector`` by hand in that case.
+    ``IF NOT EXISTS`` would keep an index of another width, so
+    ``apply_schema`` drops one first (see ``drop_stale_vector_index``).
 
     Args:
         dimensions: Vector width.
@@ -64,6 +64,48 @@ def vector_statement(dimensions: int) -> str:
             "FOR (n:Section) ON (n.embedding) OPTIONS {indexConfig: {"
             f"`vector.dimensions`: {dimensions}, "
             "`vector.similarity_function`: 'cosine'}}")
+
+
+_VECTOR_WIDTH = """
+SHOW VECTOR INDEXES YIELD name, options
+WHERE name = $name
+RETURN options.indexConfig['vector.dimensions'] AS dimensions
+"""
+
+
+def vector_index_width(session: "Session") -> int | None:
+    """
+    The width ``srd_vector`` was created with.
+
+    Args:
+        session: An open session.
+
+    Returns:
+        Its configured dimensions, or None if the index does not exist.
+    """
+    row = session.run(_VECTOR_WIDTH, name=VECTOR_NAME).single()
+    return None if row is None else row["dimensions"]
+
+
+def drop_stale_vector_index(session: "Session", dimensions: int) -> bool:
+    """
+    Drop ``srd_vector`` if it was created with a different width.
+
+    An index of the wrong width accepts the writes and indexes none of them,
+    so the dense search returns nothing without any error.
+
+    Args:
+        session: An open session.
+        dimensions: The width the vectors about to be written have.
+
+    Returns:
+        Whether an index was dropped.
+    """
+    width = vector_index_width(session)
+    if width is None or width == dimensions:
+        return False
+    session.run(f"DROP INDEX {VECTOR_NAME}")
+    return True
 
 
 def constraint_statements() -> list[str]:
@@ -88,13 +130,16 @@ def apply_schema(session: "Session", *, dimensions: int) -> int:
     """
     Create every constraint and index, then wait up to 300s for them.
 
+    A vector index of another width is dropped and recreated.
+
     Args:
         session: An open session.
         dimensions: Width of the vector index.
 
     Returns:
-        The number of statements run.
+        The number of create statements run.
     """
+    drop_stale_vector_index(session, dimensions)
     statements = constraint_statements() + index_statements(dimensions)
     for statement in statements:
         session.run(statement)

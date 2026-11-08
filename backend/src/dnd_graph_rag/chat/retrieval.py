@@ -25,6 +25,12 @@ def escape_lucene(query: str) -> str:
     return _LUCENE_SPECIAL.sub(r"\\\1", query).strip()
 
 
+# A cited section id as the model writes it, e.g. [11.2.114]; "[see below]"
+# does not match.  ``frontend/src/components/Markdown.tsx`` has a copy, which
+# ``tests/test_docs.py`` holds against this one.
+CITATION = re.compile(r"\[(\d+(?:\.\d+)+)\]")
+
+
 @lru_cache(maxsize=1)
 def driver() -> Driver:
     """The process-wide driver, so the connection pool is reused across turns."""

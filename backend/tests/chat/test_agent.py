@@ -109,7 +109,7 @@ class TestBuildAgent:
         # Given a key, so the model can be constructed
         monkeypatch.setenv("GOOGLE_API_KEY", "not-a-real-key")
         settings_env()
-        agent.build_agent.cache_clear()
+        agent.compile_agent.cache_clear()
 
         # When the agent is built twice with the same checkpointer
         first = agent.build_agent(saver)
@@ -117,18 +117,43 @@ class TestBuildAgent:
 
         # Then the cache handed back what it compiled
         assert first is second
-        agent.build_agent.cache_clear()
+        agent.compile_agent.cache_clear()
 
     def test_given_a_built_agent_when_read_then_it_carries_both_tools(
             self, settings_env, monkeypatch, saver):
         # Given a key and a fresh cache
         monkeypatch.setenv("GOOGLE_API_KEY", "not-a-real-key")
         settings_env()
-        agent.build_agent.cache_clear()
+        agent.compile_agent.cache_clear()
 
         # When an agent is built
         built = agent.build_agent(saver)
 
         # Then it is a compiled graph holding the conversation's history
         assert built.checkpointer is saver
-        agent.build_agent.cache_clear()
+        agent.compile_agent.cache_clear()
+
+    def test_given_the_graph_comes_up_after_a_build_when_rebuilt_then_the_schema_is_added(
+            self, settings_env, monkeypatch, saver):
+        """Regression: an agent built while Neo4j was down kept no schema."""
+        # Given an agent built while the graph was unreachable
+        from dnd_graph_rag.chat import cypher
+
+        monkeypatch.setenv("GOOGLE_API_KEY", "not-a-real-key")
+        settings_env()
+        agent.compile_agent.cache_clear()
+
+        def unreachable() -> str:
+            raise OSError("connection refused")
+
+        monkeypatch.setattr(cypher, "schema", unreachable)
+        down = agent.build_agent(saver)
+
+        # When the graph becomes reachable and the agent is asked for again
+        monkeypatch.setattr(cypher, "schema", lambda: "SCHEMA")
+        up = agent.build_agent(saver)
+
+        # Then a new agent is compiled, and it is reused after that
+        assert up is not down
+        assert agent.build_agent(saver) is up
+        agent.compile_agent.cache_clear()

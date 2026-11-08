@@ -1,5 +1,6 @@
 """
-Holds GRAPH.md and ``graph-layout.ts``'s ``KINDS`` table against ``mapping``.
+Holds GRAPH.md, ``graph-layout.ts``'s ``KINDS`` table and ``Markdown.tsx``'s
+citation pattern against the backend.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from dnd_graph_rag.graph import mapping
 ROOT = Path(__file__).resolve().parents[2]
 GRAPH_MD = ROOT / "GRAPH.md"
 PALETTE = ROOT / "frontend" / "src" / "components" / "graph-layout.ts"
+MARKDOWN_TSX = ROOT / "frontend" / "src" / "components" / "Markdown.tsx"
 
 
 @pytest.fixture(scope="module")
@@ -145,3 +147,17 @@ class TestTheArtifactsOwnClaims:
             pages = {box["page"] for box in boxes}
             assert min(pages) >= source["page_start"]
             assert max(pages) <= source["page_end"]
+
+
+class TestCitationPattern:
+    def test_given_the_frontend_copy_when_compared_then_it_matches_the_backend(self):
+        # Given the citation pattern the frontend numbers and links
+        from dnd_graph_rag.chat.retrieval import CITATION
+
+        source = MARKDOWN_TSX.read_text(encoding="utf-8")
+        found = re.search(r"const CITATION = /(.+)/g\n", source)
+        assert found, "Markdown.tsx no longer defines CITATION as a regex literal"
+
+        # When it is compared with the backend's
+        # Then the two recognise exactly the same citations
+        assert found.group(1) == CITATION.pattern

@@ -10,7 +10,6 @@ but the model's wording is live.
 from __future__ import annotations
 
 import json
-import re
 from typing import Any, Iterator, Sequence
 from uuid import uuid4
 
@@ -20,7 +19,7 @@ from langchain_core.messages import (AIMessage, AIMessageChunk, BaseMessage,
                                      ToolMessage)
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 
-CITATION = re.compile(r"\[(\d+(?:\.\d+)+)\]")
+from .retrieval import CITATION
 
 # Fixed, made-up usage per call, so the usage event is exercised.
 USAGE = {"input_tokens": 1200, "output_tokens": 30, "total_tokens": 1230}

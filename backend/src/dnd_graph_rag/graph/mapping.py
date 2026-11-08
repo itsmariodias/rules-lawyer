@@ -170,9 +170,40 @@ class Mapper:
             return
         known[name] = key
 
+    def index_if_absent(self, kind: str, name: str, key: str) -> None:
+        """Record ``name`` -> ``key`` only if ``name`` is not yet indexed."""
+        self._by_name[kind].setdefault(name, key)
+
     def lookup(self, kind: str, name: str) -> str | None:
         """The key ``index`` recorded for a name, or None."""
         return self._by_name[kind].get(name)
+
+    def ambiguous(self, kind: str) -> set[str]:
+        """Names of ``kind`` that ``index`` saw with conflicting keys."""
+        return self._ambiguous[kind]
+
+    # -- sections ----------------------------------------------------------
+
+    def add_section(self, label: str, row: dict) -> None:
+        """
+        Add a ``:Section`` row, remembered by id so later passes can fold
+        entities into it.
+
+        Args:
+            label: The entity label added beside ``Section``.
+            row: The section's properties, including ``id``.
+
+        Raises:
+            TypeError: A property is not a Neo4j value.
+        """
+        batch = self.node_batch("Section", label)
+        batch.add(**row)
+        self._section_rows[row["id"]] = batch.rows[-1]
+        self._section_batches[row["id"]] = batch
+
+    def has_section(self, section_id: str) -> bool:
+        """Whether ``add_section`` has added this id."""
+        return section_id in self._section_rows
 
     def relabel(self, section_id: str, *extra: str) -> dict:
         """
@@ -247,10 +278,7 @@ def add_sections(mapper: "Mapper") -> None:
         }
         row |= _spell_properties(node.get("spell"))
         row |= _item_properties(node.get("item"))
-        batch = mapper.node_batch("Section", label)
-        batch.add(**row)
-        mapper._section_rows[node["id"]] = batch.rows[-1]
-        mapper._section_batches[node["id"]] = batch
+        mapper.add_section(label, row)
 
         if entity_type in ("spell", "creature"):
             mapper.index(entity_type, node["heading"], node["id"])
@@ -264,9 +292,9 @@ def add_sections(mapper: "Mapper") -> None:
             mapper.index("magic_item", node["heading"], node["id"])
     for node in nodes:
         if node.get("entity_type") == "magic_item" and not node.get("item"):
-            mapper._by_name["magic_item"].setdefault(node["heading"], node["id"])
+            mapper.index_if_absent("magic_item", node["heading"], node["id"])
 
-    for name in sorted(mapper._ambiguous["magic_item"]):
+    for name in sorted(mapper.ambiguous("magic_item")):
         mapper.warn(f"ambiguous magic item name: {name!r}")
 
 
@@ -501,7 +529,7 @@ def _fold_into_section(mapper: "Mapper", item: dict, label: str,
     ``name`` overwrites the section's ("Acid (25 GP)" becomes "Acid");
     ``heading`` keeps the printed form.
     """
-    if section_id not in mapper._section_rows:
+    if not mapper.has_section(section_id):
         mapper.warn(f"{item['name']!r} names section {section_id}, which does "
                     "not exist")
         return

@@ -27,7 +27,8 @@ def system_prompt() -> str:
     ``system.md`` plus the derived graph schema.
 
     If the graph is unreachable the schema is omitted rather than failing the
-    agent build; the tools then report the outage themselves.
+    agent build; the tools then report the outage themselves.  ``build_agent``
+    asks again on every call, so the schema is added once the graph is up.
     """
     try:
         return f"{SYSTEM_PROMPT}\n\n{cypher.schema()}"
@@ -57,12 +58,16 @@ def model() -> BaseChatModel:
 
 
 @lru_cache(maxsize=1)
-def build_agent(checkpointer: BaseCheckpointSaver | None = None):
+def compile_agent(checkpointer: BaseCheckpointSaver | None, prompt: str):
     """
-    The compiled agent, cached for the most recent checkpointer.
+    Compile the agent for a checkpointer and system prompt, caching the last.
+
+    Keyed on the prompt so that an agent compiled while the graph was down
+    (no schema) is replaced once the schema can be read.
 
     Args:
         checkpointer: Where conversation state is stored.
+        prompt: The full system prompt.
 
     Returns:
         A compiled LangGraph agent.
@@ -73,6 +78,22 @@ def build_agent(checkpointer: BaseCheckpointSaver | None = None):
     return create_agent(
         model=model(),
         tools=TOOLS,
-        system_prompt=system_prompt(),
+        system_prompt=prompt,
         checkpointer=checkpointer,
     )
+
+
+def build_agent(checkpointer: BaseCheckpointSaver | None = None):
+    """
+    The agent for ``checkpointer`` with the current system prompt.
+
+    Args:
+        checkpointer: Where conversation state is stored.
+
+    Returns:
+        A compiled LangGraph agent, reused while the prompt is unchanged.
+
+    Raises:
+        NoApiKey: See ``model``.
+    """
+    return compile_agent(checkpointer, system_prompt())

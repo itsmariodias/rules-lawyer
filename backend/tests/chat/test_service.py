@@ -26,18 +26,6 @@ async def collect(message, saver) -> list[dict]:
             service.stream_turn(message, "test", saver)]
 
 
-class TestCitation:
-    def test_given_a_mix_of_brackets_when_matched_then_only_dotted_ids_count(self):
-        # Given an answer carrying both kinds of bracket
-        text = "Prone [11.2.114] and see [below] and [3] and [4.8.2.3]."
-
-        # When the citations are found
-        found = service.CITATION.findall(text)
-
-        # Then only the dotted ids are citations
-        assert found == ["11.2.114", "4.8.2.3"]
-
-
 class TestResolveCitations:
     def test_given_an_invented_id_when_resolved_then_it_is_dropped(self, graph):
         # Given an answer citing one real id and one invented one, twice

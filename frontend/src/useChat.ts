@@ -70,7 +70,6 @@ export function useChat() {
   const run = useCallback(async (
     ask: (onEvent: (event: ChatEvent) => void, signal: AbortSignal) => Promise<void>,
   ) => {
-    const isFirst = threadId === null
     const started = Date.now()
     setStreaming(true)
     abort.current = new AbortController()
@@ -86,9 +85,8 @@ export function useChat() {
       setStreaming(false)
       abort.current = null
       refreshThreads()
-      if (isFirst) refreshThreads()
     }
-  }, [threadId, refreshThreads])
+  }, [refreshThreads])
 
   const send = useCallback(async (text: string) => {
     if (streaming || !text.trim()) return

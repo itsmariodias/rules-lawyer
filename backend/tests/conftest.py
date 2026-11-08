@@ -244,15 +244,15 @@ def settings_env(monkeypatch):
 @pytest.fixture
 def stub_model(settings_env):
     """
-    Use the scripted model for one test.  Clears the ``build_agent`` cache
+    Use the scripted model for one test.  Clears the ``compile_agent`` cache
     either side, since it would otherwise hand back an agent built with the
     other model.
     """
-    from dnd_graph_rag.chat.agent import build_agent
+    from dnd_graph_rag.chat.agent import compile_agent
 
-    build_agent.cache_clear()
+    compile_agent.cache_clear()
     yield settings_env(CHAT_STUB="1")
-    build_agent.cache_clear()
+    compile_agent.cache_clear()
 
 
 @pytest.fixture

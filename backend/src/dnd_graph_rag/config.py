@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from functools import cached_property, lru_cache
 from pathlib import Path
+from typing import Annotated
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import BeforeValidator, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # backend/src/dnd_graph_rag/config.py -> repository root.
@@ -15,6 +16,22 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 # read the same file.
 _ENV = SettingsConfigDict(env_file=_REPO_ROOT / ".env",
                           env_file_encoding="utf-8", extra="ignore")
+
+
+def _blank_is_absent(value: object) -> object:
+    """
+    Treat ``GOOGLE_API_KEY=`` as no key, not as an empty credential.
+
+    An unset environment variable does not override ``.env``, so a blank
+    value is the only way to force the keyless path from a checkout that has
+    a key.
+    """
+    return None if isinstance(value, str) and not value.strip() else value
+
+
+# ``GOOGLE_API_KEY``, shared by the chat and the embeddings.
+ApiKey = Annotated[SecretStr | None, BeforeValidator(_blank_is_absent),
+                   Field(validation_alias="GOOGLE_API_KEY")]
 
 
 class Neo4jSettings(BaseSettings):
@@ -41,8 +58,7 @@ class ChatSettings(BaseSettings):
 
     # Optional so the non-chat endpoints start without a key; a turn without
     # one is answered with 503.
-    google_api_key: SecretStr | None = Field(default=None,
-                                             validation_alias="GOOGLE_API_KEY")
+    google_api_key: ApiKey = None
     # Pinned: a "-latest" alias changes behaviour without a commit.
     model: str = "gemini-3.8-flash"
     temperature: float = 0.2
@@ -58,12 +74,6 @@ class ChatSettings(BaseSettings):
     # Swap Gemini for ``chat.stub``.  Test suites only, never a fallback.
     stub: bool = False
 
-    @field_validator("google_api_key", mode="before")
-    @classmethod
-    def _blank_is_absent(cls, value: object) -> object:
-        """Treat ``GOOGLE_API_KEY=`` as no key, not as an empty credential."""
-        return None if isinstance(value, str) and not value.strip() else value
-
 
 class EmbeddingSettings(BaseSettings):
     """
@@ -76,8 +86,7 @@ class EmbeddingSettings(BaseSettings):
     model_config = _ENV | SettingsConfigDict(env_prefix="EMBED_")
 
     # Optional: a complete ``.idx`` needs no key.
-    google_api_key: SecretStr | None = Field(default=None,
-                                             validation_alias="GOOGLE_API_KEY")
+    google_api_key: ApiKey = None
     # Pinned to a GA id: the shared file's vectors must stay in one space.
     model: str = "gemini-embedding-001"
     # Truncated from the native 3072.  The API only normalises at full width,
@@ -90,18 +99,6 @@ class EmbeddingSettings(BaseSettings):
     # Rows per transaction; lower than the loader's 1000 because each row is
     # 1536 floats.
     write_batch: int = 200
-
-    @field_validator("google_api_key", mode="before")
-    @classmethod
-    def _blank_is_absent(cls, value: object) -> object:
-        """
-        Treat ``GOOGLE_API_KEY=`` as no key, not as an empty credential.
-
-        An unset environment variable does not override ``.env``, so a blank
-        value is the only way to force the offline path from a checkout that
-        has a key.
-        """
-        return None if isinstance(value, str) and not value.strip() else value
 
 
 class Settings(BaseSettings):

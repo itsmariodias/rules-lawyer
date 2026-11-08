@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 
-from .equipment import find_table, read_tables, subtree
+from .equipment import read_tables, subtree
 
 # "Level 9: Brutal Strike"
 _FEATURE_HEADING_RE = re.compile(r"^Level\s+(\d+):\s*(.+)$")
@@ -117,7 +117,6 @@ def _progression(nodes, class_name: str) -> list[dict]:
     the one containing "Level" are folded into it.  Class-specific columns
     (Rages, Sneak Attack, Spell Slots) go into ``resources``.
     """
-    found = find_table(subtree(nodes, f"{class_name} Class Features"), ("",))
     tables = [rows for node in subtree(nodes, class_name)
               for rows in read_tables(node["content"])
               if any(_clean(c) == "Level" for c in (rows[0] if rows else []))

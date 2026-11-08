@@ -45,7 +45,7 @@ SEARCHABLE_TYPES = [
 
 
 @tool(parse_docstring=True, response_format="content_and_artifact")
-def search_srd(query: str, entity_type: str | None = None) -> str:
+def search_srd(query: str, entity_type: str | None = None) -> Result:
     """Search the D&D 5e SRD for rules text matching a query.
 
     Blends a keyword search with a meaning-based one, so a paraphrase finds
@@ -85,7 +85,7 @@ def search_srd(query: str, entity_type: str | None = None) -> str:
 
 
 @tool(parse_docstring=True, response_format="content_and_artifact")
-def get_srd_section(section_id: str) -> str:
+def get_srd_section(section_id: str) -> Result:
     """Fetch the full text of one SRD section by its id.
 
     Use this when a search result is truncated, or to read a parent or child
@@ -228,7 +228,7 @@ MAX_FAN = 50
 
 @tool(parse_docstring=True, response_format="content_and_artifact")
 def explore_srd_graph(section_id: str, depth: int = 1,
-                      fan: int = neighbourhood.FAN) -> str:
+                      fan: int = neighbourhood.FAN) -> Result:
     """Show what one SRD section is connected to in the rules graph.
 
     Use this when the question is about relationships rather than wording:
@@ -274,7 +274,7 @@ def explore_srd_graph(section_id: str, depth: int = 1,
 
 
 @tool(parse_docstring=True, response_format="content_and_artifact")
-def query_srd_graph(cypher_query: str) -> str:
+def query_srd_graph(cypher_query: str) -> Result:
     """Run a read-only Cypher query against the SRD rules graph.
 
     This is the tool for an exhaustive question: every creature that imposes

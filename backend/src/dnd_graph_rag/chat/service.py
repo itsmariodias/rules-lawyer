@@ -10,7 +10,6 @@ checkpointer and store.
 from __future__ import annotations
 
 import asyncio
-import re
 from typing import Any, AsyncIterator
 
 from langchain_core.messages import (AIMessage, AIMessageChunk, HumanMessage,
@@ -21,10 +20,6 @@ from langgraph.store.base import BaseStore
 from ..config import get_settings
 from . import retrieval, titles
 from .agent import build_agent
-
-# A dotted section id in brackets, e.g. [11.2.114]; "[see below]" does not match.
-CITATION = re.compile(r"\[(\d+(?:\.\d+)+)\]")
-
 
 def _thread(thread_id: str, checkpoint_id: str | None = None) -> dict:
     """
@@ -49,7 +44,7 @@ def resolve_citations(text: str) -> list[dict]:
         appearance.  Ids that match no section are dropped.
     """
     seen: list[str] = []
-    for match in CITATION.findall(text):
+    for match in retrieval.CITATION.findall(text):
         if match not in seen:
             seen.append(match)
 

@@ -114,7 +114,7 @@ def build_embeddings(input_path: Path | None = None, *,
     }
 
 
-def counts(report: Report = lambda _: None) -> dict:
+def counts() -> dict:
     """
     Node counts per label and relationship counts per type.
 

@@ -200,6 +200,9 @@ class RecordingSession:
 
 
 class FakeResult:
+    def single(self):
+        return None
+
     def consume(self):
         return type("Summary", (), {
             "counters": type("Counters", (), {"nodes_deleted": 0})()

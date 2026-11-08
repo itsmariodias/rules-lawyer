@@ -78,6 +78,52 @@ class TestVectorStatement:
         assert "768" in narrow and "3072" in wide
 
 
+class TestDropStaleVectorIndex:
+    def test_given_an_index_of_another_width_when_checked_then_it_is_dropped(self):
+        """Regression: an index of the old width silently indexed nothing."""
+        # Given an index created at 768 dimensions
+        session = WidthSession(768)
+
+        # When the schema is checked for 1536
+        dropped = schema.drop_stale_vector_index(session, 1536)
+
+        # Then the index is dropped so it can be recreated at 1536
+        assert dropped
+        assert f"DROP INDEX {schema.VECTOR_NAME}" in session.statements
+
+    def test_given_an_index_of_the_same_width_when_checked_then_it_stays(self):
+        # Given an index already at 1536 dimensions
+        session = WidthSession(1536)
+
+        # When the schema is checked for 1536
+        dropped = schema.drop_stale_vector_index(session, 1536)
+
+        # Then nothing is dropped
+        assert not dropped
+        assert not any(s.startswith("DROP") for s in session.statements)
+
+    def test_given_no_index_when_checked_then_nothing_is_dropped(self):
+        # Given a database with no vector index yet
+        session = WidthSession(None)
+
+        # When the schema is checked
+        # Then there is nothing to drop
+        assert not schema.drop_stale_vector_index(session, 1536)
+
+
+class WidthSession:
+    """A session whose vector index, if any, has the given width."""
+
+    def __init__(self, width: int | None) -> None:
+        self._width = width
+        self.statements: list[str] = []
+
+    def run(self, query: str, **parameters):
+        self.statements.append(query)
+        row = None if self._width is None else {"dimensions": self._width}
+        return type("Result", (), {"single": lambda _: row})()
+
+
 class TestReset:
     def test_given_nothing_left_to_delete_when_reset_then_it_stops(self):
         # Given a session that reports one batch deleted and then none
