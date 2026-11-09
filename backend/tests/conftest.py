@@ -42,8 +42,9 @@ def tiny_document() -> dict:
     """
     A hand-built document covering the mapper's awkward cases: a stat block
     folding into its section, an ability referenced by ``part``, a damage list,
-    a two-part weapon range, a resources map, and a magic item name printed
-    twice.
+    a two-part weapon range, a resources map, a magic item name printed
+    twice, a monster entry wrapping its namesake, records folding into their
+    sections, and glossary terms sharing a passage.
     """
     return {
         "meta": {"counts": {}},
@@ -51,6 +52,7 @@ def tiny_document() -> dict:
             {
                 "id": "1", "heading": "Monsters", "content": "",
                 "entity_type": "creature_group",
+                "members": ["Goblin", "Ogre"],
                 "source": {"page_start": 1, "page_end": 2,
                            "char_start": 0, "char_end": 99},
                 "subsections": [
@@ -59,6 +61,17 @@ def tiny_document() -> dict:
                      "source": {"page_start": 1, "page_end": 1,
                                 "char_start": 10, "char_end": 50},
                      "subsections": []},
+                    {"id": "1.2", "heading": "Ogre", "content": "",
+                     "entity_type": "creature_group", "members": ["Ogre"],
+                     "source": {"page_start": 2, "page_end": 2,
+                                "char_start": 50, "char_end": 99},
+                     "subsections": [
+                         {"id": "1.2.1", "heading": "Ogre",
+                          "content": "An ogre.", "entity_type": "creature",
+                          "source": {"page_start": 2, "page_end": 2,
+                                     "char_start": 50, "char_end": 99},
+                          "subsections": []},
+                     ]},
                 ],
             },
             {
@@ -98,6 +111,33 @@ def tiny_document() -> dict:
              "item": {"category": "Wondrous Item", "subtype": None,
                       "rarity": "Uncommon", "requires_attunement": False,
                       "attunement_requirement": None},
+             "subsections": []},
+            {"id": "6", "heading": "Wizard", "content": "A scholar.",
+             "entity_type": "class",
+             "source": {"page_start": 70, "page_end": 71,
+                        "char_start": 600, "char_end": 700},
+             "subsections": [
+                 {"id": "6.1", "heading": "Level 1: Spellcasting",
+                  "content": "You cast.", "entity_type": "class_feature",
+                  "source": {"page_start": 70, "page_end": 70,
+                             "char_start": 620, "char_end": 640},
+                  "subsections": []},
+             ]},
+            {"id": "7", "heading": "Dragonborn", "content": "Draconic.",
+             "entity_type": "origin",
+             "source": {"page_start": 84, "page_end": 84,
+                        "char_start": 700, "char_end": 750},
+             "subsections": []},
+            {"id": "8", "heading": "Alert", "content": "Always ready.",
+             "entity_type": "feat",
+             "source": {"page_start": 87, "page_end": 87,
+                        "char_start": 750, "char_end": 800},
+             "subsections": []},
+            {"id": "11", "heading": "Charmed [Condition]",
+             "content": "Charmed.", "entity_type": "glossary_term",
+             "term_type": "condition",
+             "source": {"page_start": 177, "page_end": 177,
+                        "char_start": 800, "char_end": 850},
              "subsections": []},
         ],
         "creatures": [
@@ -140,7 +180,7 @@ def tiny_document() -> dict:
              "source": {"page_start": 91, "page_end": 91}},
         ],
         "classes": [
-            {"name": "Wizard", "section_id": "1",
+            {"name": "Wizard", "section_id": "6",
              "hit_point_die": "D6 per Wizard level",
              "source": {"page_start": 70, "page_end": 70},
              "progression": [{"level": 1, "proficiency_bonus": 2,
@@ -149,16 +189,30 @@ def tiny_document() -> dict:
                                             "Prepared Spells": "4"}}],
              "features": [{"level": 1, "name": "Spellcasting",
                            "subclass": None, "description": "You cast.",
-                           "section_id": "1.1"}],
+                           "section_id": "6.1"}],
              "subclasses": []},
         ],
-        "species": [], "backgrounds": [], "feats": [],
+        "species": [
+            {"name": "Dragonborn", "section_id": "7", "kind": "species",
+             "description": "Draconic.", "size": "Medium", "speed": "30 feet",
+             "traits": [{"name": "Breath Weapon", "description": "Exhale."},
+                        {"name": "Darkvision", "description": "See."}],
+             "source": {"page_start": 84, "page_end": 84}},
+        ],
+        "backgrounds": [],
+        "feats": [
+            {"name": "Alert", "section_id": "8", "kind": "feat",
+             "description": "Always ready.", "category": "Origin",
+             "traits": [{"name": "Initiative Proficiency",
+                         "description": "Add it."}],
+             "source": {"page_start": 87, "page_end": 87}},
+        ],
         "glossary": [
             {"name": "Fire", "term_type": "damage type",
              "description": "Burns.", "section_id": "9",
              "source": {"page_start": 176, "page_end": 176}},
             {"name": "Charmed", "term_type": "condition",
-             "description": "Charmed.", "section_id": "9",
+             "description": "Charmed.", "section_id": "11",
              "source": {"page_start": 176, "page_end": 176}},
             {"name": "Injury", "term_type": "poison type",
              "description": "Injury poison can be applied as a Bonus Action…",

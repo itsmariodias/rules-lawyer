@@ -2,10 +2,15 @@
 The stage 1 document as node and edge batches.  Pure: no driver, no I/O.
 
 Every tree node is a ``:Section`` keyed on its dotted id, with its entity
-type as a second label.  Creatures, gear and poisons fold into the section
-that prints them.  Other collections are separate nodes joined by
-``DEFINED_IN``; glossary terms cannot fold because several share a section
-(all thirteen damage types are ``11.2.46.1``).
+type as a second label.  An entity printed under its own heading folds into
+that section: creatures, gear, poisons, classes, subclasses, species,
+backgrounds, feats and glossary terms.  What has no heading of its own stays
+a separate node: stat block entries, class levels, weapon and armour rows,
+and the glossary terms that share a passage (all thirteen damage types are
+``11.2.46.1``), which keep ``DEFINED_IN``.
+
+A monster entry wrapping one stat block of the same name is left out, and
+the stat block hangs from the entry's parent (``wrapper_groups``).
 """
 
 from __future__ import annotations
@@ -20,8 +25,8 @@ from .model import EdgeBatch, GraphData, NodeBatch, as_json, clean
 # Vocabulary
 # --------------------------------------------------------------------------
 
-# Where a flat collection has the plain name (Class, Feat, Equipment), the
-# section label is qualified (ClassSection, FeatSection, EquipmentSection).
+# A section typed by a record takes the record's label, since the record
+# folds into it; an origin's record adds Species or Background.
 SECTION_LABELS = {
     "rule": "Rule",
     "trap": "Trap",
@@ -31,13 +36,13 @@ SECTION_LABELS = {
     "magic_item": "MagicItem",
     "creature": "Creature",
     "creature_group": "CreatureGroup",
-    "class": "ClassSection",
-    "subclass": "SubclassSection",
+    "class": "Class",
+    "subclass": "Subclass",
     "class_feature": "ClassFeature",
     "origin": "Origin",
-    "feat": "FeatSection",
-    "equipment": "EquipmentSection",
-    "glossary_term": "GlossarySection",
+    "feat": "Feat",
+    "equipment": "Equipment",
+    "glossary_term": "GlossaryTerm",
     "front_matter": "FrontMatter",
 }
 
@@ -203,23 +208,23 @@ class Mapper:
         self._section_rows[row["id"]] = batch.rows[-1]
         self._section_batches[row["id"]] = batch
 
-    def has_section(self, section_id: str) -> bool:
-        """Whether ``add_section`` has added this id."""
-        return section_id in self._section_rows
-
     def relabel(self, section_id: str, *extra: str) -> dict:
         """
         Move a section's row to the batch with ``extra`` labels added.
 
         Args:
             section_id: The section to relabel.
-            *extra: Labels to add.
+            *extra: Labels to add; any it already has are skipped.
 
         Returns:
-            The moved row, for the caller to add properties to.
+            The row, moved if it gained a label, for the caller to add
+            properties to.
         """
         batch = self._section_batches[section_id]
         row = self._section_rows[section_id]
+        extra = tuple(label for label in extra if label not in batch.labels)
+        if not extra:
+            return row
         batch.rows.remove(row)
         moved = self.node_batch(*batch.labels, *extra, key=batch.key)
         moved.rows.append(row)
@@ -229,6 +234,39 @@ class Mapper:
     def section_row(self, section_id: str) -> dict:
         """The row already emitted for a section, for adding properties to."""
         return self._section_rows[section_id]
+
+    def fold(self, section_id: str | None, entity_type: str, *labels: str,
+             **properties: Any) -> dict:
+        """
+        Fold a record into the section that prints it.
+
+        ``name`` overwrites the section's ("Acid (25 GP)" becomes "Acid");
+        ``heading`` keeps the printed form.
+
+        Args:
+            section_id: The record's ``section_id``.
+            entity_type: The type that section must have.
+            *labels: Labels the record adds to the section.
+            **properties: The record's properties; Nones are dropped.
+
+        Returns:
+            The section's row.
+
+        Raises:
+            ValueError: The section is missing or of another type.  The
+                record is what typed it, so the stages have diverged.
+            TypeError: A property is not a Neo4j value.
+        """
+        found = self._section_rows.get(section_id or "")
+        if found is None or found["entity_type"] != entity_type:
+            what = "no section" if found is None else found["entity_type"]
+            raise ValueError(
+                f"{properties.get('name')!r} names section {section_id!r} "
+                f"({what}), not a {entity_type}; the records and the section "
+                "tree have diverged")
+        row = self.relabel(section_id, *labels)
+        row.update(clean(properties))
+        return row
 
     def resolve_target(self, type_: str, name: str) -> tuple[str, str, str] | None:
         """
@@ -246,10 +284,51 @@ class Mapper:
         return ("Section", "id", key) if key else None
 
 
+def is_wrapper(node: dict) -> bool:
+    """
+    Whether a section is a monster entry that only repeats its stat block.
+
+    The book heads a stat block with its entry even when there is one
+    ("Aboleth" above the Aboleth stat block).  With no prose and the same
+    name the entry adds a hop and nothing else.  An entry of another name
+    ("Crawling Claw" above "Swarm of Crawling Claws") is kept: its heading is
+    the only place that name is printed.
+
+    Args:
+        node: A section from the artifact's tree.
+
+    Returns:
+        True if the graph should leave it out.
+    """
+    children = node.get("subsections") or []
+    return (node.get("entity_type") == "creature_group"
+            and not (node.get("content") or "").strip()
+            and len(children) == 1
+            and children[0].get("entity_type") == "creature"
+            and children[0].get("heading") == node.get("heading"))
+
+
+def wrapper_groups(document: dict) -> set[str]:
+    """
+    The ids of the sections ``is_wrapper`` leaves out of the graph.
+
+    Args:
+        document: What ``srd.load()`` returns.
+
+    Returns:
+        Section ids.
+    """
+    return {node["id"] for node in walk(document["sections"])
+            if is_wrapper(node)}
+
+
 def add_sections(mapper: "Mapper") -> None:
     """
     Every tree node, with its entity type as a second label, plus
     ``HAS_SUBSECTION``.  Indexes spells, creatures and magic items by name.
+
+    A wrapper (``is_wrapper``) is skipped and its stat block hangs from the
+    wrapper's parent, keeping its own id.
 
     "Deck of Illusions" heads two sections, so magic items are indexed in two
     passes and the one carrying ``item`` metadata wins.
@@ -257,6 +336,8 @@ def add_sections(mapper: "Mapper") -> None:
     nodes = list(walk(mapper.document["sections"]))
 
     for node in nodes:
+        if is_wrapper(node):
+            continue
         entity_type = node.get("entity_type") or "rule"
         label = SECTION_LABELS.get(entity_type)
         if label is None:
@@ -277,6 +358,7 @@ def add_sections(mapper: "Mapper") -> None:
             "term_type": node.get("term_type"),
             "preamble": node.get("preamble"),
             "entries_json": as_json(node.get("entries")),
+            "members": node.get("members"),
         }
         row |= _spell_properties(node.get("spell"))
         row |= _item_properties(node.get("item"))
@@ -286,8 +368,10 @@ def add_sections(mapper: "Mapper") -> None:
             mapper.index(entity_type, node["heading"], node["id"])
 
         for child in node.get("subsections", []):
+            if is_wrapper(child):
+                child = child["subsections"][0]
             mapper.edge("HAS_SUBSECTION", ("Section", "id"), node["id"],
-                      ("Section", "id"), child["id"])
+                        ("Section", "id"), child["id"])
 
     for node in nodes:
         if node.get("entity_type") == "magic_item" and node.get("item"):
@@ -456,18 +540,48 @@ def _creature_properties(creature: dict) -> dict:
     return {k: v for k, v in row.items() if v is not None and v != []}
 
 
+def shared_glossary_sections(document: dict) -> set[str]:
+    """
+    Sections defining more than one glossary term.
+
+    Their terms cannot fold: the thirteen damage types share one table and
+    the four poison types one paragraph.
+
+    Args:
+        document: What ``srd.load()`` returns.
+
+    Returns:
+        Section ids.
+    """
+    named = defaultdict(int)
+    for term in document.get("glossary", []):
+        if term.get("section_id"):
+            named[term["section_id"]] += 1
+    return {section_id for section_id, count in named.items() if count > 1}
+
+
 def add_glossary(mapper: "Mapper") -> None:
     """
-    A ``:GlossaryTerm`` per glossary entry, ``DEFINED_IN`` its section.
+    Each glossary entry, its term type as a label.
 
+    A term with a section to itself folds into it; a term sharing a passage
+    is a ``:GlossaryTerm`` of its own, ``DEFINED_IN`` that passage.  Both
+    carry ``:GlossaryTerm {name}``, so edges reach either the same way.
     Indexes each by name under ``"glossary"`` and under its term type.
     """
+    shared = shared_glossary_sections(mapper.document)
     for term in mapper.document.get("glossary", []):
         term_type = term.get("term_type") or "definition"
         label = GLOSSARY_LABELS.get(term_type)
         if label is None:
             mapper.warn(f"unknown glossary term_type {term_type!r}")
             label = "Definition"
+        mapper.index("glossary", term["name"], term["name"])
+        mapper.index(term_type, term["name"], term["name"])
+        if term.get("section_id") and term["section_id"] not in shared:
+            mapper.fold(term["section_id"], "glossary_term", label,
+                        name=term["name"], term_type=term_type)
+            continue
         mapper.node_batch("GlossaryTerm", label, key="name").add(
             name=term["name"],
             term_type=term_type,
@@ -475,8 +589,6 @@ def add_glossary(mapper: "Mapper") -> None:
             section_id=term.get("section_id"),
             **_pages(term),
         )
-        mapper.index("glossary", term["name"], term["name"])
-        mapper.index(term_type, term["name"], term["name"])
         if term.get("section_id"):
             mapper.edge("DEFINED_IN", ("GlossaryTerm", "name"), term["name"],
                         ("Section", "id"), term["section_id"])
@@ -499,7 +611,23 @@ def add_equipment(mapper: "Mapper") -> None:
         damage = item.get("damage") or {}
         section_id = item.get("section_id")
         if section_id:
-            _fold_into_section(mapper, item, label, section_id, damage)
+            mapper.fold(
+                section_id, "equipment", "Equipment", label,
+                name=item["name"],
+                kind=item.get("kind"),
+                category=item.get("category"),
+                cost=item.get("cost"),
+                cost_gp=item.get("cost_gp"),
+                weight_lb=item.get("weight_lb"),
+                properties=item.get("properties"),
+                mastery=item.get("mastery"),
+                damage_dice=damage.get("dice"),
+                damage_type=damage.get("type"),
+                armor_class=item.get("armor_class"),
+                strength_requirement=item.get("strength_requirement"),
+                stealth_disadvantage=item.get("stealth_disadvantage"),
+                poison_type=item.get("poison_type"),
+            )
             mapper.index("equipment", item["name"], item["name"])
             continue
         mapper.node_batch("Equipment", label, key="name").add(
@@ -523,49 +651,21 @@ def add_equipment(mapper: "Mapper") -> None:
         mapper.index("equipment", item["name"], item["name"])
 
 
-def _fold_into_section(mapper: "Mapper", item: dict, label: str,
-                       section_id: str, damage: dict) -> None:
-    """
-    Add the item's labels and properties to the section that prints it.
-
-    ``name`` overwrites the section's ("Acid (25 GP)" becomes "Acid");
-    ``heading`` keeps the printed form.
-    """
-    if not mapper.has_section(section_id):
-        mapper.warn(f"{item['name']!r} names section {section_id}, which does "
-                    "not exist")
-        return
-    row = mapper.relabel(section_id, "Equipment", label)
-    row.update(clean({
-        "name": item["name"],
-        "kind": item.get("kind"),
-        "category": item.get("category"),
-        "cost": item.get("cost"),
-        "cost_gp": item.get("cost_gp"),
-        "weight_lb": item.get("weight_lb"),
-        "properties": item.get("properties"),
-        "mastery": item.get("mastery"),
-        "damage_dice": damage.get("dice"),
-        "damage_type": damage.get("type"),
-        "armor_class": item.get("armor_class"),
-        "strength_requirement": item.get("strength_requirement"),
-        "stealth_disadvantage": item.get("stealth_disadvantage"),
-        "poison_type": item.get("poison_type"),
-    }))
-
-
 def add_classes(mapper: "Mapper") -> None:
     """
-    ``:Class``, ``:Subclass`` and one ``:ClassLevel`` per progression row,
-    with ``HAS_FEATURE``, ``HAS_SUBCLASS``, ``AT_LEVEL`` and
-    ``GRANTS_FEATURE``.  A level's resources become parallel
-    ``resource_names``/``resource_values`` arrays.
+    Classes and subclasses folded into their sections, and one
+    ``:ClassLevel`` per progression row, with ``HAS_FEATURE``,
+    ``HAS_SUBCLASS``, ``AT_LEVEL`` and ``GRANTS_FEATURE``.  A level's
+    resources become parallel ``resource_names``/``resource_values`` arrays.
+
+    Raises:
+        ValueError: A class or subclass names no section of its type.
     """
     for klass in mapper.document.get("classes", []):
         name = klass["name"]
-        mapper.node_batch("Class", key="name").add(
+        mapper.fold(
+            klass.get("section_id"), "class",
             name=name,
-            section_id=klass.get("section_id"),
             hit_point_die=klass.get("hit_point_die"),
             primary_ability=klass.get("primary_ability"),
             saving_throw=klass.get("saving_throw"),
@@ -574,12 +674,8 @@ def add_classes(mapper: "Mapper") -> None:
             weapon_proficiencies=klass.get("weapon_proficiencies"),
             armor_training=klass.get("armor_training"),
             starting_equipment=klass.get("starting_equipment"),
-            **_pages(klass),
         )
         mapper.index("class", name, name)
-        if klass.get("section_id"):
-            mapper.edge("DEFINED_IN", ("Class", "name"), name,
-                        ("Section", "id"), klass["section_id"])
 
         features = {f["name"]: f for f in klass.get("features", [])}
         for feature in klass.get("features", []):
@@ -594,21 +690,13 @@ def add_classes(mapper: "Mapper") -> None:
 
 
 def _add_subclass(mapper: "Mapper", class_name: str, subclass: dict) -> None:
-    key = subclass.get("section_id") or f"{class_name}|{subclass['name']}"
-    mapper.node_batch("Subclass", key="key").add(
-        key=key,
-        name=subclass["name"],
-        parent_class=class_name,
-        section_id=subclass.get("section_id"),
-        description=subclass.get("description"),
-    )
+    section_id = subclass.get("section_id")
+    mapper.fold(section_id, "subclass", name=subclass["name"],
+                parent_class=class_name)
     mapper.edge("HAS_SUBCLASS", ("Class", "name"), class_name,
-                ("Subclass", "key"), key)
-    if subclass.get("section_id"):
-        mapper.edge("DEFINED_IN", ("Subclass", "key"), key,
-                    ("Section", "id"), subclass["section_id"])
+                ("Section", "id"), section_id)
     for feature in subclass.get("features", []):
-        _link_feature(mapper, ("Subclass", "key"), key, feature)
+        _link_feature(mapper, ("Section", "id"), section_id, feature)
 
 
 def _link_feature(mapper: "Mapper", owner: tuple[str, str], owner_id: str,
@@ -646,18 +734,26 @@ def _add_class_level(mapper: "Mapper", class_name: str, row: dict,
 
 
 def add_origins(mapper: "Mapper") -> None:
-    """Species, backgrounds and feats, each with ``DEFINED_IN`` and ``HAS_TRAIT``."""
-    for kind, label, collection in (
-        ("species", "Species", "species"),
-        ("background", "Background", "backgrounds"),
-        ("feat", "Feat", "feats"),
+    """
+    Species, backgrounds and feats, folded into their sections.
+
+    A record's ``description`` is its section's ``content``, so it is not
+    copied.  Traits are a list of names: their text is in the section, and
+    nothing refers to one.
+
+    Raises:
+        ValueError: A record names no section of its type.
+    """
+    for kind, entity_type, label, collection in (
+        ("species", "origin", "Species", "species"),
+        ("background", "origin", "Background", "backgrounds"),
+        ("feat", "feat", "Feat", "feats"),
     ):
         for entry in mapper.document.get(collection, []):
             name = entry["name"]
-            mapper.node_batch(label, key="name").add(
+            mapper.fold(
+                entry.get("section_id"), entity_type, label,
                 name=name,
-                description=entry.get("description"),
-                section_id=entry.get("section_id"),
                 size=entry.get("size"),
                 speed=entry.get("speed"),
                 creature_type=entry.get("creature_type"),
@@ -667,24 +763,9 @@ def add_origins(mapper: "Mapper") -> None:
                 equipment=entry.get("equipment"),
                 category=entry.get("category"),
                 feat_group=entry.get("group"),
-                **_pages(entry),
+                traits=[t["name"] for t in entry.get("traits") or []],
             )
             mapper.index(kind, name, name)
-            if entry.get("section_id"):
-                mapper.edge("DEFINED_IN", (label, "name"), name,
-                            ("Section", "id"), entry["section_id"])
-            for trait in entry.get("traits") or []:
-                _add_trait(mapper, label, name, trait)
-
-
-def _add_trait(mapper: "Mapper", owner_label: str, owner: str,
-               trait: dict) -> None:
-    key = f"{owner}|{trait['name']}"
-    mapper.node_batch("Trait", key="key").add(
-        key=key, name=trait["name"], owner=owner,
-        description=trait.get("description"))
-    mapper.edge("HAS_TRAIT", (owner_label, "name"), owner,
-                ("Trait", "key"), key)
 
 
 def _pages(entry: dict) -> dict:

@@ -236,16 +236,27 @@ class TestExploreSrdGraph:
         assert "No section with id" in result
         assert "11.2.46.1" in result
 
-    def test_given_a_condition_when_walked_then_its_edges_are_listed(
+    def test_given_a_condition_when_walked_then_what_imposes_it_is_one_hop_away(
             self, graph):
-        # Given a loaded graph
-        # When the graph around a condition is walked
+        # Given a loaded graph, where a condition is its glossary section
+        # When the graph around it is walked one hop
         result = tools.explore_srd_graph.invoke({"section_id": "11.2.114"})
 
-        # Then it opens on the section itself and lists what it is joined to
+        # Then it opens on the section and reaches the abilities imposing it
         assert result.startswith("[11.2.114]")
         assert "Connected to:" in result
+        assert "IMPOSES_CONDITION" in result
+        assert "DEFINED_IN" not in result
+
+    def test_given_a_shared_passage_when_walked_then_its_terms_are_defined_in_it(
+            self, graph):
+        # Given the table defining all thirteen damage types
+        # When it is walked one hop
+        result = tools.explore_srd_graph.invoke({"section_id": "11.2.46.1"})
+
+        # Then the terms are separate nodes pointing at it
         assert "DEFINED_IN" in result
+        assert "DamageType" in result
 
     def test_given_a_condition_when_walked_twice_then_its_imposers_are_reached(
             self, graph):
@@ -295,15 +306,24 @@ class TestExploreSrdGraph:
         # for.
         assert f"IMPOSES_CONDITION, incoming — {total}:" in whole
 
+    @pytest.mark.parametrize("section_id, depth", [
+        ("11.2.70", 1),    # Frightened: what imposes it is one hop out
+        ("11.2.46.1", 2),  # Damage Types: the terms are one hop past it
+    ])
     def test_given_a_wider_fan_when_walked_then_the_other_groups_survive_it(
-            self, graph):
+            self, graph, section_id, depth):
+        """
+        Measured 2026-11-09: two hops out from a condition, a hub of 69
+        edges, a fan of 30 spends the budget before some second-hop groups;
+        the walk is bounded, and query_srd_graph is for complete lists.
+        """
         # Given a loaded graph and a walk at the default fan
-        default = tools.explore_srd_graph.invoke({"section_id": "11.2.70",
-                                                  "depth": 2})
+        default = tools.explore_srd_graph.invoke({"section_id": section_id,
+                                                  "depth": depth})
 
         # When the same walk is asked for a much wider fan
-        wide = tools.explore_srd_graph.invoke({"section_id": "11.2.70",
-                                               "depth": 2, "fan": 30})
+        wide = tools.explore_srd_graph.invoke({"section_id": section_id,
+                                               "depth": depth, "fan": 30})
 
         # Then every group it already drew is still there
         for group in re.findall(r"^  (\w+, \w+) —", default, re.M):

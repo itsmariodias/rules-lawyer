@@ -12,13 +12,24 @@ merge on the **first** label and its key; any second label is set alongside.
 
 **There are two kinds of node.**
 
-- **`:Section` nodes** — the SRD's heading tree, joined by `HAS_SUBSECTION`.
+- **`:Section` nodes:** the SRD's heading tree, joined by `HAS_SUBSECTION`.
   Each carries exactly one entity label saying what kind of section it is, so
-  those labels partition the tree.
-- **Everything else** — stat-block entries, glossary terms, weapon and armour
-  rows, classes and so on: things that are not headings, or are not 1:1 with
-  one. Where an entity *is* its heading — a creature, a gear item, a poison —
-  it folds into that section rather than becoming a second node beside it.
+  those labels partition the tree. An entity printed under its own heading
+  *is* that section: a creature, gear item, poison, class, subclass,
+  species, background, feat or glossary term folds into it, adding its
+  record's label and properties, rather than becoming a second node beside
+  it. Such a node cites itself.
+- **Everything else:** what has no heading of its own. Stat block entries,
+  class levels, weapon and armour rows, and the damage and poison types,
+  which share one passage per kind.
+
+**The graph leaves out one kind of heading.** The book heads a stat block
+with its monster entry even when the entry holds only that stat block and no
+prose ("Aboleth" above the Aboleth stat block). Those 139 entries are in the
+artifact but not the graph; the stat block hangs from the entry's parent and
+keeps its own id. An entry whose one stat block has another name ("Crawling
+Claw" above "Swarm of Crawling Claws") stays, since its heading is the only
+place that name is printed.
 
 **A `:Section` is one heading**, at any of the SRD's five levels. Its
 subsections are separate nodes, not part of it. Most nodes are leaves, which
@@ -60,26 +71,43 @@ Gemini key (`srd-embed`) or downloaded — see **Constraints and indexes**.
 
 One feature of a class or subclass, as its own heading ("Level N: ..."), or
 an option chosen through one: the 10 Metamagic Options and 28 Eldritch
-Invocation Options. Reached from a `:Class` or `:Subclass` by
+Invocation Options. Reached from a `:Section:Class` or `:Section:Subclass` by
 `HAS_FEATURE`, and from a `:ClassLevel` by `GRANTS_FEATURE` (options are
 not, since no level grants a particular one).
 
 - **Adds** — nothing beyond the shared section properties
 - **Example:** `6.1.3.21` "Level 20: Primal Champion"
 
-### `:Section:ClassSection`
+### `:Section:Class`
 
-The section describing one class: its introduction, with the Core Traits
-and Features tables, its features and its subclass below it. Distinct from
-`:Class`, the extracted entity, which is `DEFINED_IN` it.
+One class: its introduction, with the Core Traits and Features tables, and
+its features and subclass below it. The class record folds into it, so the
+node carries both the prose and the core traits. Edges reach it as
+`(:Class {name})`.
 
-- **Example:** `6.1` "Barbarian"
+- **Adds:** `hit_point_die`, `primary_ability`, `saving_throw`,
+  `skill_proficiencies`, `weapon_proficiencies`, `armor_training`,
+  `starting_equipment`; optionally `tool_proficiencies`
+- **Example**
 
-### `:Section:SubclassSection`
+```cypher
+(:Section:Class {
+  id: "6.12", name: "Wizard", heading: "Wizard",
+  hit_point_die: "D6 per Wizard level", primary_ability: "Intelligence",
+  saving_throw: "Intelligence and Wisdom",
+  weapon_proficiencies: "Simple weapons", armor_training: "None" })
+```
 
-The section describing one subclass. `:Subclass` is `DEFINED_IN` it.
+### `:Section:Subclass`
 
-- **Example:** `6.1.4` "Barbarian Subclass: Path of the Berserker"
+One subclass, with its record folded in. The SRD prints a single one per
+class. `name` is the subclass; `heading` keeps the printed form.
+
+- **Adds:** `parent_class`
+- **Example:** `(:Section:Subclass {id: "6.1.4",
+  name: "Path of the Berserker",
+  heading: "Barbarian Subclass: Path of the Berserker",
+  parent_class: "Barbarian"})`
 
 ### `:Section:Rule`
 
@@ -145,7 +173,8 @@ graph quietly missing creatures if that ever stops being true.
   cr: "None", ac: 15, hp_average: 10, hp_formula: "Medium or smaller",
   speed_walk: 30, str_score: 16, str_modifier: 3, str_save: 3, wis_score: 3,
   immunities: ["Poison", "Psychic"],
-  condition_immunities: ["Charmed", "Exhaustion"],
+  condition_immunities: ["Charmed", "Exhaustion", "Frightened",
+    "Paralyzed", "Poisoned"],
   senses: "Blindsight 30 ft.; Passive Perception 6",
   page_start: 109, char_start: 434992, char_end: 435872 })
 ```
@@ -189,49 +218,48 @@ than nesting them under it, so only those three are typed.
 
 - **Example** — `12.3.2.3` "Cackle Fever"
 
-### `:Section:EquipmentSection`
-
-The section a gear item or a poison is printed in, always folded with its
-`:Equipment` record (see **Equipment**). The rules around equipment, such as
-weapon properties and armour training, are `:Rule`.
-
-- **Example:** `9.5.2` "Acid (25 GP)"
-
 ### `:Section:CreatureGroup`
 
 A section in the monster chapters (Monsters, Monsters A-Z, Animals) whose
-subtree holds stat blocks other than its own: a monster's entry. Most hold
-one stat block ("Aboleth" above the Aboleth stat block); the chapters
-themselves are `:Rule`. Outside those chapters a
-section printing a stat block keeps its own type: the summoning spell
-`10.3.10` "Animate Objects" is a `:Spell`, and its Animated Object stat block
-is a `:Creature` below it.
+subtree holds stat blocks other than its own: a monster's entry. In the
+graph only 38 of the artifact's 177 remain: those grouping several stat
+blocks, and the 7 whose one stat block has another name. The other 139
+wrapped a stat block of their own name with no prose and are left out (see
+**How to read this**). The chapters themselves are `:Rule`. Outside those
+chapters a section printing a stat block keeps its own type: the summoning
+spell `10.3.10` "Animate Objects" is a `:Spell`, and its Animated Object
+stat block is a `:Creature` below it.
 
 - **Adds:** `members`, the names of the stat blocks in its subtree
 - **Example:** `15.16` "Black Dragons", whose members are the four black
   dragon stat blocks
 
-### `:Section:GlossarySection`
+### `:Section:Origin:Species`
 
-The prose behind a `:GlossaryTerm`. Separate from the term itself because the
-two are not 1:1 — every damage type is printed in one shared table.
+One species, its record folded into the section describing it.
 
-- **Adds** — `term_type`
-- **Example** — `11.2.114` "Prone [Condition]"
+- **Adds:** `size`, `speed`, `creature_type`, and `traits`, the names of
+  its bolded sub-entries ("Breath Weapon", "Darkvision"), whose text is in
+  `content`
+- **Example:** `(:Section:Origin:Species {name: "Dragonborn",
+  creature_type: "Humanoid", size: "Medium (about 5–7 feet tall)",
+  speed: "30 feet"})`
 
-### `:Section:Origin`
+### `:Section:Origin:Background`
 
-The section describing one species or background; `:Species` or
-`:Background` is `DEFINED_IN` it.
+One background, its record folded in.
 
+- **Adds:** `ability_scores`, `skill_proficiencies`, `tool_proficiency`,
+  `equipment`
 - **Example:** `7.1.2.1` "Acolyte"
 
-### `:Section:FeatSection`
+### `:Section:Feat`
 
-The section describing one feat. Distinct from `:Feat`, the extracted
-entity.
+One feat, its record folded in.
 
-- **Example** — `8.1.2.1` "Alert"
+- **Adds:** `category`, `feat_group`, and `traits` as for species
+- **Example:** `8.1.2.1` "Alert", an Origin Feat, with
+  `traits: ["Initiative Proficiency", "Initiative Swap"]`
 
 ### `:Section:FrontMatter`
 
@@ -276,16 +304,29 @@ second half.
 
 ## Glossary terms
 
-All merge on `:GlossaryTerm`, key `name`, and all carry `name`, `term_type`,
-`description`, `section_id`, `page_start`, `page_end`. The second label is
-the `term_type`. They stay separate from their sections because they are not
-1:1 with them.
+The book prints glossary terms two ways, and the graph follows it, as it
+does for equipment.
+
+- **A term with a heading of its own** (155 of 172) is that section,
+  labelled `:Section:GlossaryTerm` plus its kind, so Prone is
+  `(:Section:GlossaryTerm:Condition {id: "11.2.114", name: "Prone",
+  heading: "Prone [Condition]"})`. It carries the section's properties plus
+  `term_type`; its definition is `content`.
+- **A term sharing a passage** cannot be that passage: the 13 damage types
+  are one table (`11.2.46.1`) and the 4 poison types one paragraph (`12.6`).
+  These are nodes of their own, merging on `:GlossaryTerm`, key `name`,
+  carrying `name`, `term_type`, `description`, `section_id`, `page_start`,
+  `page_end`, and `DEFINED_IN` that passage.
+
+Every term has the `:GlossaryTerm` label and a unique `name` either way, so
+an edge reaches it as `(:GlossaryTerm {name})`. The second label is the
+`term_type`.
 
 ### `:GlossaryTerm:Definition`
 
-A defined term with no special mechanics attached — the bulk of the Rules
-Glossary. Nothing targets these; they are reached by `DEFINED_IN` or
-full-text search.
+A defined term with no special mechanics attached: the bulk of the Rules
+Glossary. Nothing targets these; they are reached through the tree or by
+search.
 
 - **Example** — "Ability Check"
 
@@ -300,8 +341,8 @@ A condition something can impose or be immune to. The target of
 
 A damage type. The target of `REFERENCES_DAMAGE_TYPE`, `IMMUNE_TO`,
 `RESISTANT_TO` and `VULNERABLE_TO`. They all come from one table and share a
-single section id, which is exactly why glossary terms are not folded into
-their sections.
+single section id, which is why these stay nodes of their own, `DEFINED_IN`
+it.
 
 - **Example** — "Fire"
 
@@ -354,9 +395,8 @@ The book prints equipment two ways, and the graph follows it.
 - **Gear and poisons** are printed as a heading with a paragraph under it, so
   each one **is** a section. It folds into that section exactly as a creature
   does, giving one node that carries the price, the prose *and* the
-  `char_start` / `char_end` that locate it in the book. Its labels are the
-  section's plus `:Equipment` and its kind, so `Acid` is
-  `:Section:EquipmentSection:Equipment:Gear`.
+  `char_start` / `char_end` that locate it in the book. Its labels are
+  `:Section:Equipment` plus its kind, so `Acid` is `:Section:Equipment:Gear`.
 
 A folded node keeps `heading` as the book prints it — "Acid (25 GP)" — while
 `name` is the entity, "Acid".
@@ -384,7 +424,7 @@ sits in the tree. Its prose carries references of its own — Acid's mentions
 the Attack action, which becomes a real edge from this node.
 
 - **Adds** — the section's properties, since it is one
-- **Example:** `9.5.2` `:Section:EquipmentSection:Equipment:Gear`,
+- **Example:** `9.5.2` `:Section:Equipment:Gear`,
   `name: "Acid"`, `heading: "Acid (25 GP)"`, `cost_gp: 25.0`
 
 ### `:Equipment:Poison`
@@ -396,7 +436,7 @@ names a delivery type.
   section's properties
 - **Links** — `HAS_POISON_TYPE` to the `:GlossaryTerm:PoisonType` that
   explains what that type does
-- **Example:** `12.6.3.10` `:Section:EquipmentSection:Equipment:Poison`,
+- **Example:** `12.6.3.10` `:Section:Equipment:Poison`,
   `name: "Serpent Venom"`, `poison_type: "Injury"`
 
 ### `:Equipment:Armor`
@@ -407,42 +447,18 @@ names a delivery type.
 
 ## Character options
 
-### `:Class`
-
-One of the SRD's classes.
-
-- **Key** — `name`
-- **Properties** — `section_id`, `hit_point_die`, `primary_ability`,
-  `saving_throw`, `skill_proficiencies`, `weapon_proficiencies`,
-  `armor_training`, `starting_equipment`, `page_start`, `page_end`;
-  optionally `tool_proficiencies`
-- **Example**
-
-```cypher
-(:Class {
-  name: "Wizard", section_id: "6.12", hit_point_die: "D6 per Wizard level",
-  primary_ability: "Intelligence", saving_throw: "Intelligence and Wisdom",
-  weapon_proficiencies: "Simple weapons", armor_training: "None" })
-```
-
-### `:Subclass`
-
-One subclass. The SRD prints a single one per class.
-
-- **Key** — `key`, which is its section id
-- **Properties** — `name`, `parent_class`, `section_id`, `description`
-- **Example** — `(:Subclass {key: "6.1.3", name: "Path of the Berserker",
-  parent_class: "Barbarian"})`
+Classes, subclasses, species, backgrounds and feats are their sections (see
+**Section nodes**). What remains is the level table.
 
 ### `:ClassLevel`
 
 One node per class per level. A node rather than a list property, so a query
 can ask what a level grants without unpacking anything.
 
-- **Key** — `key`, formed `Class|level`
-- **Properties** — `parent_class`, `level`, `proficiency_bonus`,
+- **Key:** `key`, formed `Class|level`
+- **Properties:** `parent_class`, `level`, `proficiency_bonus`,
   `resource_names`, `resource_values`
-- **Why two arrays** — the level table's resources are a `{name: value}` map
+- **Why two arrays:** the level table's resources are a `{name: value}` map
   in the artifact, and Neo4j has no map property, so they become two arrays
   corresponding by position
 - **Example**
@@ -454,40 +470,6 @@ can ask what a level grants without unpacking anything.
   resource_names:  ["Rages", "Rage Damage", "Weapon Mastery"],
   resource_values: ["2",     "+2",          "2"] })
 ```
-
-### `:Species`
-
-- **Key** — `name`
-- **Properties** — `section_id`, `description`, `size`, `speed`,
-  `creature_type`, `page_start`, `page_end`
-- **Example** — "Dragonborn": Humanoid, Medium, 30 feet
-
-### `:Background`
-
-- **Key** — `name`
-- **Properties** — `section_id`, `description`, `ability_scores`,
-  `skill_proficiencies`, `tool_proficiency`, `equipment`, `page_start`,
-  `page_end`
-- **Example** — "Acolyte"
-
-### `:Feat`
-
-The extracted feat. Distinct from `:Section:FeatSection`, its prose.
-
-- **Key** — `name`
-- **Properties** — `section_id`, `description`, `category`, `feat_group`,
-  `page_start`, `page_end`
-- **Example** — "Alert", an Origin Feat
-
-### `:Trait`
-
-A named trait belonging to a species or a feat — the bolded sub-entries in
-their descriptions.
-
-- **Key** — `key`, formed `Owner|Trait Name`
-- **Properties** — `name`, `owner`, `description`
-- **Example** — `(:Trait {key: "Dragonborn|Draconic Ancestry",
-  owner: "Dragonborn", name: "Draconic Ancestry"})`
 
 ---
 
@@ -525,8 +507,8 @@ a traversal can filter to actions without visiting the ability node.
 ### `HAS_FEATURE`
 
 ```cypher
-(:Class)-[:HAS_FEATURE {level}]->(:Section:ClassFeature)
-(:Subclass)-[:HAS_FEATURE {level}]->(:Section:ClassFeature)
+(:Section:Class)-[:HAS_FEATURE {level}]->(:Section:ClassFeature)
+(:Section:Subclass)-[:HAS_FEATURE {level}]->(:Section:ClassFeature)
 ```
 
 A class or subclass to the features it grants. It points at the feature's own
@@ -537,7 +519,7 @@ section rather than copying its prose.
 ### `AT_LEVEL`
 
 ```cypher
-(:Class)-[:AT_LEVEL {level}]->(:ClassLevel)
+(:Section:Class)-[:AT_LEVEL {level}]->(:ClassLevel)
 ```
 
 A class to each of its level rows.
@@ -558,32 +540,22 @@ name a feature the chapter never details separately.
 ### `HAS_SUBCLASS`
 
 ```cypher
-(:Class)-[:HAS_SUBCLASS]->(:Subclass)
+(:Section:Class)-[:HAS_SUBCLASS]->(:Section:Subclass)
 ```
 
-- **Example** — `(Barbarian)-->(6.1.3 "Path of the Berserker")`
+- **Example:** `(Barbarian)-->(6.1.4 "Path of the Berserker")`
 
 ### `DEFINED_IN`
 
 ```cypher
-(:GlossaryTerm)-[:DEFINED_IN]->(:Section)
-(:Class|:Subclass|:Species|:Background|:Feat)-[:DEFINED_IN]->(:Section)
+(:GlossaryTerm:DamageType|PoisonType)-[:DEFINED_IN]->(:Section)
 ```
 
-An entity from a flat collection back to the prose defining it. It exists for
-exactly those collections that are *not* 1:1 with a section — which is why
-creatures have none: they **are** their section.
+A glossary term back to the passage defining it, for the 17 terms that share
+one and so cannot be it. Every other entity printed under its own heading
+**is** that section and needs no such edge.
 
-- **Example** — `(Prone)-->(11.2.114 "Prone [Condition]")`
-
-### `HAS_TRAIT`
-
-```cypher
-(:Species)-[:HAS_TRAIT]->(:Trait)
-(:Feat)-[:HAS_TRAIT]->(:Trait)
-```
-
-- **Example** — `(Dragonborn)-->(Dragonborn|Breath Weapon)`
+- **Example:** `(Fire)-->(11.2.46.1 "Damage Types")`
 
 ## Cross-references
 
@@ -693,7 +665,7 @@ edges is what makes a rules question a traversal instead of a scan.
 ### `ON_SPELL_LIST`
 
 ```cypher
-(:Section:Spell)-[:ON_SPELL_LIST]->(:Class)
+(:Section:Spell)-[:ON_SPELL_LIST]->(:Section:Class)
 ```
 
 From each spell's own subtitle — "Level 3 Evocation (Sorcerer, Wizard)".
@@ -744,7 +716,7 @@ condition immunity never blur together.
 ### `HAS_POISON_TYPE`
 
 ```cypher
-(:Equipment:Poison)-[:HAS_POISON_TYPE]->(:GlossaryTerm:PoisonType)
+(:Section:Equipment:Poison)-[:HAS_POISON_TYPE]->(:GlossaryTerm:PoisonType)
 ```
 
 From the poison's `poison_type`. Every poison has exactly one. This is what
@@ -771,7 +743,7 @@ From the stat block's `gear` line.
 ### `GRANTS_FEAT`
 
 ```cypher
-(:Background)-[:GRANTS_FEAT]->(:Feat)
+(:Section:Origin:Background)-[:GRANTS_FEAT]->(:Section:Feat)
 ```
 
 From the background's printed feat, with the parenthetical stripped:
@@ -784,7 +756,9 @@ From the background's printed feat, with the parenthetical stripped:
 # Constraints and indexes
 
 A uniqueness constraint on every merge key, which doubles as the index
-`MERGE` needs:
+`MERGE` needs, and on the names edges match folded records by (a
+`(:Class {name})` is a section, merged on its `id`). A constraint on a key
+no longer listed is dropped when the schema is applied.
 
 | Label | Property |  | Label | Property |
 | --- | --- | --- | --- | --- |
@@ -792,8 +766,7 @@ A uniqueness constraint on every merge key, which doubles as the index
 | `:CreatureAbility` | `key` |  | `:Species` | `name` |
 | `:GlossaryTerm` | `name` |  | `:Background` | `name` |
 | `:Equipment` | `name` |  | `:Feat` | `name` |
-| `:Class` | `name` |  | `:Trait` | `key` |
-| `:Subclass` | `key` |  | | |
+| `:Class` | `name` |  | | |
 
 Range indexes on the filters a rules question starts from:
 `Section.entity_type`, `Section.name`, `Section.cr`, `Section.level`,

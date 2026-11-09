@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from . import mapping
 from .embeddings import Vectors
 from .model import GraphData
 from .schema import VECTOR_NAME, vector_index_width
@@ -76,24 +77,56 @@ def verify(document: dict, data: GraphData, session: "Session",
             "RETURN count(n)")
         _check(checks, f"nodes {batch.signature}", len(batch), found)
 
+    # Wrappers are in the document but deliberately not in the graph.
+    wrappers = mapping.wrapper_groups(document)
     total_sections = _scalar(session, "MATCH (n:Section) RETURN count(n)")
-    _check(checks, "sections", counts["sections"], total_sections)
+    _check(checks, "sections", counts["sections"] - len(wrappers),
+           total_sections)
 
     for entity_type, expected in counts["entity_types"].items():
+        if entity_type == "creature_group":
+            expected -= len(wrappers)
         found = _scalar(
             session,
             "MATCH (n:Section {entity_type: $type}) RETURN count(n)",
             type=entity_type)
         _check(checks, f"entity_type {entity_type}", expected, found)
+    _check(checks, "creature groups wrapping only their namesake", 0,
+           _scalar(session,
+                   "MATCH (g:CreatureGroup)-[:HAS_SUBSECTION]->(c:Creature) "
+                   "WHERE coalesce(trim(g.content), '') = '' "
+                   "AND g.heading = c.heading "
+                   "AND COUNT { (g)-[:HAS_SUBSECTION]->() } = 1 "
+                   "RETURN count(g)"))
+    _check(checks, "creature groups without members", 0,
+           _scalar(session, "MATCH (g:CreatureGroup) WHERE g.members IS NULL "
+                            "RETURN count(g)"))
 
-    for collection, label in (("glossary", "GlossaryTerm"),
-                              ("equipment", "Equipment"),
-                              ("classes", "Class"),
-                              ("species", "Species"),
-                              ("backgrounds", "Background"),
-                              ("feats", "Feat")):
+    subclasses = sum(len(c.get("subclasses") or [])
+                     for c in document["classes"])
+    for collection, label, expected in (
+            ("glossary", "GlossaryTerm", counts["glossary"]),
+            ("equipment", "Equipment", counts["equipment"]),
+            ("classes", "Class", counts["classes"]),
+            ("subclasses", "Subclass", subclasses),
+            ("species", "Species", counts["species"]),
+            ("backgrounds", "Background", counts["backgrounds"]),
+            ("feats", "Feat", counts["feats"])):
         found = _scalar(session, f"MATCH (n:{label}) RETURN count(n)")
-        _check(checks, f"{collection}", counts[collection], found)
+        _check(checks, f"{collection}", expected, found)
+
+    # A record with a heading of its own is that section.
+    for label in ("Class", "Subclass", "Species", "Background", "Feat"):
+        _check(checks, f"{label} not folded into a section", 0,
+               _scalar(session,
+                       f"MATCH (n:{label}) WHERE NOT n:Section RETURN count(n)"))
+    shared = mapping.shared_glossary_sections(document)
+    standalone = sum(1 for term in document["glossary"]
+                     if term.get("section_id") in shared)
+    _check(checks, "glossary terms sharing a passage", standalone,
+           _scalar(session, "MATCH (n:GlossaryTerm) WHERE NOT n:Section "
+                            "AND (n)-[:DEFINED_IN]->(:Section) "
+                            "RETURN count(n)"))
 
     _check(checks, "creatures with stat blocks", counts["creatures"],
            _scalar(session,

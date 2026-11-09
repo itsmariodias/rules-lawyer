@@ -243,6 +243,15 @@ maps those character ranges to page rectangles.
   sidebar headings extract as mixed case ("rEstinG") and are recased.
 - **A stat block is parsed as a card,** keyed off its title, not assembled
   from whatever prose fell under a heading.
+- **A stat block field may wrap onto an unlabelled line,** which joins the
+  field before it. Read one line at a time, 54 stat blocks lost defences
+  (Clay Golem kept two of six condition immunities; Ghost lost Piercing and
+  Slashing resistance).
+- **Immunities are sorted by name, not by the semicolon.** The book puts
+  damage types before it and conditions after, but a line of conditions
+  alone has none: the Knight was immune to "Frightened" damage, and 68
+  conditions were filed that way. A qualified entry keeps its note
+  ("Charmed (with _Mind Blank_)") and so links to nothing.
 - **Page anchors** are recorded per emitted part (reflowing destroys
   per-character correspondence; sections start and end on part boundaries).
   A line's box comes from baseline and size (`baseline - 0.80*size` to
@@ -270,7 +279,8 @@ maps those character ranges to page rectangles.
   "Classes" once made 446 sections class features, 202 of them headings,
   tables and spell lists, and "Monsters A–Z" was itself a creature group.
   A monster's entry is a `creature_group` even with one stat block
-  ("Aboleth" above the Aboleth stat block), since it is the book's entry.
+  ("Aboleth" above the Aboleth stat block), since it is the book's entry;
+  stage 2 leaves the redundant ones out (see Graph decisions).
 - **`spell` and `magic_item` come only from the subtitle** the book prints
   under the heading, never from position: a table printed as a subsection
   of a spell ("Teleportation Outcome") is not a spell. **`creature_group`
@@ -288,28 +298,29 @@ maps those character ranges to page rectangles.
 
 ## Stage 2: the graph
 
-`srd-graph-load` writes **4286 nodes and 11477 relationships**, then runs
-**72 verification checks**. Loads MERGE on stable keys, but a full reset is
+`srd-graph-load` writes **3877 nodes and 11316 relationships**, then runs
+**77 verification checks**. Loads MERGE on stable keys, but a full reset is
 the default: the artifact is the whole truth, and merging alone would keep
 nodes a re-parse has dropped.
 
 | Label | Key | Count |
 | --- | --- | --- |
-| `:Section` | `id` | 2394 |
+| `:Section` | `id` | 2255 (2394 less 139 wrappers) |
 | + `:Spell` / `:MagicItem` / `:Creature` / `:Rule` / `:ClassFeature` / ... | `id` | 339 / 258 / 336 / 687 / 270 / ... |
-| + `:ClassSection` / `:SubclassSection` / `:Origin` / `:FeatSection` | `id` | 12 / 12 / 13 / 17 |
+| + `:Class` / `:Subclass` / `:Feat` / `:Origin` (+ `:Species` / `:Background`) | `id` | 12 / 12 / 17 / 13 (9 / 4) |
+| + `:CreatureGroup` | `id` | 38 |
 | + `:Trap` / `:EnvironmentalEffect` / `:Contagion` | `id` | 8 / 9 / 3 |
-| `:CreatureAbility` | `key` (`Goblin\|actions/Bite`) | 1314 |
-| `:GlossaryTerm` + `:Condition` / `:DamageType` / `:PoisonType` / ... | `name` | 172 |
+| + `:GlossaryTerm` + `:Condition` / `:Definition` / `:Action` / ... | `id` | 155 |
+| + `:Equipment` + `:Gear` / `:Poison` | `id` | 81 / 14 |
+| `:GlossaryTerm` + `:DamageType` / `:PoisonType`, sharing a passage | `name` | 13 / 4 |
 | `:Equipment` + `:Weapon` / `:Armor` | `name` | 51 table rows |
-| + `:Gear` / `:Poison`, folded into their sections | `id` | 81 / 14 |
-| `:Class` / `:Subclass` / `:ClassLevel` | `name` / `key` / `key` | 12 / 12 / 240 |
-| `:Species` / `:Background` / `:Feat` / `:Trait` | `name` / ... / `key` | 9 / 4 / 17 / 61 |
+| `:CreatureAbility` | `key` (`Goblin\|actions/Bite`) | 1314 |
+| `:ClassLevel` | `key` | 240 |
 
 Relationships: the artifact's reference relations uppercased
 (`IMPOSES_CONDITION`, `REFERENCES_SPELL`, ...); structure (`HAS_SUBSECTION`,
 `HAS_ABILITY`, `HAS_FEATURE`, `HAS_SUBCLASS`, `AT_LEVEL`, `GRANTS_FEATURE`,
-`HAS_TRAIT`, `DEFINED_IN`); and edges derived from list fields
+`DEFINED_IN`); and edges derived from list fields
 (`IMMUNE_TO`, `RESISTANT_TO`, `VULNERABLE_TO`, `IMMUNE_TO_CONDITION`,
 `ON_SPELL_LIST`, `CARRIES`, `HAS_POISON_TYPE`, `GRANTS_FEAT`). GRAPH.md
 documents each one; `tests/test_docs.py` fails if it falls behind `mapping`.
@@ -320,10 +331,24 @@ documents each one; `tests/test_docs.py` fails if it falls behind `mapping`.
   *is* its section, so everything a traversal finds keeps
   `char_start`/`char_end` and resolves to the book. The dotted section id is
   the only globally unique stable identifier, so it is the key.
-- **A stat block, gear item or poison folds into its section** (336 creatures
-  on both sides, names unique; `add_creatures` raises if not). Weapons and
-  armour are only table rows, so they stay `:Equipment` nodes. Glossary terms
-  cannot fold: all 13 damage types share section `11.2.46.1`.
+- **An entity printed under its own heading folds into that section:**
+  creatures, gear, poisons, classes, subclasses, species, backgrounds, feats
+  and glossary terms. Side by side they were 1:1 copies joined by
+  `DEFINED_IN` (descriptions equal to `content` in every case), each a hop
+  between a question and its citation. `add_creatures` and `Mapper.fold`
+  raise if a record names no section of its type. The section label is the
+  record's (`:Section:Class`), and edges still match `(:Class {name})`, so
+  name constraints stay. Weapons and armour are only table rows, so they
+  stay `:Equipment` nodes; the 13 damage types share `11.2.46.1` and the 4
+  poison types `12.6`, so those 17 terms stay nodes `DEFINED_IN` it.
+- **Traits are a `traits` name list,** not nodes: nothing referred to any of
+  the 61, and their text is in the section.
+- **A monster entry wrapping its namesake is left out** (`is_wrapper`: no
+  prose, one subsection, a stat block of the same heading; 139). Its stat
+  block hangs from the entry's parent and keeps its id, so the artifact,
+  embeddings and stored citations are untouched. The 7 entries over a stat
+  block of another name stay ("Crawling Claw" over "Swarm of Crawling
+  Claws"): the heading is the only place that name is printed.
 - **Abilities are nodes because references point at them.** A
   creature-sourced reference's `part` (`actions/Bite`) is the tail of the
   ability key, so 1582 edges land on the ability rather than the whole stat
@@ -367,8 +392,12 @@ documents each one; `tests/test_docs.py` fails if it falls behind `mapping`.
 ### Verification (`verify.py`)
 
 Expected values come from the document (`meta.counts`, collections), never
-from the loader's tally. Checks: a count per exact label set and per
-`entity_type`; collections; 336 creatures with stats; 16 roots and one parent
+from the loader's tally; the one rule shared with the mapper is
+`wrapper_groups`, subtracted from the section and `creature_group` counts.
+Checks: a count per exact label set and per `entity_type`; collections;
+records folded (none of `:Class` ... `:Feat` outside a section); 17 terms
+`DEFINED_IN` a shared passage; no wrapper left and `members` on every
+group; 336 creatures with stats; 16 roots and one parent
 per section; all 5264 reference edges and zero unresolved; 1314 abilities,
 each attached; abilities with damage; sections with prose each having a
 vector of the right width; `srd_vector` online and of that width; no orphans
@@ -455,17 +484,23 @@ A LangGraph tool-calling agent (`langchain.agents.create_agent`) on Gemini
   fit is dropped. The tool raises the budget with `fan`, otherwise a wider
   fan starves the other groups.
 - Every neighbour carries something to cite: a section cites itself; an
-  ability cites the stat block printing it (`HAS_ABILITY`), a glossary term
-  its `DEFINED_IN` section; anything printed nowhere says "do not cite".
-  Without this the model searched for each node by name.
-- A citation names a section, and the derived term other things point at is
-  one hop further, so the docstring tells the model to walk depth 2 when
-  depth 1 shows only structure.
+  ability cites the stat block printing it (`HAS_ABILITY`), a damage or
+  poison type its `DEFINED_IN` passage; anything printed nowhere says "do
+  not cite". Without this the model searched for each node by name.
+- A condition is its section, so one hop from it reaches what imposes it.
+  A damage type is one hop past its shared passage, so the docstring tells
+  the model to walk depth 2 when depth 1 shows only `DEFINED_IN`.
 - Nodes are addressed by `elementId` (stable for the life of a load), since
   derived nodes have no section id.
 
 ### Answers, failures and citations
 
+- **The tools are the only source of truth,** and the system prompt says
+  the model's own D&D knowledge must not decide what to check either. Of 20
+  calls on the Frightened question, about 8 tested recollections of older
+  editions (every adult dragon with Frightful Presence, a frightening
+  Phantasmal Killer) against a graph that was right; answering from the
+  tools alone was not enough to stop that.
 - **The model is required, and a failure is the reply.** No fallback answer.
   A missing key is knowable before the stream starts, so `/chat` answers 503;
   everything else arrives as an `error` event. `_explain` names the common
@@ -622,8 +657,8 @@ A LangGraph tool-calling agent (`langchain.agents.create_agent`) on Gemini
   specific label first, since nodes are multi-label. `:Section` is never
   shown. An unlisted label draws grey, so `test_docs.py` checks `KINDS`
   against the mapper.
-- **Filled nodes are sections; hollow nodes are derived,** so the
-  "Alignment" section and glossary term do not read as a duplicate.
+- **Filled nodes are sections; hollow nodes are derived,** so a reader can
+  tell what opens on the page.
 - Edge types are labelled only on the selected node's edges, at most five.
 
 ## Testing
@@ -655,6 +690,10 @@ A LangGraph tool-calling agent (`langchain.agents.create_agent`) on Gemini
   concentration, ritual and specific material, 0 mismatches.
 - Page geometry vs page range: every section has rectangles on the pages it
   claims (derived independently from page markers and lines).
+- Defences: 236 Resistances / Immunities / Vulnerabilities lines, each
+  record held against the line its section's markdown prints (records come
+  from per-line fields, the markdown from reflowed text), and no condition
+  filed as a damage type. 0 mismatches; 71 before the two fixes above.
 
 Rules that cost debugging time:
 
@@ -710,7 +749,9 @@ used and the printed one kept in `printed_score`.
   schema-first and single-label per node, so it would need a differently
   shaped graph. Everything except `test_loader.py` runs without Docker.
 - Floats nothing in the text claims stay where they were printed:
-  "Running a Monster" is still under Resistances and Vulnerabilities.
+  "Running a Monster" is still under Resistances and Vulnerabilities, and
+  the Figurine of Wondrous Power's Goat of Terror text sits in the Giant
+  Fly stat block's section.
 - Some tables' cells drift a column: the Rogue's Sneak Attack dice are under
   no header, so its progression has no resource for them, and "Starting
   Equipment at Higher Levels" collapses into one row.

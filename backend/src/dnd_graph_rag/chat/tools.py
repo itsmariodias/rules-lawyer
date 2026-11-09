@@ -241,11 +241,11 @@ def explore_srd_graph(section_id: str, depth: int = 1,
         section_id: A dotted section id such as "11.2.114", exactly as it
             appears in square brackets in a search result.
         depth: How many hops out to walk, 1 to 3. One hop is what the section
-            is directly joined to. A condition or damage type is usually
-            defined by a section and referenced through a separate term node
-            one hop further out, so when a first hop shows only structure
-            (HAS_SUBSECTION, DEFINED_IN), walk it again at depth 2 to reach
-            what actually points at it.
+            is directly joined to; a condition's section is the condition, so
+            one hop reaches what imposes it. Damage types and poison types
+            share one passage each and are separate term nodes DEFINED_IN it,
+            so when a first hop shows only DEFINED_IN, walk it again at depth
+            2 to reach what actually points at those terms.
         fan: How many neighbours to show per relationship, up to 50. Raise it
             to see more of a group reported as "22 in the graph, 8 shown".
             It widens every group at once and the walk is still bounded in

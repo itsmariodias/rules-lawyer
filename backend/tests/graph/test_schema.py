@@ -111,6 +111,43 @@ class TestDropStaleVectorIndex:
         assert not schema.drop_stale_vector_index(session, 1536)
 
 
+class TestDropStaleConstraints:
+    def test_given_a_constraint_on_a_retired_key_when_checked_then_it_is_dropped(self):
+        # Given a database still constraining Trait.key beside a current key
+        session = ConstraintSession(["trait_key_unique", "section_id_unique"])
+
+        # When stale constraints are dropped
+        dropped = schema.drop_stale_constraints(session)
+
+        # Then only the retired one goes
+        assert dropped == ["trait_key_unique"]
+        assert "DROP CONSTRAINT trait_key_unique IF EXISTS" in session.statements
+        assert not any("section_id_unique" in s and s.startswith("DROP")
+                       for s in session.statements)
+
+    def test_given_only_current_constraints_when_checked_then_nothing_is_dropped(self):
+        # Given exactly the declared constraints
+        session = ConstraintSession([schema.constraint_name(label, prop)
+                                     for label, prop in schema.NODE_KEYS])
+
+        # When stale constraints are dropped
+        # Then there are none
+        assert schema.drop_stale_constraints(session) == []
+
+
+class ConstraintSession:
+    """A session whose database holds the given uniqueness constraints."""
+
+    def __init__(self, names: list[str]) -> None:
+        self._names = names
+        self.statements: list[str] = []
+
+    def run(self, query: str, **parameters):
+        self.statements.append(query)
+        rows = [{"name": name} for name in self._names]
+        return type("Result", (), {"data": lambda _: rows})()
+
+
 class WidthSession:
     """A session whose vector index, if any, has the given width."""
 

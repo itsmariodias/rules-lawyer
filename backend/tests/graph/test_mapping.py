@@ -164,8 +164,7 @@ class TestBuildCreatures:
         data = mapping.build(tiny_document)
 
         # Then there is one node, carrying both halves
-        assert len(rows_for(data, "Section", "Creature")) == 1
-        creature = one(data, "Section", "Creature")
+        creature = one(data, "Section", "Creature", name="Goblin")
         assert creature["id"] == "1.1"
         assert creature["content"] == "A goblin."
         assert creature["ac"] == 15
@@ -175,7 +174,8 @@ class TestBuildCreatures:
             self, tiny_document):
         # Given a stat block with a speed map and an ability grid
         # When it is built
-        creature = one(mapping.build(tiny_document), "Section", "Creature")
+        creature = one(mapping.build(tiny_document), "Section", "Creature",
+                       name="Goblin")
 
         # Then each becomes its own queryable property
         assert creature["speed_walk"] == 30
@@ -227,7 +227,43 @@ class TestBuildGlossary:
 
         # Then each carries a label naming what it is
         assert one(data, "GlossaryTerm", "DamageType", name="Fire")
-        assert one(data, "GlossaryTerm", "Condition", name="Charmed")
+        assert one(data, "Section", "GlossaryTerm", "Condition", name="Charmed")
+
+    def test_given_a_term_with_a_section_to_itself_when_built_then_it_is_that_section(
+            self, tiny_document):
+        # Given a condition printed under its own heading
+        # When the document is built
+        data = mapping.build(tiny_document)
+
+        # Then one node is both, citable by the section id, printed heading kept
+        term = one(data, "Section", "GlossaryTerm", "Condition", name="Charmed")
+        assert term["id"] == "11"
+        assert term["heading"] == "Charmed [Condition]"
+        assert "description" not in term
+        assert all(edge["start"] != "Charmed"
+                   for edge in edges_of(data, "DEFINED_IN"))
+
+    def test_given_terms_sharing_a_passage_when_built_then_they_stay_their_own_nodes(
+            self, tiny_document):
+        # Given a damage type and a poison type defined in one passage
+        # When the document is built
+        data = mapping.build(tiny_document)
+
+        # Then neither can be the passage, so each points at it
+        assert one(data, "GlossaryTerm", "DamageType", name="Fire")
+        assert {(e["start"], e["end"]) for e in edges_of(data, "DEFINED_IN")} \
+            == {("Fire", "9"), ("Injury", "9")}
+
+
+class TestSharedGlossarySections:
+    def test_given_terms_when_counted_then_only_a_passage_naming_two_is_shared(
+            self, tiny_document):
+        # Given two terms on section 9 and one on section 11
+        # When the shared sections are found
+        shared = mapping.shared_glossary_sections(tiny_document)
+
+        # Then only the passage defining more than one term is shared
+        assert shared == {"9"}
 
 
 class TestBuildEquipment:
@@ -237,7 +273,7 @@ class TestBuildEquipment:
         # Given a poison naming the section that prints it
         # When the document is built
         folded = one(mapping.build(tiny_document),
-                     "Section", "EquipmentSection", "Equipment", "Poison")
+                     "Section", "Equipment", "Poison")
 
         # Then one node carries the section's offsets and the item's properties
         assert folded["id"] == "5"
@@ -258,6 +294,50 @@ class TestBuildEquipment:
 
 
 class TestBuildClasses:
+    def test_given_a_class_when_built_then_it_is_its_section(self, tiny_document):
+        # Given a class record naming the section that describes it
+        # When the document is built
+        data = mapping.build(tiny_document)
+
+        # Then one node carries the section and the class
+        wizard = one(data, "Section", "Class", name="Wizard")
+        assert wizard["id"] == "6"
+        assert wizard["content"] == "A scholar."
+        assert wizard["hit_point_die"] == "D6 per Wizard level"
+        assert "section_id" not in wizard
+        assert edges_of(data, "DEFINED_IN") == [
+            e for e in edges_of(data, "DEFINED_IN") if e["start"] != "Wizard"]
+
+    def test_given_a_class_naming_another_type_of_section_when_built_then_it_fails(
+            self, tiny_document):
+        # Given a class pointing at a section that is not a class
+        tiny_document["classes"][0]["section_id"] = "2"
+
+        # When the document is built
+        # Then it fails loudly rather than labelling a spell a class
+        with pytest.raises(ValueError, match="diverged"):
+            mapping.build(tiny_document)
+
+    def test_given_a_subclass_when_built_then_its_edges_reach_its_section(
+            self, tiny_document):
+        # Given a subclass with a feature
+        tiny_document["sections"].append(
+            {"id": "6.2", "heading": "Wizard Subclass: Evoker", "content": "Boom.",
+             "entity_type": "subclass", "subsections": []})
+        tiny_document["classes"][0]["subclasses"] = [
+            {"name": "Evoker", "section_id": "6.2",
+             "features": [{"level": 3, "name": "Sculpt", "section_id": "6.1"}]}]
+
+        # When the document is built
+        data = mapping.build(tiny_document)
+
+        # Then the subclass is its section, and both edges land on it by id
+        evoker = one(data, "Section", "Subclass", name="Evoker")
+        assert evoker["parent_class"] == "Wizard"
+        assert {"start": "Wizard", "end": "6.2"}.items() \
+            <= edges_of(data, "HAS_SUBCLASS")[0].items()
+        assert any(e["start"] == "6.2" for e in edges_of(data, "HAS_FEATURE"))
+
     def test_given_a_levels_resources_when_built_then_they_become_two_arrays(
             self, tiny_document):
         # Given a class level carrying a resources map
@@ -268,6 +348,105 @@ class TestBuildClasses:
         assert level["resource_names"] == ["Cantrips", "Prepared Spells"]
         assert level["resource_values"] == ["3", "4"]
         assert level["proficiency_bonus"] == 2
+
+
+class TestBuildOrigins:
+    def test_given_a_species_when_built_then_it_is_its_origin_section(
+            self, tiny_document):
+        # Given a species record naming its section
+        # When the document is built
+        dragonborn = one(mapping.build(tiny_document),
+                         "Section", "Origin", "Species", name="Dragonborn")
+
+        # Then the section carries the record, without repeating its prose
+        assert dragonborn["id"] == "7"
+        assert dragonborn["size"] == "Medium"
+        assert "description" not in dragonborn
+
+    def test_given_traits_when_built_then_they_are_names_on_the_owner(
+            self, tiny_document):
+        # Given a species and a feat with named traits
+        # When the document is built
+        data = mapping.build(tiny_document)
+
+        # Then each owner lists them, and no trait is a node of its own
+        assert one(data, "Section", "Origin", "Species")["traits"] == [
+            "Breath Weapon", "Darkvision"]
+        assert one(data, "Section", "Feat", name="Alert")["traits"] == [
+            "Initiative Proficiency"]
+        assert "Trait" not in {label for batch in data.nodes
+                               for label in batch.labels}
+        assert edges_of(data, "HAS_TRAIT") == []
+
+
+class TestIsWrapper:
+    def test_given_an_entry_holding_only_its_namesake_when_checked_then_it_wraps(
+            self, tiny_document):
+        # Given "Ogre" with no prose above the Ogre stat block
+        ogre = tiny_document["sections"][0]["subsections"][1]
+
+        # When it is checked
+        # Then it is a wrapper
+        assert mapping.is_wrapper(ogre)
+
+    def test_given_an_entry_of_another_name_when_checked_then_it_stays(
+            self, tiny_document):
+        # Given an entry whose one stat block is called something else
+        ogre = tiny_document["sections"][0]["subsections"][1]
+        ogre["heading"] = "Ogres"
+
+        # When it is checked
+        # Then its heading is a name nothing else prints, so it stays
+        assert not mapping.is_wrapper(ogre)
+
+    def test_given_an_entry_with_prose_when_checked_then_it_stays(
+            self, tiny_document):
+        # Given an entry with text of its own above its stat block
+        ogre = tiny_document["sections"][0]["subsections"][1]
+        ogre["content"] = "Ogres are large."
+
+        # When it is checked
+        # Then the text needs a section to belong to
+        assert not mapping.is_wrapper(ogre)
+
+    def test_given_an_entry_of_several_stat_blocks_when_checked_then_it_stays(
+            self, tiny_document):
+        # Given "Monsters" above two stat blocks
+        # When it is checked
+        # Then it groups something
+        assert not mapping.is_wrapper(tiny_document["sections"][0])
+
+
+class TestWrapperGroups:
+    def test_given_a_document_when_scanned_then_only_wrappers_are_listed(
+            self, tiny_document):
+        # Given one wrapper among other groups
+        # When the document is scanned
+        # Then that one id is returned
+        assert mapping.wrapper_groups(tiny_document) == {"1.2"}
+
+    def test_given_a_wrapper_when_built_then_its_stat_block_hangs_from_its_parent(
+            self, tiny_document):
+        # Given the Ogre wrapper under Monsters
+        # When the document is built
+        data = mapping.build(tiny_document)
+
+        # Then the wrapper is gone and the stat block keeps its id
+        ids = {row["id"] for batch in data.nodes if "Section" in batch.labels
+               for row in batch.rows}
+        assert "1.2" not in ids and "1.2.1" in ids
+        tree = {(e["start"], e["end"]) for e in edges_of(data, "HAS_SUBSECTION")}
+        assert ("1", "1.2.1") in tree
+        assert not any("1.2" in edge for edge in tree)
+
+    def test_given_a_group_that_stays_when_built_then_it_lists_its_members(
+            self, tiny_document):
+        # Given "Monsters", which groups two stat blocks
+        # When the document is built
+        group = one(mapping.build(tiny_document), "Section", "CreatureGroup")
+
+        # Then the names of its stat blocks are on it
+        assert group["members"] == ["Goblin", "Ogre"]
 
 
 class TestBuildReferences:
@@ -343,21 +522,42 @@ class TestBuildAgainstTheRealArtifact:
         # Given the artifact and the counts it carries
         data = mapping.build(document)
         counts = document["meta"]["counts"]
-        by_label = data.counts_by_label()
 
         # When the mapped batches are counted by label
         # Then every collection maps to exactly what the parser counted
-        assert count_with(data, "Section") == counts["sections"]
+        wrappers = len(mapping.wrapper_groups(document))
+        assert count_with(data, "Section") == counts["sections"] - wrappers
         for entity_type, expected in counts["entity_types"].items():
             label = mapping.SECTION_LABELS[entity_type]
+            if entity_type == "creature_group":
+                expected -= wrappers
             assert count_with(data, "Section", label) == expected
         assert count_with(data, "Creature") == counts["creatures"]
         assert count_with(data, "Equipment") == counts["equipment"]
         assert count_with(data, "GlossaryTerm") == counts["glossary"]
-        assert by_label["Class"] == counts["classes"]
-        assert by_label["Species"] == counts["species"]
-        assert by_label["Background"] == counts["backgrounds"]
-        assert by_label["Feat"] == counts["feats"]
+        assert count_with(data, "Section", "Class") == counts["classes"]
+        assert count_with(data, "Section", "Species") == counts["species"]
+        assert count_with(data, "Section", "Background") == counts["backgrounds"]
+        assert count_with(data, "Section", "Feat") == counts["feats"]
+
+    def test_given_the_artifact_when_mapped_then_only_redundant_nodes_are_left_out(
+            self, document):
+        """
+        Measured 2026-11-09: 139 entries wrapped only their namesake stat
+        block, and 17 glossary terms (13 damage types, 4 poison types) share
+        a passage; every other term has a section to itself.
+        """
+        # Given the artifact
+        # When it is mapped
+        data = mapping.build(document)
+
+        # Then the wrappers are gone and only shared-passage terms stand alone
+        assert len(mapping.wrapper_groups(document)) == 139
+        assert count_with(data, "GlossaryTerm") - count_with(
+            data, "Section", "GlossaryTerm") == 17
+        assert {e["start"] for e in edges_of(data, "DEFINED_IN")} == {
+            t["name"] for t in document["glossary"]
+            if t["term_type"] in ("damage type", "poison type")}
 
     def test_given_the_artifact_when_mapped_then_every_reference_resolves(
             self, document):

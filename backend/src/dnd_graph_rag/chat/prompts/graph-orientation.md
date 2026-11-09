@@ -4,16 +4,24 @@
 - `:Section` is the SRD's heading tree and carries `id`, the dotted string
   (`10.3.116`) that is the only citable identifier. RETURN it whenever the
   answer will cite the row.
-- A creature, a gear item and a poison *are* their section, so a `:Creature`
-  has an `id`. A `:CreatureAbility`, `:GlossaryTerm`, `:Weapon` or `:Class`
-  is not a section and has none: reach the section through `HAS_ABILITY`,
-  `DEFINED_IN` or `CARRIES` when you need something to cite.
+- Anything printed under its own heading *is* that section and has an `id`:
+  a `:Creature`, `:Gear`, `:Poison`, `:Class`, `:Subclass`, `:Species`,
+  `:Background`, `:Feat`, and every glossary term except the damage and
+  poison types. What has no heading of its own has no `id`: reach a
+  `:CreatureAbility`'s section through `HAS_ABILITY`, a `:DamageType` or
+  `:PoisonType`'s through `DEFINED_IN`, and a `:Weapon` or `:Armor` is only
+  a table row.
 - `:CreatureAbility` is keyed `key` (`Goblin|actions/Bite`) and carries
   `name`, `creature`, `category`, `description`, `save_ability`, `save_dc`,
   `attack_bonus`, `damage_dice`, `damage_types`.
-- `:GlossaryTerm` is keyed on `name` and carries a second label for its kind
-  (`:Condition`, `:DamageType`, `:Action`), so a condition is
-  `(:GlossaryTerm:Condition {name: 'Frightened'})`.
+- `:GlossaryTerm` is matched on `name` and carries a second label for its
+  kind (`:Condition`, `:DamageType`, `:Action`), so a condition is
+  `(:GlossaryTerm:Condition {name: 'Frightened'})`, and its `id` is the
+  section to cite. `name` is the entity and `heading` the printed form
+  ("Prone" and "Prone [Condition]").
+- A species or feat lists its named traits in `traits`, so
+  `WHERE 'Darkvision' IN s.traits` finds them; the trait text is in the
+  section's `content`.
 - Every `:Section` has `heading`, `content`, `entity_type`, `page_start`.
   A `:Creature` adds `cr`, `ac`, `hp_average`, `creature_type`; a `:Spell`
   adds `level`, `school`, `concentration`, `ritual`.

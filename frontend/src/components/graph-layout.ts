@@ -72,14 +72,12 @@ export const KINDS: [string, string[]][] = [
   ['creature', ['Creature', 'CreatureGroup']],
   ['ability', ['CreatureAbility']],
   ['spell', ['Spell']],
-  ['item', ['MagicItem', 'Weapon', 'Armor', 'Gear', 'Poison', 'Equipment',
-            'EquipmentSection']],
+  ['item', ['MagicItem', 'Weapon', 'Armor', 'Gear', 'Poison', 'Equipment']],
   ['glossary', ['Condition', 'DamageType', 'PoisonType', 'Action',
                 'AreaOfEffect', 'Hazard', 'Attitude', 'Definition',
-                'GlossaryTerm', 'GlossarySection']],
-  ['class', ['Class', 'Subclass', 'ClassLevel', 'ClassFeature', 'ClassSection',
-             'SubclassSection', 'Feat', 'FeatSection', 'Species', 'Background',
-             'Trait', 'Origin']],
+                'GlossaryTerm']],
+  ['class', ['Class', 'Subclass', 'ClassLevel', 'ClassFeature', 'Feat',
+             'Species', 'Background', 'Origin']],
   ['rule', ['Rule', 'Trap', 'EnvironmentalEffect', 'Contagion', 'FrontMatter']],
 ]
 

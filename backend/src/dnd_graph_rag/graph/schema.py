@@ -11,19 +11,18 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:  # pragma: no cover
     from neo4j import Session
 
-# Must match the keys ``mapping`` merges on.
+# Must match the keys ``mapping`` merges on, plus the names edges match
+# folded records by (``(:Class {name})`` is a section).
 NODE_KEYS = [
     ("Section", "id"),
     ("CreatureAbility", "key"),
     ("GlossaryTerm", "name"),
     ("Equipment", "name"),
     ("Class", "name"),
-    ("Subclass", "key"),
     ("ClassLevel", "key"),
     ("Species", "name"),
     ("Background", "name"),
     ("Feat", "name"),
-    ("Trait", "key"),
 ]
 
 # Common query filters: CR, spell level, term type.
@@ -108,13 +107,42 @@ def drop_stale_vector_index(session: "Session", dimensions: int) -> bool:
     return True
 
 
+def constraint_name(label: str, prop: str) -> str:
+    """The name ``constraint_statements`` gives a key's constraint."""
+    return f"{label.lower()}_{prop}_unique"
+
+
 def constraint_statements() -> list[str]:
     """A uniqueness constraint per ``NODE_KEYS`` entry."""
     return [
-        f"CREATE CONSTRAINT {label.lower()}_{prop}_unique IF NOT EXISTS "
+        f"CREATE CONSTRAINT {constraint_name(label, prop)} IF NOT EXISTS "
         f"FOR (n:{label}) REQUIRE n.{prop} IS UNIQUE"
         for label, prop in NODE_KEYS
     ]
+
+
+def drop_stale_constraints(session: "Session") -> list[str]:
+    """
+    Drop uniqueness constraints for keys no longer in ``NODE_KEYS``.
+
+    ``reset`` deletes nodes, not schema, so a key the mapper stopped merging
+    on (``Trait.key``) would otherwise be constrained forever.
+
+    Args:
+        session: An open session.
+
+    Returns:
+        The names dropped.
+    """
+    wanted = {constraint_name(label, prop) for label, prop in NODE_KEYS}
+    found = [row["name"] for row in session.run(
+        "SHOW CONSTRAINTS YIELD name, type "
+        "WHERE type = 'UNIQUENESS' RETURN name").data()]
+    stale = [name for name in found
+             if name.endswith("_unique") and name not in wanted]
+    for name in stale:
+        session.run(f"DROP CONSTRAINT {name} IF EXISTS")
+    return stale
 
 
 def index_statements(dimensions: int) -> list[str]:
@@ -130,7 +158,8 @@ def apply_schema(session: "Session", *, dimensions: int) -> int:
     """
     Create every constraint and index, then wait up to 300s for them.
 
-    A vector index of another width is dropped and recreated.
+    A vector index of another width is dropped and recreated, and a
+    constraint on a key no longer merged on is dropped.
 
     Args:
         session: An open session.
@@ -140,6 +169,7 @@ def apply_schema(session: "Session", *, dimensions: int) -> int:
         The number of create statements run.
     """
     drop_stale_vector_index(session, dimensions)
+    drop_stale_constraints(session)
     statements = constraint_statements() + index_statements(dimensions)
     for statement in statements:
         session.run(statement)
