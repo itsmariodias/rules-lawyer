@@ -35,7 +35,7 @@ from .equipment import extract_equipment
 from .layout import Line, extract_lines, lines_to_markdown
 from .mechanics import annotate_creatures, parse_spell_mechanics
 from .references import extract_glossary, extract_references, mark_glossary_nodes
-from .statblocks import average_hp, extract_stat_blocks
+from .statblocks import CONDITIONS, average_hp, extract_stat_blocks
 
 _PAGE_MARKER_RE = re.compile(r"<!-- PAGE:(\d+) -->")
 _EMPHASIS_RE = re.compile(r"\*{1,2}(.+?)\*{1,2}")
@@ -710,6 +710,56 @@ def validate(creatures: list[dict], index: dict[str, int]) -> dict:
     }
 
 
+# A stat block's defence line in the markdown, up to the next label.
+_DEFENCE_LINE_RE = re.compile(
+    r"\*\*(Resistances|Immunities|Vulnerabilities)\*\*\s*(.*?)"
+    r"(?=\s*\*\*[A-Z]|\n\n|$)", re.S)
+_COMMENT_RE = re.compile(r"<!--.*?-->")
+
+
+def check_defences(creatures: list[dict], nodes: list[dict]) -> dict:
+    """
+    Hold each record's defences against the line its section prints.
+
+    The records come from per-line fields and the markdown from reflowed
+    text, so a field cut at a line wrap shows up here: Clay Golem kept two of
+    six condition immunities, and 54 stat blocks were short.
+
+    Args:
+        creatures: Extracted stat block records.
+        nodes: Every section, flattened.
+
+    Returns:
+        ``defences_checked`` and ``defence_mismatches``.
+    """
+    content = {n["heading"]: n.get("content") or "" for n in nodes
+               if n.get("entity_type") == "creature"}
+    fields = {"Resistances": ("resistances",),
+              "Vulnerabilities": ("vulnerabilities",),
+              "Immunities": ("immunities", "condition_immunities")}
+    checked, mismatches = 0, []
+    for creature in creatures:
+        text = _COMMENT_RE.sub(" ", content.get(creature["name"], ""))
+        for label, value in _DEFENCE_LINE_RE.findall(text):
+            checked += 1
+            printed = {x.strip() for x in re.split(r"[;,]", value) if x.strip()}
+            recorded = {x for key in fields[label]
+                        for x in creature.get(key) or []}
+            if printed != recorded:
+                mismatches.append(
+                    f"{creature['name']} {label}: printed "
+                    f"{sorted(printed - recorded)} not recorded, recorded "
+                    f"{sorted(recorded - printed)} not printed")
+        # Names alone would pass a condition filed as a damage type.
+        for key in ("immunities", "resistances", "vulnerabilities"):
+            misfiled = [x for x in creature.get(key) or []
+                        if x.split()[0] in CONDITIONS]
+            if misfiled:
+                mismatches.append(f"{creature['name']} {key}: conditions "
+                                  f"{misfiled} filed as damage types")
+    return {"defences_checked": checked, "defence_mismatches": mismatches}
+
+
 # ---------------------------------------------------------------------------
 # Mechanics checks
 # ---------------------------------------------------------------------------
@@ -838,6 +888,7 @@ def parse(pdf_path: Path, markdown_path: Path,
 
     report("Validating against the index of stat blocks …")
     validation = validate(creatures, parse_stat_block_index(tree))
+    validation |= check_defences(creatures, nodes)
     validation |= check_anchors(tree, anchors)
 
     types: dict[str, int] = {}
@@ -964,6 +1015,8 @@ def main() -> None:
           f"  mismatches: {len(validation['damage_average_mismatches'])}")
     print(f"  attack bonuses checked      {validation['attack_bonuses_checked']:>5}"
           f"  mismatches: {len(validation['attack_bonus_mismatches'])}")
+    print(f"  defence lines checked       {validation['defences_checked']:>5}"
+          f"  mismatches: {len(validation['defence_mismatches'])}")
     for key in ("missing_from_extraction", "not_in_index", "page_mismatches",
                 "duplicate_names"):
         values = validation[key]

@@ -86,11 +86,70 @@ class TestParseDefenses:
         assert damage == ["Poison"]
         assert conditions == ["Charmed", "Exhaustion", "Poisoned"]
 
-    def test_given_no_semicolon_when_split_then_it_is_all_damage_types(self):
+    def test_given_no_semicolon_and_no_conditions_when_split_then_all_are_damage(self):
         # Given a line with no conditions on it
         # When it is split
         # Then nothing is read as a condition
         assert statblocks.parse_defenses("Fire, Cold") == (["Fire", "Cold"], [])
+
+    def test_given_conditions_alone_when_split_then_they_are_conditions(self):
+        """Regression: the Knight was immune to "Frightened" damage."""
+        # Given a line of conditions, which the book prints without a semicolon
+        # When it is split
+        # Then they are conditions, not damage types
+        assert statblocks.parse_defenses("Frightened") == ([], ["Frightened"])
+        assert statblocks.parse_defenses("Charmed, Frightened, Grappled") == (
+            [], ["Charmed", "Frightened", "Grappled"])
+
+    def test_given_a_qualified_condition_when_split_then_its_note_is_kept(self):
+        # Given a condition immunity with a note
+        # When it is split
+        damage, conditions = statblocks.parse_defenses(
+            "Necrotic; Charmed (with _Mind Blank_), Poisoned")
+
+        # Then it is sorted by its name and keeps the note
+        assert damage == ["Necrotic"]
+        assert conditions == ["Charmed (with _Mind Blank_)", "Poisoned"]
+
+
+class TestParseStatBlock:
+    @staticmethod
+    def _line(markup: str) -> statblocks.Line:
+        return statblocks.Line(page=1, x0=0, y0=0, x1=100, y1=10, baseline=8,
+                               column=0, text=markup.replace("*", ""),
+                               markup=markup, max_size=9.5)
+
+    def test_given_a_field_wrapping_onto_a_second_line_when_parsed_then_it_is_whole(self):
+        """Regression: Clay Golem kept two of its six condition immunities."""
+        # Given an Immunities line that wraps, and a field after it
+        title = self._line("Clay Golem")
+        body = [self._line("_Large Construct, Unaligned_"),
+                self._line("**Immunities** Acid, Poison; Charmed, Exhaustion,"),
+                self._line("Frightened, Paralyzed"),
+                self._line("**Senses** Darkvision 60 ft.")]
+
+        # When the stat block is parsed
+        record = statblocks.parse_stat_block(title, body, "srd.pdf")
+
+        # Then the continuation joined its field, and the next field is intact
+        assert record["immunities"] == ["Acid", "Poison"]
+        assert record["condition_immunities"] == [
+            "Charmed", "Exhaustion", "Frightened", "Paralyzed"]
+        assert record["senses"] == "Darkvision 60 ft."
+
+    def test_given_an_unlabelled_line_before_any_field_when_parsed_then_it_joins_none(
+            self):
+        # Given the type line, which has no label and comes first
+        title = self._line("Knight")
+        body = [self._line("_Medium Humanoid, Lawful Good_"),
+                self._line("**Immunities** Frightened")]
+
+        # When the stat block is parsed
+        record = statblocks.parse_stat_block(title, body, "srd.pdf")
+
+        # Then the type line is not appended to anything
+        assert record["condition_immunities"] == ["Frightened"]
+        assert record["immunities"] == []
 
 
 class TestParseAbilities:

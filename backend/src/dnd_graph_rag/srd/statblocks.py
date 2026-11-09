@@ -146,21 +146,35 @@ def split_list(raw: str) -> list[str]:
     return [x.strip() for x in raw.split(",") if x.strip()]
 
 
+# The SRD's fifteen conditions.
+CONDITIONS = frozenset({
+    "Blinded", "Charmed", "Deafened", "Exhaustion", "Frightened", "Grappled",
+    "Incapacitated", "Invisible", "Paralyzed", "Petrified", "Poisoned",
+    "Prone", "Restrained", "Stunned", "Unconscious",
+})
+
+
 def parse_defenses(raw: str) -> tuple[list[str], list[str]]:
     """
     Split an Immunities line into damage types and conditions.
 
+    Each entry is sorted by its first word.  The book puts damage types
+    before a semicolon and conditions after, but a line of conditions alone
+    has none (Knight: ``Frightened``), which once filed 67 conditions as
+    damage types.  A qualified entry keeps its note
+    (``Charmed (with Mind Blank)``).
+
     Args:
-        raw: e.g. ``Poison; Charmed, Exhaustion, Poisoned``.  Damage types
-            precede the semicolon; with no semicolon all are damage types.
+        raw: e.g. ``Poison; Charmed, Exhaustion, Poisoned``.
 
     Returns:
         ``(damage_types, conditions)``.
     """
-    if ";" in raw:
-        damage, conditions = raw.split(";", 1)
-        return split_list(damage), split_list(conditions)
-    return split_list(raw), []
+    damage: list[str] = []
+    conditions: list[str] = []
+    for entry in split_list(raw.replace(";", ",")):
+        (conditions if entry.split()[0] in CONDITIONS else damage).append(entry)
+    return damage, conditions
 
 
 def parse_abilities(raw: str) -> dict[str, dict] | None:
@@ -390,11 +404,26 @@ def parse_stat_block(title: Line, body: list[Line], pdf_name: str,
 
     # --- labelled fields ----------------------------------------------------
     fields: dict[str, str] = {}
+    last: str | None = None
     for line in header:
         if line.rows:
+            last = None
             continue
-        for label, value in _split_labels(_flatten(line)):
-            fields.setdefault(label, value)
+        text = _flatten(line)
+        labelled = _split_labels(text)
+        if not labelled:
+            # A long field wraps onto an unlabelled line: Clay Golem's
+            # Immunities lost four conditions to it.
+            if last is not None:
+                fields[last] = f"{fields[last]} {text}"
+            continue
+        last = None
+        for label, value in labelled:
+            if label not in fields:
+                fields[label] = value
+                last = label
+            else:
+                last = None
 
     if "AC" in fields:
         m = re.match(r"(\d+)", fields["AC"])

@@ -744,7 +744,74 @@ class TestLoad:
             pipeline.load(missing)
 
 
+class TestCheckDefences:
+    @staticmethod
+    def _creature(**defences) -> dict:
+        return {"name": "Clay Golem", **defences}
+
+    @staticmethod
+    def _section(line: str) -> list[dict]:
+        return [{"heading": "Clay Golem", "entity_type": "creature",
+                 "content": f"**AC** 14\n\n{line} **Senses** Darkvision"}]
+
+    def test_given_a_record_matching_its_printed_line_when_checked_then_it_passes(
+            self):
+        # Given a record holding every name its line prints
+        creature = self._creature(immunities=["Acid"],
+                                  condition_immunities=["Charmed", "Frightened"])
+        nodes = self._section("**Immunities** Acid; Charmed, Frightened")
+
+        # When it is checked
+        found = pipeline.check_defences([creature], nodes)
+
+        # Then the line was checked and agreed
+        assert found == {"defences_checked": 1, "defence_mismatches": []}
+
+    def test_given_a_record_cut_at_a_line_wrap_when_checked_then_it_is_reported(
+            self):
+        """Regression: 54 stat blocks lost names past a wrapped line."""
+        # Given a record missing the names after the wrap
+        creature = self._creature(immunities=["Acid"],
+                                  condition_immunities=["Charmed"])
+        nodes = self._section("**Immunities** Acid; Charmed, Frightened")
+
+        # When it is checked
+        found = pipeline.check_defences([creature], nodes)
+
+        # Then the missing name is named
+        assert len(found["defence_mismatches"]) == 1
+        assert "Frightened" in found["defence_mismatches"][0]
+
+    def test_given_a_condition_filed_as_a_damage_type_when_checked_then_it_is_reported(
+            self):
+        """Regression: the Knight was immune to "Frightened" damage."""
+        # Given the right names in the wrong list
+        creature = self._creature(immunities=["Frightened"])
+        nodes = self._section("**Immunities** Frightened")
+
+        # When it is checked
+        found = pipeline.check_defences([creature], nodes)
+
+        # Then the set of names agrees, but the filing does not
+        assert found["defence_mismatches"] == [
+            "Clay Golem immunities: conditions ['Frightened'] filed as damage types"]
+
+
 class TestTheRealArtifact:
+    def test_given_the_artifact_when_read_then_every_defence_line_is_recorded_whole(
+            self, document):
+        """
+        Measured 2026-11-09: 236 defence lines; before wrapped lines were
+        joined and conditions sorted by name, 71 disagreed with the book.
+        """
+        # Given the artifact's own validation
+        validation = document["validation"]
+
+        # When its defence check is read
+        # Then every printed line was checked and every name recorded
+        assert validation["defences_checked"] == 236
+        assert validation["defence_mismatches"] == []
+
     def test_given_the_artifact_when_read_then_its_counts_match_its_collections(
             self, document):
         # Given the artifact on disk
