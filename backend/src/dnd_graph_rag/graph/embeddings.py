@@ -307,8 +307,9 @@ def resolve(document: dict, *, path: Path, settings: EmbeddingSettings,
             refresh: bool = False, report: Report = lambda _: None,
             embedder: Callable[..., list[list[float]]] = embed) -> Vectors:
     """
-    Every section's vector, from the file where its digest matches and the
-    API otherwise.  Writes the file back if anything was generated.
+    Every section's vector, from the file where its digest matches (under
+    any id) and the API otherwise.  Writes the file back if anything was
+    generated or renumbered.
 
     Args:
         document: The stage 1 artifact.
@@ -341,6 +342,18 @@ def resolve(document: dict, *, path: Path, settings: EmbeddingSettings,
     elif refresh:
         report("embeddings: refreshing, ignoring any cached file")
 
+    # Section ids are positional, so a section added before others renumbers
+    # them; a vector whose text is unchanged is reused under its new id.
+    by_digest = {text_digest: row for text_digest, row in cached.values()}
+    renumbered = 0
+    for key, text in wanted.items():
+        text_digest = digest(text)
+        if cached.get(key, ("",))[0] != text_digest and text_digest in by_digest:
+            cached[key] = (text_digest, by_digest[text_digest])
+            renumbered += 1
+    if renumbered:
+        report(f"embeddings: {renumbered} reused under a new section id")
+
     missing = [key for key, text in wanted.items()
                if key not in cached or cached[key][0] != digest(text)]
 
@@ -366,7 +379,7 @@ def resolve(document: dict, *, path: Path, settings: EmbeddingSettings,
         artifact={k: v for k, v in (document.get("meta") or {}).items()
                   if k in ("pdf", "generated", "pages")})
 
-    if missing:
+    if missing or renumbered:
         write(path, vectors)
         report(f"embeddings: wrote {len(vectors)} to {path}")
     return vectors

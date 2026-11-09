@@ -311,6 +311,8 @@ def extract_gear(nodes, gear_sections: list[dict]) -> list[dict]:
 
     out: list[dict] = []
     for section in gear_sections:
+        if section is node:
+            continue  # the gear table itself, printed among the items
         m = _GEAR_HEADING_RE.match(section["heading"])
         name = (m.group(1) if m else section["heading"]).strip()
         printed = m.group(2).strip() if m else ""

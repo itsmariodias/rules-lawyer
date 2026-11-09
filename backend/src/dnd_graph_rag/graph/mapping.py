@@ -20,8 +20,8 @@ from .model import EdgeBatch, GraphData, NodeBatch, as_json, clean
 # Vocabulary
 # --------------------------------------------------------------------------
 
-# Where a flat collection has the plain name (Feat, Equipment), the section
-# label is qualified (FeatSection, EquipmentSection).
+# Where a flat collection has the plain name (Class, Feat, Equipment), the
+# section label is qualified (ClassSection, FeatSection, EquipmentSection).
 SECTION_LABELS = {
     "rule": "Rule",
     "trap": "Trap",
@@ -31,6 +31,8 @@ SECTION_LABELS = {
     "magic_item": "MagicItem",
     "creature": "Creature",
     "creature_group": "CreatureGroup",
+    "class": "ClassSection",
+    "subclass": "SubclassSection",
     "class_feature": "ClassFeature",
     "origin": "Origin",
     "feat": "FeatSection",

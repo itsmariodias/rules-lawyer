@@ -96,6 +96,9 @@ class Line:
     table_id: int | None = None
     # Set on a table anchor line: the table's rows, already split into cells.
     rows: list[Line] = field(default_factory=list)
+    # Shared by the lines of one float (a captioned table or a sidebar),
+    # which ``place_floats`` moves as a unit.
+    float_id: int | None = None
 
     @property
     def is_heading(self) -> bool:
@@ -497,6 +500,7 @@ def _join_split_headings(lines: list[Line]) -> list[Line]:
 
 
 CAPTION_GAP = 30.0        # max distance (pt) from a caption to its table
+TABLE_TEXT_MAX = 9.6      # table text is 9.2pt; body text 10pt
 TABLE_ROW_REACH = 20.0    # how far outside a rect a stray row may sit
 
 
@@ -547,13 +551,19 @@ def _absorb_edge_rows(rows: list[Line], rect: pymupdf.Rect, free: list[Line]) ->
 
 def _promote_table_captions(anchors: list[Line], free: list[Line]) -> None:
     """
-    Make a full-width table's caption full width, so it orders before it.
+    Keep each table's caption directly ahead of it in reading order.
 
-    Otherwise a caption at the foot of a column (e.g. "Apparatus of the Crab
-    Levers", p210) is followed by the whole facing column before its table.
-    Only the nearest heading above, with nothing between in its column.
+    Header rows printed between a caption and its table join the table
+    first.  A full-width table's caption is then made full width: otherwise
+    a caption at the foot of a column (e.g. "Apparatus of the Crab Levers",
+    p210) is followed by the whole facing column before its table.  Only the
+    nearest heading above, with nothing between in its column.
     """
     for anchor in anchors:
+        # Rows reclaimed from outside the detected rectangle move its top.
+        anchor.y0 = min([anchor.y0] + [r.baseline - ASCENT * r.max_size
+                                       for r in anchor.rows])
+        _absorb_header_rows(anchor, free)
         if anchor.column != -1:
             continue
         candidates = [
@@ -573,6 +583,48 @@ def _promote_table_captions(anchors: list[Line], free: list[Line]) -> None:
         caption.column = -1
         # Just ahead of the table, so the two stay adjacent once banded.
         caption.baseline = anchor.baseline - 0.1
+
+
+def _absorb_header_rows(anchor: Line, free: list[Line]) -> None:
+    """
+    Move a table's header rows, printed between its caption and the
+    detected rectangle, into its rows.
+
+    The unshaded top header row ("Proficiency", "Spell Slots per Spell
+    Level") falls outside the rectangle, and as one fragment per column
+    it is not reclaimed by ``_absorb_edge_rows``.  It is set in the table's
+    type size, below body text.  Only under a caption: a stat block's
+    subtitle and AC line are small type above its ability table too.
+    """
+    reach = CAPTION_GAP + 2 * TABLE_ROW_REACH
+    above = [
+        l for l in free
+        if l.heading_level == CAPTION_LEVEL and not l.is_statblock_name
+        and (anchor.column == -1 or l.column == anchor.column)
+        and 0 < anchor.y0 - l.baseline <= reach
+    ]
+    if not above:
+        return
+    caption = max(above, key=lambda l: l.baseline)
+    between = [l for l in free
+               if caption.baseline < l.baseline < anchor.y0
+               and anchor.x0 - COLUMN_TOLERANCE <= l.x0
+               and l.x1 <= anchor.x1 + COLUMN_TOLERANCE]
+    header = [l for l in between
+              if not l.is_heading and l.max_size < TABLE_TEXT_MAX]
+    if not header or len(header) != len(between):
+        return
+    top = min(l.baseline - ASCENT * l.max_size for l in header)
+    if top - caption.baseline > CAPTION_GAP:
+        return
+    for line in header:
+        free.remove(line)
+    rows = _merge_baselines(sorted(header, key=lambda l: (l.baseline, l.x0)))
+    for row in rows:
+        row.table_id = anchor.table_id
+    anchor.rows[:0] = rows
+    anchor.y0 = top
+    anchor.baseline = rows[0].baseline
 
 
 def _order_page(lines: list[Line], rects: list[pymupdf.Rect],
@@ -647,7 +699,8 @@ def extract_lines(pdf_path: Path) -> list[Line]:
         pdf_path: The SRD PDF.
 
     Returns:
-        Lines across all pages, tables collapsed to anchor lines.
+        Lines across all pages, tables collapsed to anchor lines, and each
+        float moved to the section it belongs to (``place_floats``).
     """
     doc = pymupdf.open(str(pdf_path))
 
@@ -658,14 +711,267 @@ def extract_lines(pdf_path: Path) -> list[Line]:
 
     out: list[Line] = []
     table_id = 0
+    float_id = 0
     for pno in range(doc.page_count):
         page, rects = doc[pno], rects_per_page[pno]
         frames = snap_to_grid(frames_per_page[pno], grid)
         ordered, table_id = _order_page(
             _raw_lines(page, pno + 1, frames), rects, frames, table_id
         )
+        float_id = mark_floats(ordered, _sidebar_rects(page), float_id)
         out.extend(ordered)
     doc.close()
+    _join_continued_tables(out)
+    return place_floats(out)
+
+
+# ---------------------------------------------------------------------------
+# Floats: captioned tables and sidebars
+# ---------------------------------------------------------------------------
+# The book places tables and sidebars wherever they fit on the page, so in
+# reading order one often lands mid-section, and the prose after it would
+# become the content of its caption.  Each is lifted out and put back at a
+# section boundary of the section it belongs to.
+
+CAPTION_LEVEL = 5         # captions and sidebar titles are set at 10.5pt
+SIDEBAR_FRAME = 0.3       # max fill component of a sidebar's dark frame
+SIDEBAR_MIN_WIDTH = 100.0
+SIDEBAR_MIN_HEIGHT = 20.0
+
+_TRAILING_PAREN_RE = re.compile(r"\s*\([^)]*\)\s*$")
+
+
+def _sidebar_rects(page: pymupdf.Page) -> list[pymupdf.Rect]:
+    """
+    Sidebar boxes on a page.
+
+    A sidebar is framed by a near-black filled rectangle under a light one;
+    table shading is light grey only, so the dark fill tells them apart.
+    """
+    out = []
+    for drawing in page.get_drawings():
+        fill, rect = drawing.get("fill"), drawing["rect"]
+        if (fill and max(fill) < SIDEBAR_FRAME
+                and rect.width > SIDEBAR_MIN_WIDTH
+                and rect.height > SIDEBAR_MIN_HEIGHT):
+            out.append(pymupdf.Rect(rect))
+    return out
+
+
+def _inside(line: Line, rect: pymupdf.Rect) -> bool:
+    cx = (line.x0 + line.x1) / 2
+    return rect.x0 <= cx <= rect.x1 and rect.y0 <= line.baseline <= rect.y1
+
+
+def mark_floats(ordered: list[Line], sidebars: list[pymupdf.Rect],
+                next_id: int) -> int:
+    """
+    Give the lines of each float on one page a shared ``float_id``.
+
+    A sidebar is every line inside its frame; a box without a title of its
+    own continues the previous one (a sidebar can run across both columns).
+    A captioned table is a level-5 heading followed directly by a table
+    anchor; ``_join_continued_tables`` later adds what continues it.
+
+    Args:
+        ordered: One page's lines in reading order; mutated.
+        sidebars: The page's sidebar frames.
+        next_id: The first unused float id.
+
+    Returns:
+        The next unused float id.
+    """
+    current = None
+    for rect in sorted(sidebars, key=lambda r: (r.x0, r.y0)):
+        inside = [l for l in ordered if l.float_id is None and _inside(l, rect)]
+        if not inside:
+            continue
+        if current is None or any(l.is_heading for l in inside):
+            current, next_id = next_id, next_id + 1
+        for line in inside:
+            line.float_id = current
+
+    for i, line in enumerate(ordered):
+        if not line.rows or line.float_id is not None or i == 0:
+            continue
+        caption = ordered[i - 1]
+        if (caption.heading_level != CAPTION_LEVEL or caption.is_statblock_name
+                or caption.float_id is not None):
+            continue
+        caption.float_id = line.float_id = next_id
+        next_id += 1
+    return next_id
+
+
+def _join_continued_tables(lines: list[Line]) -> None:
+    """
+    Extend each float's table over what continues it.
+
+    A table can be printed in halves (Damage Types), run uncaptioned onto
+    the next page ("Level 2 Bard Spells", p34), be split by the finder into
+    several small tables ("Level 2 Cleric Spells", p39), or leave fragments
+    of a row cut by a column break between its parts ("Prismatic Rays").
+    So an uncaptioned table joins the float before it, and so does any text
+    in table type size around it, footnotes included.  Without this the
+    continuation stays behind when the first part is placed.
+    """
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if not (line.rows and line.float_id is not None):
+            i += 1
+            continue
+        j = i + 1
+        while j < len(lines) and lines[j].float_id is None and not lines[j].is_heading \
+                and (lines[j].rows or lines[j].max_size < TABLE_TEXT_MAX):
+            lines[j].float_id = line.float_id
+            j += 1
+        i = j
+
+
+@dataclass
+class _Section:
+    """A heading in the line stream, as the section tree will see it."""
+
+    index: int          # position in the stream
+    level: int
+    page: int
+    body: str = ""      # its own prose, up to the next heading
+
+
+def _effective_level(line: Line) -> int | None:
+    """The level a line's heading is emitted at; None for content."""
+    if line.is_statblock_name:
+        return STATBLOCK_NAME_LEVEL
+    return line.heading_level
+
+
+def _sections(stream: list[Line]) -> list[_Section]:
+    """Every heading of ``stream`` with the prose beneath it."""
+    out: list[_Section] = []
+    for i, line in enumerate(stream):
+        level = _effective_level(line)
+        if level is not None:
+            out.append(_Section(i, level, line.page))
+        elif out and not line.is_statblock_section:
+            out[-1].body += " " + line.text
+    return out
+
+
+def _mentions(body: str, caption: str) -> bool:
+    """Whether prose refers to a table by its caption ("the X table")."""
+    name = r"\s+".join(map(re.escape, _TRAILING_PAREN_RE.sub("", caption).split()))
+    return bool(name) and re.search(
+        rf"\b{name}\W{{0,3}}\s+table", body, re.IGNORECASE
+    ) is not None
+
+
+def _owner(sections: list[_Section], at: int, page: int,
+           caption: str | None) -> _Section | None:
+    """
+    The section a float at stream position ``at`` belongs to.
+
+    The shallowest open section that refers to the table by name (a class's
+    features section introduces its table, and its first feature mentions
+    it again); failing that, the nearest section closed on this page or the
+    one before that does; failing that, the deepest open section.  Only
+    sections that can take a child heading (level below ``CAPTION_LEVEL``)
+    qualify.
+    """
+    stack: list[_Section] = []
+    closed: list[_Section] = []
+    for section in sections:
+        if section.index >= at:
+            break
+        while stack and stack[-1].level >= section.level:
+            closed.append(stack.pop())
+        stack.append(section)
+    open_ = [s for s in stack if s.level < CAPTION_LEVEL]
+    if caption:
+        for section in open_:
+            if _mentions(section.body, caption):
+                return section
+        for section in reversed(closed):
+            if section.page < page - 1:
+                break
+            if section.level < CAPTION_LEVEL and _mentions(section.body, caption):
+                return section
+    return open_[-1] if open_ else None
+
+
+def _boundaries(sections: list[_Section], owner: _Section,
+                end: int) -> tuple[int, int, int]:
+    """
+    Where a float may go in its owner, and the level it must take there.
+
+    Returns:
+        The position after the owner's own prose (before its first child),
+        the position after its whole subtree, and the level of the owner's
+        children (one below the owner if it has none).  A float set at any
+        other level would either adopt the children that follow it or, set
+        shallower than they are, leave them stranded in the owner's prose.
+    """
+    later = [s for s in sections if s.index > owner.index]
+    first = later[0].index if later else end
+    close = next((s.index for s in later if s.level <= owner.level), end)
+    inside = [s.level for s in later if s.index < close]
+    return first, close, min(inside, default=owner.level + 1)
+
+
+def place_floats(lines: list[Line]) -> list[Line]:
+    """
+    Move each float to a section boundary of the section it belongs to.
+
+    A float goes to whichever boundary of its owner (see ``_owner``) is
+    nearer where it was printed; a sidebar without a title always goes
+    after the owner's own prose, since at the end of the subtree it would
+    join the last subsection.  The prose the float interrupted closes
+    up, so it is no longer read as the caption's content.  The title takes
+    the level of the owner's children, so the float becomes one of them.
+
+    Args:
+        lines: Every line in reading order, floats marked by ``mark_floats``.
+
+    Returns:
+        The lines reordered; float lines are the same objects, re-levelled.
+    """
+    floats: dict[int, list[Line]] = {}
+    origin: dict[int, int] = {}
+    stream: list[Line] = []
+    for line in lines:
+        if line.float_id is None:
+            stream.append(line)
+        else:
+            floats.setdefault(line.float_id, []).append(line)
+            origin.setdefault(line.float_id, len(stream))
+
+    sections = _sections(stream)
+    placed: dict[int, list[Line]] = {}
+    for float_id, members in floats.items():
+        at = origin[float_id]
+        heads = [l for l in members if l.is_heading]
+        title = heads[0] if heads else None
+        caption = title.text if title and any(l.rows for l in members) else None
+        owner = _owner(sections, at, members[0].page, caption)
+        if owner is None:
+            placed.setdefault(at, []).extend(members)
+            continue
+        first, close, level = _boundaries(sections, owner, len(stream))
+        if title is None or abs(at - first) <= abs(at - close):
+            target = first
+        else:
+            target = close
+        for line in heads:
+            line.heading_level = min(CAPTION_LEVEL,
+                                     level if line is title else level + 1)
+        members[0].starts_paragraph = True
+        placed.setdefault(target, []).extend(members)
+
+    out: list[Line] = []
+    for i, line in enumerate(stream):
+        out.extend(placed.get(i, []))
+        out.append(line)
+    out.extend(placed.get(len(stream), []))
     return out
 
 

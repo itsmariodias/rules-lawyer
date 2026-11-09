@@ -278,3 +278,226 @@ class TestNormalizeWs:
         # When it is normalised
         # Then it is a single-spaced, trimmed string
         assert layout._normalize_ws("  Simple \t\t Melee  ") == "Simple Melee"
+
+
+def make_table(**overrides) -> Line:
+    """A table anchor: a ``Line`` carrying one row."""
+    return make_line(**({"text": "", "markup": "", "max_size": 9.2,
+                         "rows": [make_line(text="row", max_size=9.2)]}
+                        | overrides))
+
+
+def heading(text: str, level: int, **overrides) -> Line:
+    return make_line(**({"text": text, "markup": text, "heading_level": level,
+                         "max_size": 10.5} | overrides))
+
+
+def prose(text: str, **overrides) -> Line:
+    return make_line(**({"text": text, "markup": text} | overrides))
+
+
+class TestAbsorbHeaderRows:
+    def test_given_a_header_row_under_a_caption_when_absorbed_then_it_joins_the_table(self):
+        """Regression: "Bard Features" lost its caption to a stray header row."""
+        # Given a caption, a header row in table type, then the detected table
+        caption = heading("Bard Features", 5, baseline=363.0)
+        header = prose("Proficiency", baseline=377.0, max_size=9.2, x0=94.0, x1=139.0)
+        table = make_table(y0=393.0, x0=58.0, x1=546.0, baseline=400.0)
+        free = [caption, header]
+
+        # When header rows are absorbed
+        layout._absorb_header_rows(table, free)
+
+        # Then the header is the table's first row and the caption is next to it
+        assert table.rows[0].text == "Proficiency"
+        assert free == [caption]
+        assert table.y0 - caption.baseline < layout.CAPTION_GAP
+
+    def test_given_a_stat_block_when_absorbed_then_its_subtitle_stays_prose(self):
+        """Regression: stat block subtitles and AC lines became table rows."""
+        # Given a stat block title, its small-type subtitle, then its ability table
+        title = heading("Aboleth", 3, max_size=14.8, is_statblock_name=True,
+                        baseline=100.0)
+        subtitle = prose("Large Aberration", baseline=112.0, max_size=9.2)
+        table = make_table(y0=125.0, x0=50.0, x1=310.0, baseline=130.0)
+        free = [title, subtitle]
+
+        # When header rows are absorbed
+        layout._absorb_header_rows(table, free)
+
+        # Then nothing moves: a stat block title is no caption
+        assert free == [title, subtitle]
+        assert len(table.rows) == 1
+
+
+class TestMarkFloats:
+    def test_given_a_caption_before_a_table_when_marked_then_both_are_one_float(self):
+        # Given a level-5 heading followed by a table, then prose
+        caption, table = heading("Travel Terrain", 5), make_table()
+        after = prose("Body text.")
+
+        # When the page's floats are marked
+        next_id = layout.mark_floats([caption, table, after], [], 0)
+
+        # Then caption and table share an id, and the prose is not in it
+        assert caption.float_id == table.float_id == 0
+        assert after.float_id is None
+        assert next_id == 1
+
+    def test_given_a_stat_block_title_before_a_table_when_marked_then_it_is_no_float(self):
+        # Given a stat block title directly above its ability table
+        title = heading("Aboleth", 5, is_statblock_name=True)
+        table = make_table()
+
+        # When the page's floats are marked
+        layout.mark_floats([title, table], [], 0)
+
+        # Then the stat block stays where it is
+        assert title.float_id is None and table.float_id is None
+
+    def test_given_lines_inside_a_sidebar_frame_when_marked_then_they_are_one_float(self):
+        # Given a sidebar frame holding a title and text, and text outside it
+        title = heading("Resting", 5, baseline=50.0)
+        inside = prose("Adventurers need rest.", baseline=70.0)
+        outside = prose("Hit Points measure durability.", baseline=300.0)
+        frame = layout.pymupdf.Rect(50, 40, 310, 200)
+
+        # When the page's floats are marked
+        layout.mark_floats([title, inside, outside], [frame], 0)
+
+        # Then only the framed lines belong to the float
+        assert title.float_id == inside.float_id == 0
+        assert outside.float_id is None
+
+    def test_given_an_untitled_frame_after_a_sidebar_when_marked_then_it_continues_it(self):
+        """A sidebar can run from one column into the next."""
+        # Given a titled frame in one column and an untitled one in the next
+        first = [heading("Exceptions", 5, baseline=50.0), prose("a", baseline=70.0)]
+        second = [prose("b", baseline=70.0, x0=320.0, x1=540.0)]
+        frames = [layout.pymupdf.Rect(50, 40, 300, 200),
+                  layout.pymupdf.Rect(310, 40, 550, 200)]
+
+        # When the page's floats are marked
+        layout.mark_floats(first + second, frames, 0)
+
+        # Then both frames are one float
+        assert {l.float_id for l in first + second} == {0}
+
+
+class TestJoinContinuedTables:
+    def test_given_a_footnote_under_a_float_when_joined_then_it_belongs_to_it(self):
+        # Given a float's table, its footnote in table type, then body text
+        table = make_table(float_id=0)
+        note = prose("*Appropriate equipment is needed.", max_size=9.2)
+        body = prose("Body text.")
+
+        # When continuations are joined
+        layout._join_continued_tables([table, note, body])
+
+        # Then the footnote is the table's and the body text is not
+        assert note.float_id == 0
+        assert body.float_id is None
+
+    def test_given_an_uncaptioned_table_after_a_float_when_joined_then_it_belongs_to_it(self):
+        """Regression: "Level 2 Bard Spells" left its p34 half behind."""
+        # Given a float's table, a stray row fragment, an uncaptioned table, then prose
+        first = make_table(float_id=3)
+        fragment = prose("twice, rerolling any 8.", max_size=9.2)
+        rest = make_table(page=2)
+        body = prose("Body text.")
+
+        # When continuations are joined
+        layout._join_continued_tables([first, fragment, rest, body])
+
+        # Then the fragment and the rest join the float, the prose does not
+        assert fragment.float_id == rest.float_id == 3
+        assert body.float_id is None
+
+
+class TestMentions:
+    def test_given_prose_naming_the_table_when_asked_then_it_mentions_it(self):
+        # Given prose that wraps the table's name over a line break
+        body = "as shown in the Apparatus of the Crab  Levers table."
+
+        # When it is asked about the caption
+        # Then it refers to that table
+        assert layout._mentions(body, "Apparatus of the Crab Levers")
+
+    def test_given_a_priced_caption_when_asked_then_the_price_is_ignored(self):
+        # Given a caption with a parenthetical and prose naming the table
+        # When it is asked
+        # Then the parenthetical does not have to appear
+        assert layout._mentions("see the Trinkets table", "Trinkets (Varies)")
+
+    def test_given_the_name_without_the_word_table_when_asked_then_it_does_not(self):
+        # Given prose that names the subject but not the table
+        # When it is asked
+        # Then it is not a reference to the table
+        assert not layout._mentions("Weapons are listed below.", "Weapons")
+
+
+class TestPlaceFloats:
+    def test_given_a_table_mid_feature_when_placed_then_the_prose_closes_up(self):
+        """Regression: Rage's rules were the content of "Barbarian Features"."""
+        # Given a features section naming the table, a feature, and the table
+        # printed between the feature's two paragraphs
+        lines = [
+            heading("Barbarian Class Features", 3),
+            prose("These are listed in the Barbarian Features table."),
+            heading("Level 1: Rage", 4),
+            prose("You can enter a Rage."),
+            heading("Barbarian Features", 5, float_id=0),
+            make_table(float_id=0),
+            prose("The Rage lasts 10 minutes."),
+            heading("Level 1: Unarmored Defense", 4),
+        ]
+
+        # When floats are placed
+        placed = layout.place_floats(lines)
+
+        # Then the table is the first child of the section naming it, at its
+        # children's level, and Rage's two paragraphs are adjacent again
+        texts = [l.text for l in placed]
+        assert texts.index("Barbarian Features") < texts.index("Level 1: Rage")
+        assert placed[texts.index("Barbarian Features")].heading_level == 4
+        rage = texts.index("Level 1: Rage")
+        assert texts[rage + 1:rage + 3] == ["You can enter a Rage.",
+                                            "The Rage lasts 10 minutes."]
+
+    def test_given_a_table_at_the_end_of_its_owner_when_placed_then_it_stays(self):
+        # Given a table already after the last of its owner's subsections
+        lines = [
+            heading("Weapons", 2),
+            prose("The Weapons table lists them."),
+            heading("Vex", 4),
+            prose("Advantage on your next attack."),
+            heading("Weapons", 5, float_id=0),
+            make_table(float_id=0),
+            heading("Armor", 2),
+        ]
+
+        # When floats are placed
+        placed = layout.place_floats(lines)
+
+        # Then it stays where it was, now a child of Weapons rather than Vex
+        assert placed == lines
+        assert lines[4].heading_level == 4
+
+    def test_given_an_untitled_sidebar_when_placed_then_it_follows_the_owners_prose(self):
+        # Given an untitled sidebar part printed before the owner's last paragraph
+        lines = [
+            heading("Creating Your Character", 3),
+            prose("First paragraph."),
+            prose("Sidebar text.", float_id=0),
+            prose("Second paragraph."),
+            heading("Step 1", 4),
+        ]
+
+        # When floats are placed
+        placed = layout.place_floats(lines)
+
+        # Then it comes after the owner's prose, before its first subsection
+        assert [l.text for l in placed] == [
+            "Creating Your Character", "First paragraph.", "Second paragraph.",
+            "Sidebar text.", "Step 1"]
+        assert placed[3].starts_paragraph

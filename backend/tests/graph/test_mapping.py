@@ -233,10 +233,11 @@ class TestBuildGlossary:
 class TestBuildEquipment:
     def test_given_an_item_printed_as_a_section_when_built_then_it_folds_in(
             self, tiny_document):
+        """Regression: a poison's section was a ``:Rule`` as well as ``:Poison``."""
         # Given a poison naming the section that prints it
         # When the document is built
         folded = one(mapping.build(tiny_document),
-                     "Section", "Rule", "Equipment", "Poison")
+                     "Section", "EquipmentSection", "Equipment", "Poison")
 
         # Then one node carries the section's offsets and the item's properties
         assert folded["id"] == "5"

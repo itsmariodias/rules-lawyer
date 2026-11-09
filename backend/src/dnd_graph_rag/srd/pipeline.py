@@ -44,28 +44,14 @@ _EMPHASIS_RE = re.compile(r"\*{1,2}(.+?)\*{1,2}")
 # ---------------------------------------------------------------------------
 # Entity typing
 # ---------------------------------------------------------------------------
-# Default entity type by top-level section.  Subtitles (spell, magic_item),
-# stat blocks (creature, creature_group) and entry sets override it.
+# A section is "rule" unless independent evidence says otherwise: the subtitle
+# the book prints (spell, magic_item), a stat block (creature,
+# creature_group), membership of an entry set, a glossary tag, or being the
+# section an extracted record names (``type_from_records``).  A chapter's
+# position alone types nothing: "Classes" once made every heading, table and
+# spell list under it a class_feature.
 
-SECTION_ENTITY_TYPES: dict[str, str] = {
-    "Legal Information": "front_matter",
-    "Contents": "front_matter",
-    "Index of Stat Blocks": "front_matter",
-    "Playing the Game": "rule",
-    "Character Creation": "rule",
-    "Classes": "class_feature",
-    "Character Origins": "origin",
-    "Feats": "feat",
-    "Equipment": "equipment",
-    "Spells": "rule",
-    "Rules Glossary": "rule",
-    "Gameplay Toolbox": "rule",
-    "Magic Items": "rule",
-    # "creature" is assigned by _mark_groups, only to a stat block's section.
-    "Monsters": "rule",
-    "Monsters A–Z": "creature_lore",
-    "Animals": "creature_lore",
-}
+FRONT_MATTER = {"Legal Information", "Contents", "Index of Stat Blocks"}
 
 # Chapters whose sections are grouped by the stat blocks they hold.  Outside
 # them a stat block (a summoned creature, a figurine) leaves the spell or item
@@ -78,6 +64,9 @@ ENTRY_SET_ENTITY_TYPES: dict[str, str] = {
     "Environmental Effects": "environmental_effect",
     "Example Traps": "trap",
     "Example Contagions": "contagion",
+    # Options chosen through a feature (Metamagic, Eldritch Invocations).
+    "Metamagic Options": "class_feature",
+    "Eldritch Invocation Options": "class_feature",
 }
 
 
@@ -113,6 +102,26 @@ def page_at(page_index: list[tuple[int, int]], pos: int) -> int:
     offsets = [p[0] for p in page_index]
     idx = bisect.bisect_right(offsets, pos) - 1
     return page_index[idx][1] if idx >= 0 else 1
+
+
+def page_range(page_index: list[tuple[int, int]], start: int, end: int) -> tuple[int, int]:
+    """
+    The first and last page a character range touches.
+
+    Not just the pages at its two ends: a float placed back in its section
+    (``layout.place_floats``) can bring in a page from either side.
+
+    Args:
+        page_index: Output of ``build_page_index``.
+        start: Start of the range.
+        end: End of the range.
+
+    Returns:
+        ``(page_start, page_end)``.
+    """
+    pages = [page_at(page_index, start), page_at(page_index, end)]
+    pages += [page for offset, page in page_index if start <= offset < end]
+    return min(pages), max(pages)
 
 
 # ---------------------------------------------------------------------------
@@ -188,14 +197,15 @@ def build_nodes(body: str, min_level: int, id_prefix: str, offset: int,
         abs_end = abs_body + len(child_body)
 
         next_level = first_heading_level(child_body, level + 1)
+        page_start, page_end = page_range(page_index, abs_head, abs_end)
         node: dict = {
             "id": node_id,
             "heading": strip_markup(heading),
             "content": clean_content(direct_content(child_body, next_level)),
             "source": {
                 "pdf": pdf_name,
-                "page_start": page_at(page_index, abs_head),
-                "page_end": page_at(page_index, abs_end),
+                "page_start": page_start,
+                "page_end": page_end,
                 "char_start": abs_head,
                 "char_end": abs_end,
             },
@@ -417,8 +427,8 @@ def annotate(tree: list[dict], creatures: list[dict]) -> None:
         creatures: Stat block records, matched by ``source.char_start``.
     """
     for section in tree:
-        _annotate_subtree(section,
-                          SECTION_ENTITY_TYPES.get(section["heading"], "rule"))
+        _annotate_subtree(section, "front_matter"
+                          if section["heading"] in FRONT_MATTER else "rule")
 
     _attach_creatures(tree, creatures)
     _mark_groups(tree)
@@ -510,8 +520,8 @@ def _mark_groups(tree: list[dict]) -> None:
 
 
 def _mark_chapter(chapter: dict, grouped: bool) -> None:
-    """``_mark_groups`` for one top-level section."""
-    for node in walk([chapter]):
+    """``_mark_groups`` for one top-level section, not counting the chapter."""
+    for node in walk(chapter["subsections"]):
         owned = node.get("creatures", [])
         if len(owned) == 1 and owned[0] == node["heading"]:
             node["entity_type"] = "creature"
@@ -524,6 +534,50 @@ def _mark_chapter(chapter: dict, grouped: bool) -> None:
         if members and grouped:
             node["entity_type"] = "creature_group"
             node["members"] = members
+
+
+def type_from_records(nodes: list[dict], classes: list[dict],
+                      origins: list[dict], feats: list[dict],
+                      equipment: list[dict]) -> None:
+    """
+    Type each section an extracted record names as that record's kind.
+
+    The records are found by the book's own structure (a class's "Level N:"
+    features, a feat under its category heading), so they are evidence
+    independent of where a section sits.  Only ``rule`` sections are
+    retyped; a subtitle or stat block has already said what the rest are.
+
+    Args:
+        nodes: Every section; mutated.
+        classes: From ``extract_classes``: the class and subclass sections
+            become ``class`` and ``subclass``, their features
+            ``class_feature``.
+        origins: Species and backgrounds; their sections become ``origin``.
+        feats: Their sections become ``feat``.
+        equipment: Records with a ``section_id`` (gear, poisons) make it
+            ``equipment``.
+    """
+    by_id = {node["id"]: node for node in nodes}
+
+    def mark(section_id: str | None, kind: str) -> None:
+        node = by_id.get(section_id)
+        if node and node["entity_type"] == "rule":
+            node["entity_type"] = kind
+
+    for klass in classes:
+        mark(klass["section_id"], "class")
+        for feature in klass["features"]:
+            mark(feature["section_id"], "class_feature")
+        for subclass in klass["subclasses"]:
+            mark(subclass["section_id"], "subclass")
+            for feature in subclass.get("features", []):
+                mark(feature["section_id"], "class_feature")
+    for record in origins:
+        mark(record["section_id"], "origin")
+    for record in feats:
+        mark(record["section_id"], "feat")
+    for record in equipment:
+        mark(record.get("section_id"), "equipment")
 
 
 # ---------------------------------------------------------------------------
@@ -770,6 +824,7 @@ def parse(pdf_path: Path, markdown_path: Path,
     equipment += extract_poisons(nodes)
     report(f"  {len(classes)} classes, {len(species)} species, "
            f"{len(backgrounds)} backgrounds, {len(feats)} feats.")
+    type_from_records(nodes, classes, species + backgrounds, feats, equipment)
 
     report("Reading the rules glossary …")
     mark_glossary_nodes(nodes)

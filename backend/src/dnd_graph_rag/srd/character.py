@@ -109,6 +109,9 @@ def _core_traits(nodes) -> dict[str, str]:
     return traits
 
 
+_BONUS_RE = re.compile(r"^\+\d$")
+
+
 def _progression(nodes, class_name: str) -> list[dict]:
     """
     Read a "<Class> Features" table into one record per level.
@@ -140,11 +143,18 @@ def _progression(nodes, class_name: str) -> list[dict]:
             continue
         entry: dict = {"level": int(row[0].strip())}
         resources: dict[str, str] = {}
+        # Right-aligned numbers can drift into the next column, leaving the
+        # bonus under no header (Rogue, Sorcerer, Warlock, Wizard); it is
+        # always the first "+N" after the level.
+        bonus = next((i for i, cell in enumerate(row[1:], start=1)
+                      if _BONUS_RE.match(_clean(cell))), None)
+        if bonus is not None:
+            entry["proficiency_bonus"] = int(_clean(row[bonus]).lstrip("+"))
         for i, cell in enumerate(row[1:], start=1):
             name = header[i] if i < len(header) else f"column_{i}"
             value = _clean(cell)
-            if name == "Proficiency Bonus":
-                entry["proficiency_bonus"] = int(value.replace("+", "") or 0)
+            if i == bonus or name == "Proficiency Bonus":
+                continue
             elif name == "Class Features":
                 entry["features"] = [f.strip() for f in value.split(",") if f.strip()]
             elif name and value:

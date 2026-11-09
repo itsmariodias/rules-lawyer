@@ -82,7 +82,7 @@ def tiny_document() -> dict:
             },
             {"id": "5", "heading": "Serpent Venom (200 GP)",
              "content": "_Injury Poison_\n\nA creature subjected to…",
-             "entity_type": "rule",
+             "entity_type": "equipment",
              "source": {"page_start": 197, "page_end": 197,
                         "char_start": 500, "char_end": 560},
              "subsections": []},

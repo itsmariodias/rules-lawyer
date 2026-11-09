@@ -249,3 +249,22 @@ class TestExtractDamageTypes:
 
         # Then each type appears exactly once
         assert [t["name"] for t in types] == ["Fire", "Cold"]
+
+
+class TestProgression:
+    def test_given_a_bonus_drifted_out_of_its_column_when_read_then_it_is_still_found(self):
+        """Regression: Rogue, Sorcerer, Warlock and Wizard had a bonus of 0."""
+        # Given a features table whose right-aligned bonus sits one column over
+        table = ("| **Proficiency** |  |  |  |\n"
+                 "|---|---|---|---|\n"
+                 "| **Level** | **Bonus** | **Class Features** | **Sneak Attack** |\n"
+                 "| 1 |  | +2 | Expertise, Sneak Attack | 1d6 |\n"
+                 "| 5 |  | +3 | Cunning Strike | 3d6 |\n")
+        nodes = [section("Rogue", subsections=[section("Rogue Features", table)])]
+
+        # When the progression is read
+        progression = character._progression(nodes, "Rogue")
+
+        # Then each level has its bonus
+        assert [(r["level"], r["proficiency_bonus"]) for r in progression] == [
+            (1, 2), (5, 3)]

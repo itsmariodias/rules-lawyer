@@ -186,22 +186,23 @@ maps those character ranges to page rectangles.
 
 | Collection | Count | Notes |
 | --- | --- | --- |
-| sections | 2368 | tree; every node has an `entity_type` |
+| sections | 2394 | tree; every node has an `entity_type` |
 | creatures | 336 | stat blocks; mechanics on 706 entries |
 | equipment | 146 | 38 weapons, 13 armour, 81 gear, 14 poisons |
 | classes | 12 | core traits, 20-level progression, features, subclasses |
 | species / backgrounds / feats | 9 / 4 / 17 | |
 | glossary | 172 | 15 conditions, 13 damage types, 12 actions, 4 poison types, ... |
-| references | 5266 | typed edges between all of the above |
+| references | 5264 | typed edges between all of the above |
 
 | `entity_type` | Count |
 | --- | --- |
-| `class_feature` / `rule` | 446 / 382 |
+| `rule` | 687 |
 | `spell` / `magic_item` (with a `spell` / `item` block) | 339 / 258 |
-| `creature` (its stat block) / `creature_group` (`members`) | 336 / 179 |
-| `equipment` (81 are the gear items themselves) | 194 |
+| `creature` (its stat block) / `creature_group` (`members`) | 336 / 177 |
+| `class` / `subclass` / `class_feature` (232 features, 38 options) | 12 / 12 / 270 |
+| `equipment` (81 gear items, 14 poisons) | 95 |
 | `glossary_term` (`term`, `term_type`) | 155 |
-| `origin` / `feat` / `front_matter` | 32 / 24 / 3 |
+| `origin` / `feat` / `front_matter` | 13 / 17 / 3 |
 | `environmental_effect` / `trap` / `contagion` | 9 / 8 / 3 |
 
 ### Extraction decisions
@@ -217,7 +218,24 @@ maps those character ranges to page rectangles.
 - **Tables:** PyMuPDF's finder gives the region only; cells come from text x
   positions, since most rows have no ruling lines. `_absorb_edge_rows`
   reclaims unshaded rows just outside the detected rectangle (583 fragments
-  across 160 tables).
+  across 160 tables). A header row between a caption and its table
+  ("Proficiency", "Spell Slots per Spell Level") joins the table only under a
+  real caption: a stat block's subtitle and AC line are small type above its
+  ability table too.
+- **Tables and sidebars are floats.** The book puts them wherever they fit,
+  so in reading order one lands mid-section and the prose after it became
+  its caption's content (21 sections, 15,268 characters: Rage's rules were in
+  "Barbarian Features", Wild Shape's in "Beast Shapes"), and 26 captions
+  were left as literal `#####` text in their parent. `mark_floats` groups a
+  level-5 caption with its table, footnotes and continuations (a table split
+  by a page or column break, joined through table-size fragments), and a
+  sidebar with every line in its dark frame. `place_floats` moves each to a
+  boundary of its owner, at the level of the owner's children: the
+  shallowest open section naming it ("the Barbarian Features table" names
+  it in both "Barbarian Class Features" and Rage, and the class owns it),
+  else a section closed on that page or the one before (Travel Terrain
+  belongs to Travel Pace), else the section it was printed in. Section page
+  ranges therefore come from every page marker in the range, not its ends.
 - **Typography carries structure.** `GillSans-SemiBold` at 26/18/14/12/10.5pt
   is H1 to H5. Stat block titles are 14.8pt and are emitted at the deepest
   level so a creature printed inside a spell nests under it. Stat block
@@ -245,6 +263,14 @@ maps those character ranges to page rectangles.
   Grappled, Incapacitated, or Restrained condition" is usually target
   eligibility. Reading only single names left the Tarrasque's Thunderous
   Bellow imposing nothing.
+- **A section is `rule` unless evidence types it:** a subtitle, a stat
+  block, an entry set, a glossary tag, or being the section an extracted
+  record names (`type_from_records`: classes, subclasses, features, species,
+  backgrounds, feats, gear, poisons). A chapter's position types nothing:
+  "Classes" once made 446 sections class features, 202 of them headings,
+  tables and spell lists, and "Monsters A–Z" was itself a creature group.
+  A monster's entry is a `creature_group` even with one stat block
+  ("Aboleth" above the Aboleth stat block), since it is the book's entry.
 - **`spell` and `magic_item` come only from the subtitle** the book prints
   under the heading, never from position: a table printed as a subsection
   of a spell ("Teleportation Outcome") is not a spell. **`creature_group`
@@ -254,22 +280,24 @@ maps those character ranges to page rectangles.
   in the wrong type and miscounted spells as 343.
 - **Closed sets get a type.** `ENTRY_SET_ENTITY_TYPES` types traps,
   environmental effects and contagions, which were indistinguishable `rule`
-  sections. Entries are the heading's children, or its following siblings
+  sections, and Metamagic and Eldritch Invocation options as class
+  features. Entries are the heading's children, or its following siblings
   when the book prints them at the same level ("Example Contagions").
 - **Gear and poisons record `section_id`** so stage 2 folds them into their
   section. Without it there were 95 duplicate nodes and 60 duplicate edges.
 
 ## Stage 2: the graph
 
-`srd-graph-load` writes **4260 nodes and 11453 relationships**, then runs
-**68 verification checks**. Loads MERGE on stable keys, but a full reset is
+`srd-graph-load` writes **4286 nodes and 11477 relationships**, then runs
+**72 verification checks**. Loads MERGE on stable keys, but a full reset is
 the default: the artifact is the whole truth, and merging alone would keep
 nodes a re-parse has dropped.
 
 | Label | Key | Count |
 | --- | --- | --- |
-| `:Section` | `id` | 2368 |
-| + `:Spell` / `:MagicItem` / `:Creature` / `:Rule` / `:ClassFeature` / ... | `id` | 339 / 258 / 336 / 382 / 446 / ... |
+| `:Section` | `id` | 2394 |
+| + `:Spell` / `:MagicItem` / `:Creature` / `:Rule` / `:ClassFeature` / ... | `id` | 339 / 258 / 336 / 687 / 270 / ... |
+| + `:ClassSection` / `:SubclassSection` / `:Origin` / `:FeatSection` | `id` | 12 / 12 / 13 / 17 |
 | + `:Trap` / `:EnvironmentalEffect` / `:Contagion` | `id` | 8 / 9 / 3 |
 | `:CreatureAbility` | `key` (`Goblin\|actions/Bite`) | 1314 |
 | `:GlossaryTerm` + `:Condition` / `:DamageType` / `:PoisonType` / ... | `name` | 172 |
@@ -301,7 +329,7 @@ documents each one; `tests/test_docs.py` fails if it falls behind `mapping`.
   ability key, so 1582 edges land on the ability rather than the whole stat
   block.
 - **Targets are matched, never merged.** An unresolved target is reported in
-  `unresolved`, not created as an empty node. All 5266 currently resolve.
+  `unresolved`, not created as an empty node. All 5264 currently resolve.
 - **Poison types are nodes** because nothing refers to them; without
   `HAS_POISON_TYPE` the paragraph defining "Injury" is unreachable.
 - **`mapping.py` is pure.** No driver; `loader.py` only batches and writes.
@@ -325,9 +353,11 @@ documents each one; `tests/test_docs.py` fails if it falls behind `mapping`.
   (model, dimensions, task type, keys, per-section text digests), then raw
   little-endian float32. Standard library only (`array`), no numpy or FAISS.
 - **The header makes it a cache.** Digests mean a re-parse re-embeds only the
-  changed sections. A file made under another model, width or task type is
-  discarded whole: two vector spaces in one index rank nonsense silently.
-  Truncation (`EMBED_MAX_CHARS`) happens before the digest.
+  changed sections, matched by digest under any id, since ids are positional
+  and one new section renumbers its later siblings (the float fix reused
+  2036 vectors and embedded 136). A file made under another model, width or
+  task type is discarded whole: two vector spaces in one index rank nonsense
+  silently. Truncation (`EMBED_MAX_CHARS`) happens before the digest.
 - Vectors are written in their own pass (`EMBEDDING_QUERY`), so `mapping`
   stays pure and `clean()` never walks 1536 floats per row.
 - **`apply_schema` drops `srd_vector` if its width differs** from the vectors
@@ -339,7 +369,7 @@ documents each one; `tests/test_docs.py` fails if it falls behind `mapping`.
 Expected values come from the document (`meta.counts`, collections), never
 from the loader's tally. Checks: a count per exact label set and per
 `entity_type`; collections; 336 creatures with stats; 16 roots and one parent
-per section; all 5266 reference edges and zero unresolved; 1314 abilities,
+per section; all 5264 reference edges and zero unresolved; 1314 abilities,
 each attached; abilities with damage; sections with prose each having a
 vector of the right width; `srd_vector` online and of that width; no orphans
 beyond two exemptions. Non-zero failures exit non-zero.
@@ -679,5 +709,8 @@ used and the printed one kept in `printed_score`.
 - An embedded graph for contributors without Docker was parked: Kùzu is
   schema-first and single-label per node, so it would need a differently
   shaped graph. Everything except `test_loader.py` runs without Docker.
-- One table is still misplaced relative to its heading (Apparatus of the
-  Crab Levers, p210); the table itself is intact.
+- Floats nothing in the text claims stay where they were printed:
+  "Running a Monster" is still under Resistances and Vulnerabilities.
+- Some tables' cells drift a column: the Rogue's Sneak Attack dice are under
+  no header, so its progression has no resource for them, and "Starting
+  Equipment at Higher Levels" collapses into one row.

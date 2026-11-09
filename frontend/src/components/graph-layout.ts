@@ -77,8 +77,9 @@ export const KINDS: [string, string[]][] = [
   ['glossary', ['Condition', 'DamageType', 'PoisonType', 'Action',
                 'AreaOfEffect', 'Hazard', 'Attitude', 'Definition',
                 'GlossaryTerm', 'GlossarySection']],
-  ['class', ['Class', 'Subclass', 'ClassLevel', 'ClassFeature', 'Feat',
-             'FeatSection', 'Species', 'Background', 'Trait', 'Origin']],
+  ['class', ['Class', 'Subclass', 'ClassLevel', 'ClassFeature', 'ClassSection',
+             'SubclassSection', 'Feat', 'FeatSection', 'Species', 'Background',
+             'Trait', 'Origin']],
   ['rule', ['Rule', 'Trap', 'EnvironmentalEffect', 'Contagion', 'FrontMatter']],
 ]
 

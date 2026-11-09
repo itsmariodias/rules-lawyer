@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from dnd_graph_rag.srd import pipeline
@@ -475,8 +477,8 @@ class TestMarkGroups:
 
     def test_given_a_monster_chapter_when_marked_then_its_sections_are_groups(self):
         # Given a monster heading holding two stat blocks
-        tree = [_node("Monsters A–Z", "creature_lore", subsections=[
-            _node("Black Dragons", "creature_lore", subsections=[
+        tree = [_node("Monsters A–Z", subsections=[
+            _node("Black Dragons", subsections=[
                 _node("Adult Black Dragon", creatures=["Adult Black Dragon"]),
                 _node("Young Black Dragon", creatures=["Young Black Dragon"])])])]
 
@@ -489,6 +491,19 @@ class TestMarkGroups:
         assert dragons["members"] == ["Adult Black Dragon", "Young Black Dragon"]
         assert [c["entity_type"] for c in dragons["subsections"]] == [
             "creature", "creature"]
+
+    def test_given_a_monster_chapter_when_marked_then_the_chapter_is_no_group(self):
+        """Regression: "Monsters A–Z" and "Animals" were creature groups."""
+        # Given a monster chapter holding a monster entry
+        tree = [_node("Animals", subsections=[
+            _node("Ape", creatures=["Ape"])])]
+
+        # When groups are marked
+        pipeline._mark_groups(tree)
+
+        # Then the chapter holding the entries is not itself a group
+        assert tree[0]["entity_type"] == "rule"
+        assert "members" not in tree[0]
 
 
 class TestAnnotateSubtree:
@@ -505,6 +520,79 @@ class TestAnnotateSubtree:
         # Then the spell is a spell and its table keeps the default
         assert spell["entity_type"] == "spell"
         assert spell["subsections"][0]["entity_type"] == "rule"
+
+
+class TestAnnotate:
+    def test_given_a_chapter_of_entities_when_typed_then_position_types_nothing(self):
+        """Regression: every heading and table under "Classes" was a class_feature."""
+        # Given the Classes chapter, with a class, a feature and a spell list
+        tree = [_node("Classes", subsections=[
+            _node("Bard", subsections=[
+                _node("Level 1: Bardic Inspiration"),
+                _node("Bard Spell List")])])]
+        for node in pipeline.walk(tree):
+            node.update(id="6", source={"char_start": 0, "char_end": 0})
+
+        # When the tree is annotated
+        pipeline.annotate(tree, [])
+
+        # Then everything is a rule until a record says otherwise
+        assert {n["entity_type"] for n in pipeline.walk(tree)} == {"rule"}
+
+
+class TestTypeFromRecords:
+    @staticmethod
+    def nodes() -> list[dict]:
+        return [dict(_node(heading), id=node_id) for node_id, heading in [
+            ("6.1", "Barbarian"), ("6.1.1", "Becoming a Barbarian …"),
+            ("6.1.2.1", "Level 1: Rage"), ("6.1.3", "Path of the Berserker"),
+            ("6.1.3.1", "Level 3: Frenzy"), ("7.1", "Acolyte"),
+            ("8.1", "Alert"), ("9.5.1", "Acid (25 GP)"), ("12.6.3.1", "Torpor"),
+            ("10.3.1", "Acid Splash")]]
+
+    def test_given_extracted_records_when_typed_then_their_sections_take_their_kind(self):
+        # Given sections and the records extracted from them
+        nodes = self.nodes()
+        nodes[-1]["entity_type"] = "spell"
+        classes = [{"section_id": "6.1",
+                    "features": [{"section_id": "6.1.2.1"}],
+                    "subclasses": [{"section_id": "6.1.3",
+                                    "features": [{"section_id": "6.1.3.1"}]}]}]
+        origins = [{"section_id": "7.1"}]
+        feats = [{"section_id": "8.1"}]
+        equipment = [{"section_id": "9.5.1"}, {"section_id": "12.6.3.1"},
+                     {"name": "Longsword"}, {"section_id": "10.3.1"}]
+
+        # When sections are typed from the records
+        pipeline.type_from_records(nodes, classes, origins, feats, equipment)
+
+        # Then each named section is its record's kind, the rest stay rules,
+        # and a type the book already printed is kept
+        assert {n["heading"]: n["entity_type"] for n in nodes} == {
+            "Barbarian": "class", "Becoming a Barbarian …": "rule",
+            "Level 1: Rage": "class_feature", "Path of the Berserker": "subclass",
+            "Level 3: Frenzy": "class_feature", "Acolyte": "origin",
+            "Alert": "feat", "Acid (25 GP)": "equipment", "Torpor": "equipment",
+            "Acid Splash": "spell"}
+
+
+class TestPageRange:
+    def test_given_a_range_holding_an_earlier_page_when_asked_then_it_is_included(self):
+        """A float placed back in its section can bring its page with it."""
+        # Given markers for pages 5, 4 (a moved table) and 5 again
+        page_index = [(0, 5), (100, 4), (200, 5)]
+
+        # When the range spanning all three is asked for
+        # Then it starts on the moved table's page
+        assert pipeline.page_range(page_index, 50, 250) == (4, 5)
+
+    def test_given_a_range_inside_one_page_when_asked_then_it_is_that_page(self):
+        # Given two pages
+        page_index = [(0, 1), (100, 2)]
+
+        # When a range inside the first is asked for
+        # Then only that page is claimed
+        assert pipeline.page_range(page_index, 10, 90) == (1, 1)
 
 
 class TestParseStatBlockIndex:
@@ -754,6 +842,107 @@ class TestTheRealArtifact:
         assert "Hidden Pit" in by_type["trap"]
         assert "Example Contagions" not in by_type["contagion"]
         assert "Environmental Effects" not in by_type["environmental_effect"]
+
+
+    def test_given_the_artifact_when_read_then_no_heading_is_left_inside_prose(
+            self, document):
+        """Regression: 26 captions such as "Core Bard Traits" were literal text."""
+        # Given every section
+        # When its prose is searched for heading markup
+        stranded = [n["id"] for n in pipeline.walk(document["sections"])
+                    if re.search(r"(?m)^#{1,5} ", n["content"])]
+
+        # Then every heading became a section
+        assert stranded == []
+
+    def test_given_the_artifact_when_read_then_a_feature_keeps_the_rules_after_its_table(
+            self, document):
+        """Regression: Rage's rules were the content of "Barbarian Features"."""
+        # Given the sections by heading
+        nodes = {n["heading"]: n for n in pipeline.walk(document["sections"])}
+
+        # When the feature and the table printed inside it are read
+        rage = nodes["Level 1: Rage"]
+        table = nodes["Barbarian Features"]
+
+        # Then the feature has its own rules, the table only rows, and the
+        # table sits under the section that introduces it
+        assert "Rage lasts until the end of your next turn" in rage["content"]
+        assert table["content"].lstrip().startswith("|")
+        assert "Rage lasts" not in table["content"]
+        assert any(c["heading"] == "Barbarian Features"
+                   for c in nodes["Barbarian Class Features"]["subsections"])
+
+    def test_given_the_artifact_when_read_then_tables_sit_with_the_text_naming_them(
+            self, document):
+        """Regression: the Weapons table was under Vex, Travel Terrain under
+        Creating a Background."""
+        # Given each section's parent
+        parent = {c["id"]: n for n in pipeline.walk(document["sections"])
+                  for c in n["subsections"]}
+        nodes = list(pipeline.walk(document["sections"]))
+
+        # When the tables named by a section are located
+        placed = {(n["heading"], parent[n["id"]]["heading"]) for n in nodes
+                  if n["id"] in parent and n["content"].lstrip().startswith("|")}
+
+        # Then each is a child of the section that refers to it
+        assert {("Weapons", "Weapons"), ("Armor", "Armor"),
+                ("Adventuring Gear", "Adventuring Gear"),
+                ("Travel Terrain", "Travel Pace"),
+                ("Apparatus of the Crab Levers", "Apparatus of the Crab"),
+                ("Starting Equipment at Higher Levels", "Starting Equipment"),
+                } <= placed
+
+    def test_given_the_artifact_when_read_then_records_and_types_agree_both_ways(
+            self, document):
+        """A type comes from evidence, not the chapter it is printed in."""
+        # Given the sections the extracted records name
+        named = {"class": {c["section_id"] for c in document["classes"]},
+                 "subclass": {s["section_id"] for c in document["classes"]
+                              for s in c["subclasses"]},
+                 "origin": {r["section_id"] for r in
+                            document["species"] + document["backgrounds"]},
+                 "feat": {f["section_id"] for f in document["feats"]},
+                 "equipment": {e["section_id"] for e in document["equipment"]
+                               if e.get("section_id")}}
+        features = {f["section_id"] for c in document["classes"]
+                    for f in c["features"] + [f for s in c["subclasses"]
+                                              for f in s.get("features", [])]}
+
+        # When the tree is grouped by type
+        by_type: dict[str, set[str]] = {}
+        for node in pipeline.walk(document["sections"]):
+            by_type.setdefault(node["entity_type"], set()).add(node["id"])
+
+        # Then a section has a record's type exactly when a record names it,
+        # and the only class features beyond the recorded ones are options
+        for kind, ids in named.items():
+            assert by_type[kind] == ids, kind
+        assert features <= by_type["class_feature"]
+        assert len(by_type["class_feature"] - features) == 38  # 10 Metamagic, 28 Invocations
+
+    def test_given_the_artifact_when_read_then_no_chapter_is_typed_as_an_entity(
+            self, document):
+        """Regression: "Monsters A–Z" and "Animals" were creature groups."""
+        # Given the top-level sections
+        # When their types are read
+        types = {n["heading"]: n["entity_type"] for n in document["sections"]}
+
+        # Then each is front matter or rules
+        assert set(types.values()) == {"front_matter", "rule"}
+
+    def test_given_the_artifact_when_read_then_proficiency_bonuses_follow_the_rule(
+            self, document):
+        """The bonus is +2 at level 1 and rises by one every four levels."""
+        # Given every class's progression
+        for klass in document["classes"]:
+            # When each level's bonus is read
+            # Then it is the one the rules give that level
+            assert [(r["level"], r.get("proficiency_bonus"))
+                    for r in klass["progression"]] == [
+                (level, 2 + (level - 1) // 4) for level in range(1, 21)
+            ], klass["name"]
 
 
 def counts_of(document: dict) -> int:

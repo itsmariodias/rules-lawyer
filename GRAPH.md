@@ -50,25 +50,43 @@ split a node into named entries it also carries `preamble` and
 `entries_json`. The entries below list only what each second label *adds*.
 
 **A section with prose also carries `embedding`**, a 1536-float unit vector
-of its ancestor headings and its content, indexed by `srd_vector`. 2156 of
-the 2368 have one; the remaining 212 are headings whose children hold all the
+of its ancestor headings and its content, indexed by `srd_vector`. 2172 of
+the 2394 have one; the remaining 222 are headings whose children hold all the
 text, so there was nothing to embed. The vectors come from
 `data/output/srd_embeddings.idx`, which is either generated once with a
 Gemini key (`srd-embed`) or downloaded — see **Constraints and indexes**.
 
 ### `:Section:ClassFeature`
 
-One feature of a class or subclass, as its own heading. Reached from a
-`:Class` or `:Subclass` by `HAS_FEATURE`, and from a `:ClassLevel` by
-`GRANTS_FEATURE`.
+One feature of a class or subclass, as its own heading ("Level N: ..."), or
+an option chosen through one: the 10 Metamagic Options and 28 Eldritch
+Invocation Options. Reached from a `:Class` or `:Subclass` by
+`HAS_FEATURE`, and from a `:ClassLevel` by `GRANTS_FEATURE` (options are
+not, since no level grants a particular one).
 
 - **Adds** — nothing beyond the shared section properties
-- **Example** — `6.1.2.20` "Level 20: Primal Champion"
+- **Example:** `6.1.3.21` "Level 20: Primal Champion"
+
+### `:Section:ClassSection`
+
+The section describing one class: its introduction, with the Core Traits
+and Features tables, its features and its subclass below it. Distinct from
+`:Class`, the extracted entity, which is `DEFINED_IN` it.
+
+- **Example:** `6.1` "Barbarian"
+
+### `:Section:SubclassSection`
+
+The section describing one subclass. `:Subclass` is `DEFINED_IN` it.
+
+- **Example:** `6.1.4` "Barbarian Subclass: Path of the Berserker"
 
 ### `:Section:Rule`
 
 Rules prose: the chapters explaining how the game works, and their
-sub-headings.
+sub-headings. Also every section nothing else types: a chapter heading, a
+table, a sidebar, a class's spell list, "Parts of a Background". A section
+is never typed by the chapter it sits in.
 
 - **Example** — `4.8.4` "Cover"
 
@@ -95,7 +113,7 @@ rather than something hanging off it.
   concentration: false, ritual: false, verbal: true, somatic: true,
   material: "a ball of bat guano and sulfur", saving_throw: "Dexterity",
   damage_dice: ["8d6"], damage_types: ["Fire"],
-  page_start: 131, char_start: 535009, char_end: 535704 })
+  page_start: 131, char_start: 535443, char_end: 536138 })
 ```
 
 ### `:Section:Creature`
@@ -173,16 +191,18 @@ than nesting them under it, so only those three are typed.
 
 ### `:Section:EquipmentSection`
 
-Equipment *prose* — how weapon properties and armour training work. Distinct
-from `:Equipment`, which is the table rows; hence the clumsy name. Both exist
-because they are genuinely different things.
+The section a gear item or a poison is printed in, always folded with its
+`:Equipment` record (see **Equipment**). The rules around equipment, such as
+weapon properties and armour training, are `:Rule`.
 
-- **Example** — `9.2.2` "Properties"
+- **Example:** `9.5.2` "Acid (25 GP)"
 
 ### `:Section:CreatureGroup`
 
 A section in the monster chapters (Monsters, Monsters A-Z, Animals) whose
-subtree holds stat blocks other than its own. Outside those chapters a
+subtree holds stat blocks other than its own: a monster's entry. Most hold
+one stat block ("Aboleth" above the Aboleth stat block); the chapters
+themselves are `:Rule`. Outside those chapters a
 section printing a stat block keeps its own type: the summoning spell
 `10.3.10` "Animate Objects" is a `:Spell`, and its Animated Object stat block
 is a `:Creature` below it.
@@ -201,13 +221,15 @@ two are not 1:1 — every damage type is printed in one shared table.
 
 ### `:Section:Origin`
 
-Species and background prose.
+The section describing one species or background; `:Species` or
+`:Background` is `DEFINED_IN` it.
 
-- **Example** — `7.1.1` "Parts of a Background"
+- **Example:** `7.1.2.1` "Acolyte"
 
 ### `:Section:FeatSection`
 
-Feat prose. Distinct from `:Feat`, the extracted entity.
+The section describing one feat. Distinct from `:Feat`, the extracted
+entity.
 
 - **Example** — `8.1.2.1` "Alert"
 
@@ -362,7 +384,7 @@ sits in the tree. Its prose carries references of its own — Acid's mentions
 the Attack action, which becomes a real edge from this node.
 
 - **Adds** — the section's properties, since it is one
-- **Example** — `9.5.1` `:Section:EquipmentSection:Equipment:Gear`,
+- **Example:** `9.5.2` `:Section:EquipmentSection:Equipment:Gear`,
   `name: "Acid"`, `heading: "Acid (25 GP)"`, `cost_gp: 25.0`
 
 ### `:Equipment:Poison`
@@ -374,7 +396,7 @@ names a delivery type.
   section's properties
 - **Links** — `HAS_POISON_TYPE` to the `:GlossaryTerm:PoisonType` that
   explains what that type does
-- **Example** — `12.6.3.10` `:Section:Rule:Equipment:Poison`,
+- **Example:** `12.6.3.10` `:Section:EquipmentSection:Equipment:Poison`,
   `name: "Serpent Venom"`, `poison_type: "Injury"`
 
 ### `:Equipment:Armor`
@@ -510,7 +532,7 @@ a traversal can filter to actions without visiting the ability node.
 A class or subclass to the features it grants. It points at the feature's own
 section rather than copying its prose.
 
-- **Example** — `(Barbarian)-[:HAS_FEATURE {level: 20}]->(6.1.2.20 "Level 20: Primal Champion")`
+- **Example:** `(Barbarian)-[:HAS_FEATURE {level: 20}]->(6.1.3.21 "Level 20: Primal Champion")`
 
 ### `AT_LEVEL`
 

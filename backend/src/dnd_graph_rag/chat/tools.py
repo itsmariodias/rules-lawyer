@@ -38,8 +38,8 @@ def _result(content: str, status: str, summary: str,
 # Not every entity_type: "front_matter" and "creature_group" narrow nothing
 # useful.
 SEARCHABLE_TYPES = [
-    "spell", "creature", "magic_item", "rule", "class_feature",
-    "glossary_term", "equipment", "feat", "origin", "trap",
+    "spell", "creature", "magic_item", "rule", "class", "subclass",
+    "class_feature", "glossary_term", "equipment", "feat", "origin", "trap",
     "environmental_effect", "contagion",
 ]
 
@@ -57,9 +57,9 @@ def search_srd(query: str, entity_type: str | None = None) -> Result:
             as keywords, though the rulebook's own terms are still the
             sharpest query.
         entity_type: Optional filter, one of spell, creature, magic_item,
-            rule, class_feature, glossary_term, equipment, feat, origin,
-            trap, environmental_effect, contagion. Omit it unless the
-            question is clearly about one kind of thing.
+            rule, class, subclass, class_feature, glossary_term, equipment,
+            feat, origin, trap, environmental_effect, contagion. Omit it
+            unless the question is clearly about one kind of thing.
     """
     if entity_type and entity_type not in SEARCHABLE_TYPES:
         return _result(f"Unknown entity_type {entity_type!r}. "
