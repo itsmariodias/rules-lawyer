@@ -10,7 +10,9 @@ from dnd_graph_rag.srd.model import (
     Run,
     Section,
     Sidebar,
+    Source,
     StatBlock,
+    StatSection,
     Table,
 )
 from dnd_graph_rag.srd.output.render import render, render_book, render_run
@@ -107,7 +109,7 @@ class TestRender:
                           [Field("AC", [Run("17")]), Field("Speed", [Run("10 ft.")]),
                            Field("CR", [Run("10")])],
                           [["Str", "21", "+5", "+5"]],
-                          [Section("Traits", [Paragraph([Run("Amphibious.", True, True),
+                          [StatSection("Traits", [Paragraph([Run("Amphibious.", True, True),
                                                          Run(" Breathes air.")], [258])])], [258])
 
         # When rendered
@@ -143,13 +145,33 @@ class TestRenderRun:
 class TestRenderBook:
     def test_given_a_title_and_blocks_when_rendered_then_the_title_heads_the_book(self):
         # Given a title and a paragraph printed across pages 1 and 2
-        blocks = [Paragraph([Run("One and two.")], [1, 2])]
+        sections = [Section("1", "Legal Information", 1, [Paragraph([Run("One and two.")], [1, 2])], [],
+                            Source(1, 2))]
 
         # When the book is rendered
-        markdown = render_book("System Reference Document 5.2.1", blocks)
+        markdown, spans, _ = render_book("System Reference Document 5.2.1", sections)
 
-        # Then the title heads the book and no page break shows
-        assert markdown == "# System Reference Document 5.2.1\n\nOne and two.\n"
+        # Then the title heads the book, no page break shows, and the section's span is its own
+        assert markdown == "# System Reference Document 5.2.1\n\n# Legal Information\n\nOne and two.\n"
+        start, end = spans["1"]
+        assert markdown[start:end] == "# Legal Information\n\nOne and two."
+
+    def test_given_a_float_section_when_rendered_then_its_caption_is_the_heading_alone(self):
+        # Given page 101's Lifestyle Expenses with its table as a subsection
+        table = Table([Run("Food", bold=True)], [[[Run("Item", bold=True)]]], [[[Run("Ale")]]], [101])
+        sections = [Section("9", "Equipment", 1, [Paragraph([Run("Gear.")], [101])],
+                            [Section("9.1", "Food", 2, [table], [], Source(101, 101))], Source(101, 101))]
+
+        # When the book is rendered
+        markdown, spans, parts = render_book("SRD", sections)
+
+        # Then the caption shows once, as the heading, the parent's span covers the subsection,
+        # and each heading and block is a part with its own span
+        assert markdown == "# SRD\n\n# Equipment\n\nGear.\n\n## Food\n\n| Item |\n| --- |\n| Ale |\n"
+        assert spans["9"][1] == spans["9.1"][1] == len(markdown) - 1
+        assert [markdown[start:end] for start, end, _ in parts] == [
+            "# Equipment", "Gear.", "## Food", "| Item |\n| --- |\n| Ale |"]
+        assert parts[-1][2] is table
 
     def test_given_book_headings_when_rendered_then_they_keep_the_books_level(self):
         # Given the book's own level 1 and level 5 headings

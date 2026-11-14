@@ -1,8 +1,9 @@
-"""Blocks to markdown. The only code that writes the book's markdown."""
+"""Sections and blocks to markdown. The only code that writes the book's markdown."""
 
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 
 from ..model import (
     Block,
@@ -11,7 +12,9 @@ from ..model import (
     Heading,
     ListBlock,
     Paragraph,
+    Printed,
     Run,
+    Section,
     Sidebar,
     StatBlock,
     Table,
@@ -21,7 +24,7 @@ from ..model import (
 _SPECIAL = re.compile(r"([\\*_`])")
 _BLOCK_MARK = re.compile(r"^([#>+-])")
 _ORDERED_MARK = re.compile(r"^(\d+)\.")
-# The deepest heading, so a creature printed inside a spell or item nests under it.
+# A stat block rendered on its own, outside the section tree: the deepest heading.
 STAT_BLOCK_LEVEL = 6
 ABILITY_HEADER = ["Ability", "Score", "MOD", "SAVE"]
 # GFM tables cannot nest and trim leading spaces, so a row under a category
@@ -41,21 +44,62 @@ def render(blocks: list[Block]) -> str:
     return "\n\n".join(render_block(b) for b in blocks) + "\n"
 
 
-def render_book(title: str, blocks: list[Block]) -> str:
-    """Render the book: its title, then its blocks.
+def render_book(title: str, sections: list[Section],
+                ) -> tuple[str, dict[str, tuple[int, int]], list[tuple[int, int, Printed]]]:
+    """Render the book: its title, then each section's heading, blocks and subsections.
 
     The title is a level 1 heading, and the book's own headings keep their
-    levels, so its chapters are level 1 beside it. Pages stay in the JSON;
-    the markdown reads straight through them.
+    levels, so its chapters are level 1 beside it. A float's caption, title
+    or name is its section's heading, so it is not rendered again. Pages
+    stay in the JSON; the markdown reads straight through them.
 
     Args:
         title: The title every page's footer prints.
-        blocks: The book's blocks in reading order.
+        sections: The book's top-level sections.
 
     Returns:
-        The markdown, ending in one newline.
+        The markdown, ending in one newline; each section's span of it by id,
+        from its heading to the end of its last subsection; and each part
+        rendered (a section's heading, a block) with its span, in order.
     """
-    return f"# {title}\n\n{render(blocks)}"
+    chunks: list[str] = []
+    spans: dict[str, tuple[int, int]] = {}
+    parts: list[tuple[int, int, Printed]] = []
+    end = 0
+
+    def add(chunk: str, part: Printed | None = None) -> int:
+        nonlocal end
+        start = end + 2 if chunks else 0    # chunks are joined by one blank line
+        chunks.append(chunk)
+        end = start + len(chunk)
+        if part is not None:
+            parts.append((start, end, part))
+        return start
+
+    def add_section(section: Section) -> None:
+        start = add(f"{'#' * section.level} {section.heading}", section)
+        for block in section.blocks:
+            add(render_block(untitled(block)), block)
+        for child in section.subsections:
+            add_section(child)
+        spans[section.id] = (start, end)
+
+    add(f"# {title}")
+    for section in sections:
+        add_section(section)
+    return "\n\n".join(chunks) + "\n", spans, parts
+
+
+def untitled(block: Block) -> Block:
+    """A float without the caption, title or name its section's heading shows."""
+    match block:
+        case Table():
+            return replace(block, caption=[])
+        case Sidebar():
+            return replace(block, title=[])
+        case StatBlock():
+            return replace(block, name="")
+    return block
 
 
 def render_block(block: Block) -> str:
@@ -103,9 +147,10 @@ def render_sidebar(block: Sidebar) -> str:
 
 
 def render_stat_block(block: StatBlock) -> str:
-    """A stat block: its name as a heading, a line per field, the scores as a table after
-    Speed, and each section under its bold title."""
-    parts = [f"{'#' * STAT_BLOCK_LEVEL} {block.name}", render_runs(block.subtitle)]
+    """A stat block: its name as a heading (if it has one here), a line per field, the scores
+    as a table after Speed, and each section under its bold title."""
+    parts = [f"{'#' * STAT_BLOCK_LEVEL} {block.name}"] if block.name else []
+    parts.append(render_runs(block.subtitle))
     for field in block.fields:
         parts.append(render_field(field))
         if field.label == "Speed":

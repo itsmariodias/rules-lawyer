@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from ..model import Block, Field, Paragraph, Run, Section, StatBlock
-from .pages import Line, pages_of
+from ..model import Block, Field, Paragraph, Run, StatBlock, StatSection
+from .pages import Line, boxes_of, pages_of
 from .text import runs_of
 
 TITLE_FONT = ("GillSans-SemiBold", 14.8)
@@ -80,9 +80,9 @@ def stat_block(lines: list[Line], hyphenated: set[str],
         raise ValueError(f"page {lines[0].page}: {lines[0].text.strip()}'s scores are not after Speed")
     rest = [f for group in fields[above:] for f in fields_of(runs_of(group, hyphenated))]
     return StatBlock(lines[0].text.strip(), runs_of(subtitle, hyphenated), top + rest,
-                     ability_rows(scores), [Section(title, entries(body, hyphenated, read))
+                     ability_rows(scores), [StatSection(title, entries(body, hyphenated, read))
                                             for title, body in sections],
-                     pages_of(lines))
+                     pages_of(lines), boxes=boxes_of(lines))
 
 
 def fields_of(runs: list[Run]) -> list[Field]:

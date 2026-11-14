@@ -13,7 +13,8 @@ from __future__ import annotations
 import re
 from itertools import pairwise
 
-from .model import Block, Contents, Heading, Paragraph, Sidebar, StatBlock, Table, plain
+from .model import Block, Contents, Heading, Paragraph, Section, StatBlock, Table, plain
+from .sections import walk_paths
 
 CONTENTS = "Contents"
 INDEX = "Index of Stat Blocks"
@@ -36,11 +37,12 @@ _FEATURE = re.compile(r"^Level (?P<level>\d+): (?P<name>.*)$")
 _NOTE = re.compile(r" \(.*\)$")
 
 
-def problems(blocks: list[Block]) -> list[str]:
-    """Every way the blocks disagree with what the book says elsewhere.
+def problems(blocks: list[Block], sections: list[Section]) -> list[str]:
+    """Every way the blocks and sections disagree with what the book says elsewhere.
 
     Args:
         blocks: The book's blocks in reading order, as ``read_blocks`` returns them.
+        sections: Those blocks as a tree, as ``build_sections`` returns them.
 
     Returns:
         One message per disagreement; empty when the book agrees with itself.
@@ -48,7 +50,7 @@ def problems(blocks: list[Block]) -> list[str]:
     Raises:
         ValueError: A list or table a check reads is missing.
     """
-    return (check_contents(blocks, listed(blocks, CONTENTS)) + check_index(blocks, listed(blocks, INDEX))
+    return (check_contents(sections, listed(blocks, CONTENTS)) + check_index(blocks, listed(blocks, INDEX))
             + check_spells(blocks) + check_classes(blocks) + check_gear(blocks) + check_weapons(blocks))
 
 
@@ -60,40 +62,36 @@ def listed(blocks: list[Block], title: str) -> Contents:
     raise ValueError(f"no {title} list")
 
 
-def check_contents(blocks: list[Block], contents: Contents) -> list[str]:
-    """Each Contents entry is a heading (or sidebar title) on its page, in book order.
+def check_contents(sections: list[Section], contents: Contents) -> list[str]:
+    """Each Contents entry is a section on its page, in book order, under its entry's parent.
 
     An entry nests under the last entry above it of a lower level, and its
-    heading must be deeper than that entry's: the Contents skips levels
-    ("Acolyte" is a level 4 heading listed under level 2 "Character
-    Backgrounds"), so levels are compared, not matched. Every chapter heading
-    is listed, except the lists' own.
+    section must be inside that entry's section. Levels themselves are not
+    compared: the Contents skips them ("Acolyte", a level 4 heading, is
+    listed under level 2 "Character Backgrounds"). Every chapter is listed,
+    except the lists' own.
     """
-    # (text, page, heading level); a sidebar title has no level.
-    targets = [(b.text, b.page, b.level) if isinstance(b, Heading) else (plain(b.title), b.pages[0], None)
-               for b in blocks if isinstance(b, Heading | Sidebar)]
+    ordered = list(walk_paths(sections))
     found: list[str] = []
     at = 0
-    parents: list[tuple[int, int | None]] = []   # (contents level, heading level)
+    parents: list[tuple[int, Section]] = []   # (contents level, its section)
     for entry in contents.entries:
         name = plain(entry.runs)
-        match = next((i for i in range(at, len(targets)) if targets[i][:2] == (name, entry.page)), None)
+        match = next((i for i in range(at, len(ordered))
+                      if (ordered[i][0].heading, ordered[i][0].source.page_start) == (name, entry.page)), None)
         if match is None:
-            found.append(f"Contents: {name} (p. {entry.page}) has no heading on that page after the last match")
+            found.append(f"Contents: {name} (p. {entry.page}) has no section on that page after the last match")
             continue
         at = match + 1
-        level = targets[match][2]
+        section, path = ordered[match]
         while parents and parents[-1][0] >= entry.level:
             parents.pop()
-        parent = parents[-1][1] if parents else None
-        if level is not None and parent is not None and level <= parent:
-            found.append(f"Contents: {name} (p. {entry.page}) is a level {level} heading, "
-                         f"not under its level {parent} parent")
-        parents.append((entry.level, level))
+        if parents and not any(ancestor is parents[-1][1] for ancestor in path):
+            found.append(f"Contents: {name} (p. {entry.page}) is not under {parents[-1][1].heading}")
+        parents.append((entry.level, section))
     chapters = {(plain(e.runs), e.page) for e in contents.entries if e.level == 1}
-    found += [f"Contents: chapter {b.text} (p. {b.page}) is not listed" for b in blocks
-              if isinstance(b, Heading) and b.level == 1 and b.page not in contents.pages
-              and (b.text, b.page) not in chapters]
+    found += [f"Contents: chapter {s.heading} (p. {s.source.page_start}) is not listed" for s in sections
+              if s.source.page_start not in contents.pages and (s.heading, s.source.page_start) not in chapters]
     return found
 
 

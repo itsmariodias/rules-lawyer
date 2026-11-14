@@ -18,7 +18,7 @@ from ..model import (
     Table,
     add_page,
 )
-from .pages import TABLE_NOTE, Line, column_key, pages_of
+from .pages import TABLE_NOTE, Line, boxes_of, column_key, pages_of
 from .statblock import is_stat_line, is_title, stat_block
 from .tables import (
     extend_table,
@@ -115,7 +115,9 @@ def read_blocks(lines: list[Line], hyphenated: set[str]) -> list[Block]:
         elif caption or (is_table_line(line) and not wraps_field(lines, i)):
             group = table_run(lines, i + len(caption))
             group = group[:table_end(group)]
-            place(table(runs_of(caption, hyphenated), group, hyphenated))
+            built = table(runs_of(caption, hyphenated), group, hyphenated)
+            built.boxes[:0] = boxes_of(caption)
+            place(built)
             i += len(caption) + len(group)
         elif is_term_line(line):
             end_paragraph()
@@ -132,8 +134,9 @@ def read_blocks(lines: list[Line], hyphenated: set[str]) -> list[Block]:
             last = blocks[-1] if blocks else None
             if isinstance(last, Heading) and last.level == level and continues(heading_line, line):
                 last.text = f"{last.text} {line.text.strip()}"
+                last.boxes += boxes_of([line])
             else:
-                blocks.append(Heading(level, line.text.strip(), line.page))
+                blocks.append(Heading(level, line.text.strip(), line.page, boxes=boxes_of([line])))
             heading_line = line
             i += 1
         elif _ENTRY.match(line.text.strip()):
@@ -142,7 +145,7 @@ def read_blocks(lines: list[Line], hyphenated: set[str]) -> list[Block]:
             if not wrapped:
                 end_paragraph()
             para.clear()
-            add_entry(blocks, contents_entry(wrapped + [line], hyphenated), line.page)
+            add_entry(blocks, contents_entry(wrapped + [line], hyphenated), wrapped + [line])
             i += 1
         elif _MARKER.match(line.text):
             end_paragraph(flush=bool(para) or not continues_list(blocks, line))
@@ -314,7 +317,7 @@ def term_list(lines: list[Line]) -> ListBlock:
     spans = sorted((s for line in lines for s in line.spans),
                    key=lambda s: edges.index(round(s.x0)))
     return ListBlock(False, [[Paragraph([Run(s.text.strip())], [lines[0].page])] for s in spans],
-                     pages_of(lines))
+                     pages_of(lines), boxes=boxes_of(lines))
 
 
 def is_key_line(line: Line) -> bool:
@@ -341,7 +344,7 @@ def key_list(lines: list[Line]) -> ListBlock:
     pages = pages_of(lines)
     items = [[Paragraph([Run(label, bold=True), Run(" " + " ".join(meaning))], pages)]
              for half in entries for label, *meaning in half]
-    return ListBlock(False, items, pages)
+    return ListBlock(False, items, pages, boxes=boxes_of(lines))
 
 
 def item_lines(lines: list[Line], start: int) -> list[Line]:
@@ -360,7 +363,8 @@ def paragraph(lines: list[Line], hyphenated: set[str]) -> Paragraph:
     # A formula is centred, so indented, but displayed rather than quoted.
     quote = (len(lines) > 1 and all(is_indented(line) for line in lines)
              and not is_formula(lines[0]))
-    return Paragraph(runs_of(lines, hyphenated), pages_of(lines), "quote" if quote else None)
+    return Paragraph(runs_of(lines, hyphenated), pages_of(lines), "quote" if quote else None,
+                     boxes=boxes_of(lines))
 
 
 def continues_list(blocks: list[Block], line: Line) -> bool:
@@ -380,8 +384,10 @@ def add_item(blocks: list[Block], lines: list[Line], hyphenated: set[str]) -> No
         last = blocks[-1]
         last.items.append(item)
         add_page(last.pages, lines[0].page)
+        last.boxes += boxes_of(lines)
     else:
-        blocks.append(ListBlock(number is not None, [item], pages_of(lines), int(number) if number else 1))
+        blocks.append(ListBlock(number is not None, [item], pages_of(lines), int(number) if number else 1,
+                                boxes=boxes_of(lines)))
 
 
 def sidebar(lines: list[Line], hyphenated: set[str]) -> Sidebar:
@@ -389,16 +395,17 @@ def sidebar(lines: list[Line], hyphenated: set[str]) -> Sidebar:
     has_title = all(SMALL_CAPS in s.font for s in lines[0].spans)
     title = runs_of(lines[:1], hyphenated) if has_title else []
     body = [replace(line, frame=None) for line in lines[1 if has_title else 0:]]
-    return Sidebar(title, read_blocks(body, hyphenated), pages_of(lines))
+    return Sidebar(title, read_blocks(body, hyphenated), pages_of(lines), boxes=boxes_of(lines))
 
 
-def add_entry(blocks: list[Block], entry: Entry, page: int) -> None:
-    """Add a contents entry, continuing the contents block just before it."""
+def add_entry(blocks: list[Block], entry: Entry, lines: list[Line]) -> None:
+    """Add a contents entry printed on ``lines``, continuing the contents block just before it."""
     if blocks and isinstance(blocks[-1], Contents):
         blocks[-1].entries.append(entry)
-        add_page(blocks[-1].pages, page)
+        add_page(blocks[-1].pages, lines[-1].page)
+        blocks[-1].boxes += boxes_of(lines)
     else:
-        blocks.append(Contents([entry], [page]))
+        blocks.append(Contents([entry], [lines[-1].page], boxes=boxes_of(lines)))
 
 
 def contents_entry(lines: list[Line], hyphenated: set[str]) -> Entry:

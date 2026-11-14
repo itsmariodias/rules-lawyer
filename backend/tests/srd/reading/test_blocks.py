@@ -64,6 +64,16 @@ class TestReadBlocks:
         # Then they are one paragraph, joined with single spaces
         assert read_blocks(lines, set()) == [Paragraph([Run("One line and the next and the last.")], [1])]
 
+    def test_given_a_paragraph_when_read_then_it_keeps_a_box_per_line(self):
+        # Given two lines of 10pt text
+        lines = [line(80, "One line "), line(92, "and the last.")]
+
+        # When the page becomes blocks
+        paragraph = read_blocks(lines, set())[0]
+
+        # Then the paragraph has each line's box, for the anchors file
+        assert [(box.page, box.y0, box.y1) for box in paragraph.boxes] == [(1, 72.0, 82.4), (1, 84.0, 94.4)]
+
     def test_given_a_wider_gap_when_read_then_a_new_paragraph_starts(self):
         # Given two lines 17.4pt apart, the gap page 1 leaves between paragraphs
         lines = [line(116.7, "First."), line(134.1, "Second.")]

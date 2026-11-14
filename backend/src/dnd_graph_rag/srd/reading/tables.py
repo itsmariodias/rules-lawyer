@@ -14,6 +14,7 @@ from .pages import (
     TABLE_TYPE,
     Line,
     Span,
+    boxes_of,
     column_key,
     pages_of,
 )
@@ -163,7 +164,7 @@ def table(caption: list[Run], lines: list[Line], hyphenated: set[str]) -> Table:
     rows = [[runs_of(c, hyphenated) for c in row] for half in halves for row in half]
     return Table(caption, [[runs_of(c, hyphenated) for c in cells[:width]] for cells in header_cells],
                  rows, pages_of(lines), categories(rows, indented),
-                 halves=[len(half) for half in halves], indented=indented)
+                 halves=[len(half) for half in halves], indented=indented, boxes=boxes_of(lines))
 
 
 def extend_table(table: Table, rest: Table) -> None:
@@ -190,6 +191,7 @@ def extend_table(table: Table, rest: Table) -> None:
         table.halves = [a + b for a, b in zip(table.halves, rest.halves)]
     table.rows, table.indented = rows, indented
     table.under = categories(rows, indented)
+    table.boxes += rest.boxes
     for page in rest.pages:
         add_page(table.pages, page)
 

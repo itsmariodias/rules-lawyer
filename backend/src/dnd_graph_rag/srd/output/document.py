@@ -1,34 +1,34 @@
-"""Blocks to and from JSON. The JSON is the book; markdown is rendered from it."""
+"""Sections to and from JSON. The JSON is the book; markdown is rendered from it."""
 
 from __future__ import annotations
 
-from ..model import BLOCKS, Block
+from ..model import SECTIONS, Section
 
 
-def to_json(title: str, blocks: list[Block]) -> dict:
+def to_json(title: str, sections: list[Section]) -> dict:
     """The document as JSON-ready data.
 
     Args:
         title: The book's title, from its footers.
-        blocks: The book's blocks in reading order, each naming its pages.
+        sections: The book's top-level sections.
 
     Returns:
-        ``{"title", "blocks"}``.
+        ``{"title", "sections"}``.
     """
-    return {"title": title, "blocks": BLOCKS.dump_python(blocks)}
+    return {"title": title, "sections": SECTIONS.dump_python(sections)}
 
 
-def from_json(document: dict) -> tuple[str, list[Block]]:
-    """Rebuild the title and blocks from ``to_json`` output.
+def from_json(document: dict) -> tuple[str, list[Section]]:
+    """Rebuild the title and sections from ``to_json`` output.
 
     Args:
         document: A loaded document.
 
     Returns:
-        The title, and the blocks in reading order.
+        The title, and the top-level sections.
 
     Raises:
-        pydantic.ValidationError: A block is malformed or has an unknown type; the
-            message names its path ("blocks.4211.sections.0.entries.2").
+        pydantic.ValidationError: A section or block is malformed or has an unknown
+            type; the message names its path ("sections.4.subsections.0.blocks.2").
     """
-    return document["title"], BLOCKS.validate_python(document["blocks"])
+    return document["title"], SECTIONS.validate_python(document["sections"])

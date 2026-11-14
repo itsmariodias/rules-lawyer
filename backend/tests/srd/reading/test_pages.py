@@ -6,10 +6,12 @@ import pymupdf
 import pytest
 
 from dnd_graph_rag.config import get_settings
+from dnd_graph_rag.srd.model import Box
 from dnd_graph_rag.srd.reading.pages import (
     Line,
     Span,
     attach_superscripts,
+    boxes_of,
     column_edges,
     column_of,
     page_lines,
@@ -221,6 +223,16 @@ class TestReadPages:
         # Then it has one title and a body for each of its 364 pages
         assert book.title == "System Reference Document 5.2.1"
         assert len(book.pages) == 364
+
+
+class TestBoxesOf:
+    def test_given_a_line_when_boxed_then_its_height_comes_from_baseline_and_size(self):
+        # Given page 28's "Level 1: Rage", 12pt, baseline 233.0
+        line = Line(28, 233.0, [Span("Level 1: Rage", "GillSans-SemiBold", 12.0, 313.5, 382.7)])
+
+        # When boxed
+        # Then it reaches 0.80em above the baseline and 0.24em below, across its spans
+        assert boxes_of([line]) == [Box(28, 313.5, 223.4, 382.7, 235.9)]
 
 
 class TestLine:

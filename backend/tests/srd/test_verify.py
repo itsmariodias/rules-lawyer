@@ -12,6 +12,7 @@ from dnd_graph_rag.srd.model import (
     StatBlock,
     Table,
 )
+from dnd_graph_rag.srd.sections import build_sections
 from dnd_graph_rag.srd.verify import (
     KNOWN,
     check_classes,
@@ -78,20 +79,20 @@ class TestCheckContents:
                   Heading(4, "Acolyte", 83), Heading(1, "Monsters", 254),
                   Sidebar([Run("Running a Monster", bold=True)], [], [255])]
 
-        # When checked
+        # When checked as a tree
         # Then the Contents agrees
-        assert check_contents(blocks, self.CONTENTS) == []
+        assert check_contents(build_sections(blocks), self.CONTENTS) == []
 
     def test_given_a_heading_read_too_shallow_when_checked_then_it_is_reported(self):
-        # Given "Acolyte" read at level 2, beside its parent
+        # Given "Acolyte" read at level 2, so beside "Character Backgrounds" in the tree
         blocks = [Heading(1, "Character Origins", 83), Heading(2, "Character Backgrounds", 83),
                   Heading(2, "Acolyte", 83), Heading(1, "Monsters", 254),
                   Sidebar([Run("Running a Monster")], [], [255])]
 
-        # When checked
-        # Then it is not under its parent
-        assert check_contents(blocks, self.CONTENTS) == [
-            "Contents: Acolyte (p. 83) is a level 2 heading, not under its level 2 parent"]
+        # When checked as a tree
+        # Then it is not under the section of its parent entry
+        assert check_contents(build_sections(blocks), self.CONTENTS) == [
+            "Contents: Acolyte (p. 83) is not under Character Backgrounds"]
 
     def test_given_a_missing_heading_and_an_unlisted_chapter_when_checked_then_both_are_reported(self):
         # Given no "Running a Monster", and a chapter the Contents does not list
@@ -99,10 +100,10 @@ class TestCheckContents:
                   Heading(2, "Character Backgrounds", 83), Heading(4, "Acolyte", 83),
                   Heading(1, "Monsters", 254), Heading(1, "Animals", 344)]
 
-        # When checked
-        # Then the Contents' own heading is exempt and the others are reported
-        assert check_contents(blocks, self.CONTENTS) == [
-            "Contents: Running a Monster (p. 255) has no heading on that page after the last match",
+        # When checked as a tree
+        # Then the Contents' own section is exempt and the others are reported
+        assert check_contents(build_sections(blocks), self.CONTENTS) == [
+            "Contents: Running a Monster (p. 255) has no section on that page after the last match",
             "Contents: chapter Animals (p. 344) is not listed"]
 
 
@@ -115,7 +116,7 @@ class TestProblems:
         # Then the missing list is refused by name
         assert listed(blocks, "Contents").pages == [2]
         with pytest.raises(ValueError, match="Index of Stat Blocks"):
-            problems(blocks)
+            problems(blocks, build_sections(blocks))
 
 
 class TestCheckSpells:

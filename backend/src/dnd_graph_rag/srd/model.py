@@ -36,7 +36,29 @@ class Run:
 
 
 @dataclass
-class Heading:
+class Box:
+    """Where a printed line is: its page and rectangle, in PDF points."""
+
+    page: int
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+
+
+@dataclass
+class Printed:
+    """Something printed on the page: while the book is read, the boxes of its lines.
+
+    Not in the JSON: the boxes go to the anchors file, beside the markdown spans.
+    """
+
+    boxes: Annotated[list[Box], pydantic.Field(exclude=True)] = field(
+        default_factory=list, kw_only=True, compare=False, repr=False)
+
+
+@dataclass
+class Heading(Printed):
     """A heading of the book."""
 
     type: Literal["heading"] = field(default="heading", kw_only=True, repr=False)
@@ -46,7 +68,7 @@ class Heading:
 
 
 @dataclass
-class Paragraph:
+class Paragraph(Printed):
     """One paragraph of the book, however many lines, columns or pages it spans."""
 
     type: Literal["paragraph"] = field(default="paragraph", kw_only=True, repr=False)
@@ -68,7 +90,7 @@ class Entry:
 
 
 @dataclass
-class Contents:
+class Contents(Printed):
     """A run of contents entries, as printed under Contents or Index of Stat Blocks."""
 
     type: Literal["contents"] = field(default="contents", kw_only=True, repr=False)
@@ -77,7 +99,7 @@ class Contents:
 
 
 @dataclass
-class ListBlock:
+class ListBlock(Printed):
     """A bulleted or numbered list; each item is its own blocks."""
 
     type: Literal["list"] = field(default="list", kw_only=True, repr=False)
@@ -89,7 +111,7 @@ class ListBlock:
 
 
 @dataclass
-class Sidebar:
+class Sidebar(Printed):
     """A framed box: a small-caps title over its own blocks."""
 
     type: Literal["sidebar"] = field(default="sidebar", kw_only=True, repr=False)
@@ -99,7 +121,7 @@ class Sidebar:
 
 
 @dataclass
-class Table:
+class Table(Printed):
     """A table: optional caption, header rows, body rows of cells (each a run list)."""
 
     type: Literal["table"] = field(default="table", kw_only=True, repr=False)
@@ -129,7 +151,7 @@ class Field:
 
 
 @dataclass
-class Section:
+class StatSection:
     """A stat block's Traits, Actions, Bonus Actions, Reactions or Legendary Actions."""
 
     title: str
@@ -137,7 +159,7 @@ class Section:
 
 
 @dataclass
-class StatBlock:
+class StatBlock(Printed):
     """A creature's stat block, in the fixed form the book prints them.
 
     The fields run in printed order; the ability scores are printed after
@@ -149,7 +171,7 @@ class StatBlock:
     subtitle: list[Run]
     fields: list[Field]
     abilities: list[list[str]]
-    sections: list[Section]
+    sections: list[StatSection]
     pages: list[int]
 
 
@@ -159,6 +181,48 @@ for _container in (ListBlock, Sidebar):
     rebuild_dataclass(_container)
 # Writes blocks to JSON-ready data (``dump_python``) and reads them back (``validate_python``).
 BLOCKS = TypeAdapter(list[Block])
+
+
+# The types a section can have: ``rule`` unless evidence says otherwise.
+EntityType = Literal["rule", "front_matter", "spell", "magic_item", "creature", "creature_group",
+                     "glossary_term", "environmental_effect", "trap", "contagion", "class", "subclass",
+                     "class_feature", "origin", "feat", "equipment"]
+
+
+@dataclass
+class Source:
+    """Where a section is: the printed pages its subtree covers, and its span of the markdown.
+
+    ``char_start`` and ``char_end`` are written by the renderer and slice the
+    rendered markdown, subsections included.
+    """
+
+    page_start: int
+    page_end: int
+    char_start: int = 0
+    char_end: int = 0
+
+
+@dataclass
+class Section(Printed):
+    """A section of the book: its heading, its own blocks, then its subsections.
+
+    A heading opens one. So does a float (a stat block, a captioned table or
+    a sidebar), which is a section holding only itself, its name, caption or
+    title the heading.
+    """
+
+    id: str                  # dotted and positional ("4.1.2"); graph keys and citations use it
+    heading: str
+    level: int               # the rendered heading level, 1 to 6
+    blocks: list[Block]
+    subsections: list[Section]
+    source: Source
+    entity_type: EntityType = "rule"
+
+
+rebuild_dataclass(Section)
+SECTIONS = TypeAdapter(list[Section])
 
 
 def add_page(pages: list[int], page: int) -> None:

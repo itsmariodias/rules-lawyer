@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pymupdf
 
+from ..model import Box
+
 # Measured over all 364 pages: the only text below this baseline is the
 # footer, a page number and the book's title, "System Reference Document
 # 5.2.1", at 755.
@@ -16,6 +18,10 @@ FOOTER_BASELINE = 740.0
 # Spans within this distance share a line. Baselines, not bbox tops: tops are
 # inflated by font metrics.
 BASELINE_TOLERANCE = 3.0
+# A line's box from its baseline and type size, in ems: PyMuPDF reports 95 of
+# 107 lines on a typical page as 56pt tall, so its boxes are not used.
+ASCENT = 0.80
+DESCENT = 0.24
 # A superscript sits up to this far above the baseline it belongs to.
 SUPERSCRIPT_RISE = 5.0
 # Spans of one line with no space between them are a word space apart when
@@ -130,6 +136,12 @@ def word_gap(before: Span, span: Span) -> bool:
 def column_key(line: Line) -> tuple[int, int]:
     """Where a line is printed: its page and column."""
     return line.page, line.column
+
+
+def boxes_of(lines: list[Line]) -> list[Box]:
+    """Each line's box: its spans' extent, from its baseline up by ``ASCENT`` and down by ``DESCENT``."""
+    return [Box(line.page, round(line.x0, 1), round(line.baseline - ASCENT * line.size, 1),
+                round(line.x1, 1), round(line.baseline + DESCENT * line.size, 1)) for line in lines]
 
 
 def pages_of(lines: list[Line]) -> list[int]:
