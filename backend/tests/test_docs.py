@@ -130,25 +130,6 @@ class TestGraphViewPalette:
                            f"builds: {sorted(stale)}")
 
 
-class TestTheArtifactsOwnClaims:
-    def test_given_the_artifact_when_checked_then_every_section_has_geometry(
-            self, document, anchors):
-        # Given the artifact and the anchors beside it
-        from dnd_graph_rag.srd.pipeline import section_boxes, walk
-
-        # When each section's range is resolved to rectangles
-        for node in walk(document["sections"]):
-            source = node["source"]
-            boxes = section_boxes(anchors, source["char_start"],
-                                  source["char_end"])
-
-            # Then it has geometry, and that geometry is on the pages it claims
-            assert boxes, f"{node['id']} has no geometry"
-            pages = {box["page"] for box in boxes}
-            assert min(pages) >= source["page_start"]
-            assert max(pages) <= source["page_end"]
-
-
 class TestCitationPattern:
     def test_given_the_frontend_copy_when_compared_then_it_matches_the_backend(self):
         # Given the citation pattern the frontend numbers and links

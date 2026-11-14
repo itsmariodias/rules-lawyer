@@ -14,3 +14,5 @@ data/chat/
 
 frontend/node_modules/
 frontend/dist/
+
+.claude/

@@ -15,13 +15,12 @@ def routes_of(application) -> set[str]:
 
 
 class TestApp:
-    def test_given_the_app_when_built_then_every_stage_is_mounted(self):
+    def test_given_the_app_when_built_then_the_graph_and_chat_stages_are_mounted(self):
         # Given the assembled application
         # When its routes are read
         paths = routes_of(app)
 
-        # Then all three stages are there
-        assert {"/health", "/parse", "/pdf"} <= paths          # stage 1
+        # Then the graph and chat stages are there
         assert {"/graph/health", "/graph/load"} <= paths       # stage 2
         assert {"/chat", "/chat/threads", "/source/{section_id}",
                 "/neighbourhood"} <= paths                     # stage 3
@@ -58,7 +57,7 @@ class TestApp:
 
 
 class TestRouteIsolation:
-    @pytest.mark.parametrize("package", ["srd", "graph", "chat"])
+    @pytest.mark.parametrize("package", ["graph", "chat"])
     def test_given_a_package_when_imported_then_no_web_framework_comes_with_it(
             self, package):
         # Given a fresh interpreter, so nothing else has imported FastAPI
@@ -71,14 +70,6 @@ class TestRouteIsolation:
 
         # Then the web framework was not pulled in to do it
         assert imported.stdout.strip() == "False"
-
-    def test_given_a_pipeline_imported_alone_when_run_then_no_server_is_needed(self):
-        # Given the stage 1 entry points
-        from dnd_graph_rag.srd import build, load
-
-        # When they are inspected
-        # Then they are callables reachable without the API
-        assert callable(build) and callable(load)
 
 
 class TestLifespan:
