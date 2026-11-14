@@ -16,6 +16,7 @@ class TestBuildGraph:
         with pytest.raises(FileNotFoundError, match="dnd-graph-rag parse"):
             pipeline.build_graph(missing)
 
+    @pytest.mark.neo4j
     def test_given_a_report_callable_when_run_then_progress_is_announced(
             self, document, graph_session, monkeypatch):
         # Given somewhere to report to
@@ -29,6 +30,7 @@ class TestBuildGraph:
         assert any("mapped" in line for line in lines)
         assert any("verifying" in line for line in lines)
 
+    @pytest.mark.neo4j
     def test_given_verification_is_skipped_when_run_then_it_says_so(
             self, document, graph_session):
         # Given a load that skips the checks
@@ -38,6 +40,7 @@ class TestBuildGraph:
         # Then it reports the skip rather than a verdict
         assert result["validation"] == {"ok": None, "skipped": True}
 
+    @pytest.mark.neo4j
     def test_given_a_run_when_it_finishes_then_the_report_names_its_input(
             self, document, graph_session):
         # Given a load from the configured artifact
@@ -50,6 +53,7 @@ class TestBuildGraph:
         assert result["relationships_written"] > 0
 
 
+@pytest.mark.neo4j
 class TestCounts:
     def test_given_a_loaded_graph_when_counted_then_it_answers_both_questions(
             self, graph):

@@ -34,9 +34,13 @@ packages = ["src/dnd_graph_rag"]
 dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
+    "testcontainers[neo4j]>=4.15.0",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q --strict-markers"
 asyncio_mode = "auto"
+markers = [
+    "neo4j: needs a Neo4j database (a Testcontainers container, so Docker)",
+]

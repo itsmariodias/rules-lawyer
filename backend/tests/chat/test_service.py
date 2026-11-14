@@ -26,6 +26,7 @@ async def collect(message, saver) -> list[dict]:
             service.stream_turn(message, "test", saver)]
 
 
+@pytest.mark.neo4j
 class TestResolveCitations:
     def test_given_an_invented_id_when_resolved_then_it_is_dropped(self, graph):
         # Given an answer citing one real id and one invented one, twice
@@ -214,7 +215,7 @@ class TestTurnsOf:
 
     def test_given_a_stored_turn_when_read_then_its_lookup_comes_with_it(self):
         # Given one complete turn
-        messages = self._turn("Prone?", "c1", "prone", "It is [11.2.114].")
+        messages = self._turn("Prone?", "c1", "prone", "It is.")
 
         # When it is read back
         turns = service.turns_of(messages)
@@ -228,8 +229,8 @@ class TestTurnsOf:
 
     def test_given_two_turns_when_read_then_each_counts_only_its_own_calls(self):
         # Given two turns, every call in them counted
-        messages = (self._turn("Prone?", "c1", "prone", "It is [11.2.114].")
-                    + self._turn("Grappled?", "c2", "grappled", "It is [11.2.60]."))
+        messages = (self._turn("Prone?", "c1", "prone", "It is.")
+                    + self._turn("Grappled?", "c2", "grappled", "It is."))
         for message in messages:
             if message.type == "ai":
                 message.usage_metadata = {"input_tokens": 1000,
@@ -423,6 +424,7 @@ class TestNameMissingSubjects:
              "done": True, "status": "ok", "summary": None,
              "subject": None, **call}]}]
 
+    @pytest.mark.neo4j
     def test_given_a_legacy_lookup_when_read_then_the_graph_names_it(
             self, graph):
         # Given a stored lookup with an id and no subject
@@ -434,6 +436,7 @@ class TestNameMissingSubjects:
         # Then the row can say what was read
         assert turns[0]["tools"][0]["subject"] == "Prone [Condition]"
 
+    @pytest.mark.neo4j
     def test_given_a_lookup_that_named_itself_when_read_then_it_is_left_alone(
             self, graph):
         # Given a lookup whose tool already said what it looked at
@@ -456,6 +459,7 @@ class TestNameMissingSubjects:
         # Then it is untouched, without reaching the graph
         assert turns[0]["tools"][0]["subject"] is None
 
+    @pytest.mark.neo4j
     def test_given_an_id_that_resolves_to_nothing_when_read_then_it_stays_empty(
             self, graph):
         # Given a lookup of a section that is no longer there
@@ -526,6 +530,7 @@ class TestUntilSilent:
         assert seen == [("messages", 1)]
 
 
+@pytest.mark.neo4j
 class TestStreamTurn:
     @pytest.mark.asyncio
     async def test_given_a_turn_when_run_then_what_it_cost_comes_before_done(
@@ -608,6 +613,7 @@ class TestStreamTurn:
 
 
 class TestHistory:
+    @pytest.mark.neo4j
     @pytest.mark.asyncio
     async def test_given_a_stored_thread_when_read_then_the_turns_come_back(
             self, graph, stub_model, saver):
@@ -664,6 +670,7 @@ class TestLastQuestion:
 
 
 class TestRewind:
+    @pytest.mark.neo4j
     @pytest.mark.asyncio
     async def test_given_a_later_turn_when_rewound_then_it_branches_before_it(
             self, graph, stub_model, saver):
@@ -683,6 +690,7 @@ class TestRewind:
         assert [t["content"] for t in turns if t["role"] == "user"] == [
             "Prone condition", "Restrained condition"]
 
+    @pytest.mark.neo4j
     @pytest.mark.asyncio
     async def test_given_the_only_turn_when_rewound_then_it_branches_before_it(
             self, graph, stub_model, saver):
@@ -713,6 +721,7 @@ class TestRewind:
         assert await service.rewind("never-used", saver) is None
 
 
+@pytest.mark.neo4j
 class TestThreads:
     @pytest.mark.asyncio
     async def test_given_two_conversations_when_listed_then_the_newest_leads(
@@ -805,6 +814,7 @@ class TestPinned:
         assert await service.pinned(store) == {f"t{n}" for n in range(11)}
 
 
+@pytest.mark.neo4j
 class TestSetPinned:
     @pytest.mark.asyncio
     async def test_given_a_pin_when_removed_then_the_row_is_deleted(
@@ -823,6 +833,7 @@ class TestSetPinned:
 
 
 class TestForget:
+    @pytest.mark.neo4j
     @pytest.mark.asyncio
     async def test_given_a_conversation_when_deleted_then_nothing_of_it_remains(
             self, graph, stub_model, saver):
@@ -838,6 +849,7 @@ class TestForget:
         assert await service.threads(saver) == []
         assert await service.history("doomed", saver) == []
 
+    @pytest.mark.neo4j
     @pytest.mark.asyncio
     async def test_given_a_pinned_conversation_when_deleted_then_the_pin_goes_too(
             self, graph, stub_model, saver, store):
@@ -851,6 +863,7 @@ class TestForget:
         # Then its pin went with it
         assert await service.pinned(store) == set()
 
+    @pytest.mark.neo4j
     @pytest.mark.asyncio
     async def test_given_a_titled_conversation_when_deleted_then_the_title_goes_too(
             self, graph, stub_model, saver, store):

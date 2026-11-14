@@ -237,6 +237,7 @@ class TestNeighbourhood:
         with pytest.raises(ValueError):
             neighbourhood.neighbourhood(section_id="1", uid="x")
 
+    @pytest.mark.neo4j
     def test_given_a_citation_when_asked_then_it_opens_on_its_own_node(self, graph):
         # Given a cited section
         # When its neighbourhood is asked for
@@ -249,6 +250,7 @@ class TestNeighbourhood:
         assert root["depth"] == 0
         assert found["edges"]
 
+    @pytest.mark.neo4j
     def test_given_more_depth_when_asked_then_it_reaches_further_but_not_everything(
             self, graph):
         # Given the same seed at one hop and at two
@@ -261,6 +263,7 @@ class TestNeighbourhood:
         assert max(n["depth"] for n in far["nodes"]) == 2
         assert len(far["nodes"]) <= neighbourhood.LIMIT
 
+    @pytest.mark.neo4j
     def test_given_a_hub_when_asked_then_it_is_sampled_and_says_what_it_hid(
             self, graph):
         # Given the most-referenced node in the graph
@@ -277,6 +280,7 @@ class TestNeighbourhood:
                       if t["type"] == "REFERENCES_DAMAGE_TYPE"]
         assert references and references[0]["total"] > references[0]["shown"] == 8
 
+    @pytest.mark.neo4j
     def test_given_a_node_with_no_section_id_when_asked_then_it_can_still_expand(
             self, graph):
         # Given a drawn node that is not a section
@@ -287,6 +291,7 @@ class TestNeighbourhood:
         # Then it opens like any other node
         assert neighbourhood.neighbourhood(uid=term["uid"], depth=1) is not None
 
+    @pytest.mark.neo4j
     def test_given_the_deepest_walk_when_asked_then_every_edge_joins_drawn_nodes(
             self, graph):
         # Given a neighbourhood three hops out
@@ -299,6 +304,7 @@ class TestNeighbourhood:
         for edge in found["edges"]:
             assert edge["source"] in drawn and edge["target"] in drawn
 
+    @pytest.mark.neo4j
     def test_given_the_same_request_twice_when_asked_then_the_sample_is_the_same(
             self, graph):
         # Given the same request made twice
@@ -310,6 +316,7 @@ class TestNeighbourhood:
         assert [n["uid"] for n in first["nodes"]] == \
             [n["uid"] for n in second["nodes"]]
 
+    @pytest.mark.neo4j
     def test_given_an_unknown_seed_when_asked_then_it_is_absent_not_empty(
             self, graph):
         # Given an id no section has

@@ -63,6 +63,7 @@ class TestGuard:
                      "'CALL dbms.listConfig' RETURN s.id")
 
 
+@pytest.mark.neo4j
 class TestRead:
     def test_given_a_write_when_read_then_the_database_refuses_it(self, graph):
         """
@@ -118,6 +119,7 @@ class TestForm:
         assert cypher._form(["Section"]) == ":Section"
 
 
+@pytest.mark.neo4j
 class TestShapes:
     def test_given_a_loaded_graph_when_read_then_the_edges_are_described(
             self, graph):

@@ -43,6 +43,7 @@ def client(settings_env, tmp_path):
 
 
 class TestChat:
+    @pytest.mark.neo4j
     def test_given_a_message_when_posted_then_the_stream_opens_with_a_thread_id(
             self, client, graph):
         # Given a first message with no thread
@@ -56,6 +57,7 @@ class TestChat:
         assert events[0]["type"] == "start"
         assert events[0]["thread_id"]
 
+    @pytest.mark.neo4j
     def test_given_a_turn_when_streamed_then_it_is_not_buffered_by_a_proxy(
             self, client, graph):
         # Given a turn
@@ -66,6 +68,7 @@ class TestChat:
         assert response.headers["content-type"].startswith("text/event-stream")
         assert response.headers["x-accel-buffering"] == "no"
 
+    @pytest.mark.neo4j
     def test_given_a_turn_when_streamed_then_every_event_type_arrives(
             self, client, graph):
         # Given a turn
@@ -96,6 +99,7 @@ class TestChat:
         assert "GOOGLE_API_KEY" in response.json()["detail"]
         compile_agent.cache_clear()
 
+    @pytest.mark.neo4j
     def test_given_a_thread_id_when_posted_then_the_turn_joins_that_conversation(
             self, client, graph):
         # Given a conversation the browser already holds an id for
@@ -125,6 +129,7 @@ class TestChatThreads:
         # Then it answers, with nothing in it
         assert client.get("/chat/threads").json() == {"threads": []}
 
+    @pytest.mark.neo4j
     def test_given_two_conversations_when_listed_then_the_newest_leads(
             self, client, graph):
         # Given two conversations
@@ -140,6 +145,7 @@ class TestChatThreads:
         assert [t["thread_id"] for t in listed] == ["newer", "older"]
         assert listed[0]["title"] == "Restrained condition"
 
+    @pytest.mark.neo4j
     def test_given_a_new_conversation_when_listed_then_its_summary_is_the_title(
             self, client, graph, monkeypatch):
         # Given a model that titles every question it is asked about
@@ -166,6 +172,7 @@ class TestChatThreads:
 
 
 class TestChatThread:
+    @pytest.mark.neo4j
     def test_given_a_stored_conversation_when_fetched_then_its_turns_come_back(
             self, client, graph):
         # Given a conversation with one turn in it
@@ -179,6 +186,7 @@ class TestChatThread:
         assert body["thread_id"] == "kept"
         assert [m["role"] for m in body["messages"]] == ["user", "assistant"]
 
+    @pytest.mark.neo4j
     def test_given_a_stored_conversation_when_fetched_then_its_cost_matches_the_live_one(
             self, client, graph):
         # Given a turn, and what it reported as it streamed
@@ -193,6 +201,7 @@ class TestChatThread:
         del live["type"]
         assert answer["usage"] == live
 
+    @pytest.mark.neo4j
     def test_given_a_stored_conversation_when_fetched_then_its_turns_are_dated(
             self, client, graph):
         # Given an answered conversation
@@ -207,6 +216,7 @@ class TestChatThread:
         assert all(stamps)
         assert stamps == sorted(stamps)
 
+    @pytest.mark.neo4j
     def test_given_a_reopened_conversation_when_fetched_then_the_lookups_survive(
             self, client, graph):
         """
@@ -238,6 +248,7 @@ class TestChatThread:
 
 
 class TestPinThread:
+    @pytest.mark.neo4j
     def test_given_a_conversation_when_pinned_then_it_sorts_above_the_rest(
             self, client, graph):
         # Given two conversations, the older one pinned
@@ -254,6 +265,7 @@ class TestPinThread:
         listed = client.get("/chat/threads").json()["threads"]
         assert [t["thread_id"] for t in listed] == ["older", "newer"]
 
+    @pytest.mark.neo4j
     def test_given_a_pinned_conversation_when_unpinned_then_the_order_returns(
             self, client, graph):
         # Given a pinned conversation
@@ -282,6 +294,7 @@ class TestPinThread:
 
 
 class TestChatLookup:
+    @pytest.mark.neo4j
     def test_given_a_stored_lookup_when_fetched_then_its_result_comes_back(
             self, client, graph):
         # Given an answered conversation
@@ -298,6 +311,7 @@ class TestChatLookup:
         assert body["content"].startswith("[")
         assert body["truncated"] is False
 
+    @pytest.mark.neo4j
     def test_given_an_unknown_lookup_when_fetched_then_it_is_a_404(
             self, client, graph):
         # Given an answered conversation
@@ -316,6 +330,7 @@ class TestChatLookup:
 
 
 class TestForgetThread:
+    @pytest.mark.neo4j
     def test_given_a_conversation_when_deleted_then_it_leaves_the_listing(
             self, client, graph):
         # Given a stored conversation
@@ -339,6 +354,7 @@ class TestForgetThread:
 
 
 class TestRetryTurn:
+    @pytest.mark.neo4j
     def test_given_an_answered_turn_when_retried_then_it_is_replaced(
             self, client, graph):
         """
@@ -364,6 +380,7 @@ class TestRetryTurn:
             "Prone condition", "Restrained condition"]
         assert len(messages) == 4
 
+    @pytest.mark.neo4j
     def test_given_the_only_turn_of_a_thread_when_retried_then_it_is_alone(
             self, client, graph):
         """
@@ -386,6 +403,7 @@ class TestRetryTurn:
         assert [(t["thread_id"], t["messages"]) for t in listed] == [
             ("first", 1)]
 
+    @pytest.mark.neo4j
     def test_given_a_retried_turn_when_reopened_then_the_new_lookups_are_under_it(
             self, client, graph):
         # Given a retried conversation
@@ -411,6 +429,7 @@ class TestRetryTurn:
         assert "never-used" in response.json()["detail"]
 
 
+@pytest.mark.neo4j
 class TestSource:
     def test_given_a_citation_when_fetched_then_the_book_and_its_geometry_arrive(
             self, client, graph):
@@ -445,6 +464,7 @@ class TestSource:
 
 
 class TestNeighbourhood:
+    @pytest.mark.neo4j
     def test_given_a_citation_when_asked_then_the_nodes_and_edges_come_back(
             self, client, graph):
         # Given a cited section
@@ -456,6 +476,7 @@ class TestNeighbourhood:
         assert body["root"]
         assert body["nodes"] and body["edges"]
 
+    @pytest.mark.neo4j
     def test_given_a_drawn_node_when_asked_then_it_expands_by_its_own_id(
             self, client, graph):
         # Given a node from an earlier answer
@@ -490,6 +511,7 @@ class TestNeighbourhood:
         # Then it is refused
         assert response.status_code == 400
 
+    @pytest.mark.neo4j
     def test_given_a_fan_of_zero_when_asked_then_it_is_raised_to_one(
             self, client, graph):
         # Given caps below what draws anything
@@ -501,6 +523,7 @@ class TestNeighbourhood:
         # Then the seed is drawn with at least one neighbour
         assert len(body["nodes"]) >= 1
 
+    @pytest.mark.neo4j
     def test_given_an_unknown_section_when_asked_then_it_is_a_not_found(
             self, client, graph):
         # Given an id no section has

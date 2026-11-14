@@ -17,6 +17,7 @@ class TestSearchSrd:
         assert "Unknown entity_type" in result
         assert "spell" in result
 
+    @pytest.mark.neo4j
     def test_given_only_the_lexical_arm_when_nothing_matches_then_it_says_so(
             self, graph, settings_env):
         # Given a loaded graph, no key, and a question matching no section
@@ -30,6 +31,7 @@ class TestSearchSrd:
         assert "No SRD sections matched" in result
         retrieval.embed_query.cache_clear()
 
+    @pytest.mark.neo4j
     def test_given_a_nonsense_question_when_searched_then_it_still_guesses(
             self, graph, embedding_key):
         # Given a loaded graph with vectors on it
@@ -39,6 +41,7 @@ class TestSearchSrd:
         # Then passages come back rather than a refusal
         assert result.startswith("[")
 
+    @pytest.mark.neo4j
     def test_given_a_match_when_called_then_every_result_leads_with_its_id(
             self, graph):
         # Given a loaded graph
@@ -49,6 +52,7 @@ class TestSearchSrd:
         assert result.startswith("[")
         assert "[11.2.114]" in result
 
+    @pytest.mark.neo4j
     def test_given_a_known_filter_when_called_then_it_narrows_the_results(
             self, graph):
         # Given a loaded graph
@@ -70,9 +74,11 @@ class TestSearchSrd:
         assert "front_matter" not in tools.SEARCHABLE_TYPES
 
 
+@pytest.mark.neo4j
 class TestGetSrdSection:
-    def test_given_an_unknown_id_when_called_then_the_shape_of_one_is_explained(self):
-        # Given an id no section has
+    def test_given_an_unknown_id_when_called_then_the_shape_of_one_is_explained(
+            self, graph):
+        # Given a loaded graph, and an id no section in it has
         # When the tool is called
         result = tools.get_srd_section.invoke({"section_id": "999.999"})
 
@@ -226,6 +232,7 @@ class TestRender:
         assert rendered.index("Connected to:") < rendered.index("From [7.1.44]")
 
 
+@pytest.mark.neo4j
 class TestExploreSrdGraph:
     def test_given_an_unknown_id_when_called_then_it_never_walks_anything(
             self, graph):
@@ -350,6 +357,7 @@ class TestQuerySrdGraph:
         # Then the refusal is the answer, without a round trip
         assert "not allowed" in result
 
+    @pytest.mark.neo4j
     def test_given_an_exhaustive_question_when_queried_then_every_row_comes_back(
             self, graph):
         # Given a loaded graph
@@ -365,6 +373,7 @@ class TestQuerySrdGraph:
         assert "id | creature | ability" in result
         assert "Pit Fiend" in result
 
+    @pytest.mark.neo4j
     def test_given_a_write_when_called_then_the_model_is_told_plainly(
             self, graph):
         """
@@ -379,6 +388,7 @@ class TestQuerySrdGraph:
         assert "read-only" in result
         assert "Only MATCH and RETURN" in result
 
+    @pytest.mark.neo4j
     def test_given_broken_cypher_when_called_then_the_error_is_the_result(
             self, graph):
         # Given a loaded graph and a query that will not parse
@@ -398,6 +408,7 @@ class TestArtifacts:
                                "name": tool.name, "args": args})
         return message.artifact
 
+    @pytest.mark.neo4j
     def test_given_a_search_when_called_then_the_count_comes_back_with_it(
             self, graph):
         # Given a loaded graph
@@ -408,6 +419,7 @@ class TestArtifacts:
         assert artifact["status"] == "ok"
         assert artifact["summary"].endswith("passages")
 
+    @pytest.mark.neo4j
     def test_given_a_section_when_read_then_the_heading_comes_back_with_it(
             self, graph):
         # Given a loaded graph
@@ -419,6 +431,7 @@ class TestArtifacts:
         assert artifact == {"status": "ok", "summary": "11.2.114",
                             "subject": "Prone [Condition]"}
 
+    @pytest.mark.neo4j
     def test_given_a_walk_when_made_then_the_node_is_named_not_numbered(
             self, graph):
         # Given a loaded graph
@@ -430,6 +443,7 @@ class TestArtifacts:
         assert artifact["subject"] == "Prone [Condition]"
         assert artifact["summary"].endswith("edges")
 
+    @pytest.mark.neo4j
     def test_given_a_search_when_made_then_no_subject_is_invented_for_it(
             self, graph):
         # Given a loaded graph
@@ -450,6 +464,7 @@ class TestArtifacts:
         # Then the refusal reaches the trace
         assert artifact["status"] == "refused"
 
+    @pytest.mark.neo4j
     def test_given_broken_cypher_when_called_then_it_is_reported_as_failed(
             self, graph):
         # Given a loaded graph and a query that will not parse
@@ -460,6 +475,7 @@ class TestArtifacts:
         # Then a broken query does not draw the same row as a working one
         assert artifact["status"] == "failed"
 
+    @pytest.mark.neo4j
     def test_given_a_query_matching_nothing_when_called_then_it_is_empty_not_failed(
             self, graph):
         # Given a loaded graph and a query that matches nothing
@@ -471,6 +487,7 @@ class TestArtifacts:
         # Then it is distinguished from a failure
         assert artifact == {"status": "empty", "summary": "no rows"}
 
+    @pytest.mark.neo4j
     def test_given_rows_when_returned_then_the_count_is_the_summary(self, graph):
         # Given a loaded graph
         # When a query returns a known number of rows
@@ -481,6 +498,7 @@ class TestArtifacts:
         # Then the trace can show it without reading the prose result
         assert artifact == {"status": "ok", "summary": "12 rows"}
 
+    @pytest.mark.neo4j
     def test_given_every_tool_when_called_then_none_shows_the_model_its_artifact(
             self, graph):
         # Given a call to each tool

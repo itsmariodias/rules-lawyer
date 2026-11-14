@@ -62,6 +62,7 @@ def verified(document, vectors, graph_session):
     return verify(document, data, graph_session, vectors)
 
 
+@pytest.mark.neo4j
 class TestVerify:
     def test_given_a_loaded_graph_when_verified_then_every_check_passes(
             self, verified):

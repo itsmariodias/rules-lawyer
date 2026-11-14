@@ -1,16 +1,53 @@
 """
-Shared fixtures.  Tests needing the artifact, vectors, an API key or Neo4j skip
-without them.
+Shared fixtures.  Tests needing the artifact, vectors or an API key skip
+without them; tests needing Neo4j get a throwaway container, and skip without
+Docker.
 """
 
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 
 from dnd_graph_rag.config import (anchors_path_for, get_settings,
                                   markdown_path_for)
+
+NEO4J_IMAGE = "neo4j:5.26-community"
+
+# Nothing listens on the discard port, so a test that reaches Neo4j without
+# the `neo4j` fixture fails instead of writing to the developer's database.
+UNREACHABLE_NEO4J = "bolt://127.0.0.1:9"
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Point every Neo4j setting away from the database configured in ``.env``."""
+    os.environ["NEO4J_URI"] = UNREACHABLE_NEO4J
+    os.environ.setdefault("NEO4J_PASSWORD", "unused")
+    get_settings.cache_clear()
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """
+    Fail collection if a test's ``neo4j`` mark disagrees with its fixtures, so
+    ``-m "not neo4j"`` selects exactly the tests that run without Docker.
+
+    Raises:
+        pytest.UsageError: A test uses the container unmarked, or is marked
+            without using it.
+    """
+    unmarked = [item.nodeid for item in items
+                if "neo4j" in getattr(item, "fixturenames", ())
+                and item.get_closest_marker("neo4j") is None]
+    needless = [item.nodeid for item in items
+                if item.get_closest_marker("neo4j") is not None
+                and "neo4j" not in getattr(item, "fixturenames", ())]
+    if unmarked or needless:
+        raise pytest.UsageError(
+            "the neo4j mark must match the neo4j fixture:\n"
+            + "".join(f"  uses Neo4j, not marked: {nodeid}\n" for nodeid in unmarked)
+            + "".join(f"  marked, does not use Neo4j: {nodeid}\n" for nodeid in needless))
 
 
 @pytest.fixture(scope="session")
@@ -25,16 +62,48 @@ def document() -> dict:
 
 
 @pytest.fixture(scope="session")
-def graph_session():
-    """A Neo4j session; skips if the database is not up."""
-    from dnd_graph_rag.graph.loader import session
+def neo4j():
+    """
+    A Neo4j container for the whole run, which every Neo4j setting points at;
+    skips if Docker cannot start one.
+    """
+    from testcontainers.community.neo4j import Neo4jContainer
 
     try:
-        with session() as open_session:
-            open_session.run("RETURN 1").consume()
-            yield open_session
-    except Exception as exc:  # any of the driver's connection failures
-        pytest.skip(f"Neo4j unavailable: {exc}")
+        container = Neo4jContainer(NEO4J_IMAGE, password="test-password")
+        container.start()
+    except Exception as exc:  # Docker absent, not running, or the pull failed
+        pytest.skip(f"no Neo4j container (is Docker running?): {exc}")
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("NEO4J_URI", container.get_connection_url())
+        patch.setenv("NEO4J_USER", container.username)
+        patch.setenv("NEO4J_PASSWORD", container.password)
+        patch.setenv("NEO4J_DATABASE", "neo4j")
+        _forget_connections()
+        yield container
+    _forget_connections()
+    container.stop()
+
+
+def _forget_connections() -> None:
+    """Drop cached settings, driver and schema, so the next use reconnects."""
+    from dnd_graph_rag.chat import cypher, retrieval
+
+    if retrieval.driver.cache_info().currsize:
+        retrieval.driver().close()
+    retrieval.driver.cache_clear()
+    cypher.shapes.cache_clear()
+    get_settings.cache_clear()
+
+
+@pytest.fixture(scope="session")
+def graph_session(neo4j):
+    """A session on the test container."""
+    from dnd_graph_rag.graph.loader import session
+
+    with session() as open_session:
+        yield open_session
 
 
 @pytest.fixture
@@ -271,11 +340,16 @@ def embedding_key():
         pytest.skip("no GOOGLE_API_KEY; a query cannot be embedded")
 
 
-@pytest.fixture(scope="module")
-def graph(graph_session):
-    """A session on a loaded graph; skips if Neo4j is down or empty."""
-    if graph_session.run("MATCH (n:Section) RETURN count(n)").single()[0] == 0:
-        pytest.skip("graph is empty; run `dnd-graph-rag load`")
+@pytest.fixture(scope="session")
+def graph(graph_session, document, vectors):
+    """
+    A session on the test container with the real artifact loaded; skips
+    without the artifact or its embeddings.
+    """
+    from dnd_graph_rag.graph import mapping
+    from dnd_graph_rag.graph.loader import load_graph
+
+    load_graph(mapping.build(document), graph_session, vectors=vectors, reset=True)
     return graph_session
 
 

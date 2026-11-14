@@ -5,6 +5,7 @@ import pytest
 from dnd_graph_rag.chat import source
 
 
+@pytest.mark.neo4j
 class TestExcerpt:
     def test_given_a_citation_when_excerpted_then_it_resolves_to_the_markdown(
             self, graph, document):

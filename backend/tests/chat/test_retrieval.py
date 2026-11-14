@@ -120,6 +120,7 @@ class TestSearch:
         # Then it is answered without a round trip
         assert retrieval.search("   ") == []
 
+    @pytest.mark.neo4j
     def test_given_a_condition_when_searched_then_it_is_found(self, graph):
         # Given a loaded graph
         # When a condition is searched for
@@ -130,6 +131,7 @@ class TestSearch:
         assert any(p.heading == "Prone [Condition]" for p in passages)
         assert all(p.section_id for p in passages)
 
+    @pytest.mark.neo4j
     def test_given_a_type_filter_when_searched_then_only_that_type_comes_back(
             self, graph):
         # Given a loaded graph
@@ -140,6 +142,7 @@ class TestSearch:
         assert passages
         assert {p.entity_type for p in passages} == {"spell"}
 
+    @pytest.mark.neo4j
     def test_given_a_limit_when_searched_then_it_is_respected(self, graph):
         # Given a loaded graph
         # When a search is limited
@@ -220,6 +223,7 @@ class TestVectorSearch:
         assert retrieval.vector_search("prone") == []
         retrieval.embed_query.cache_clear()
 
+    @pytest.mark.neo4j
     def test_given_a_paraphrase_when_searched_then_the_book_is_still_found(
             self, graph, embedding_key):
         # Given a loaded graph with vectors on it
@@ -231,6 +235,7 @@ class TestVectorSearch:
         assert passages
         assert all(p.section_id for p in passages)
 
+    @pytest.mark.neo4j
     def test_given_a_type_filter_when_searched_then_only_that_type_comes_back(
             self, graph, embedding_key):
         # Given a loaded graph with vectors on it
@@ -304,6 +309,7 @@ class TestFuse:
         assert retrieval.fuse({"lexical": [], "semantic": []}, limit=3) == []
 
 
+@pytest.mark.neo4j
 class TestHybridSearch:
     def test_given_no_key_when_searched_then_it_is_the_lexical_arm_alone(
             self, graph, settings_env):
@@ -340,6 +346,7 @@ class TestHybridSearch:
                                                                  "semantic"}
 
 
+@pytest.mark.neo4j
 class TestGetSection:
     def test_given_a_section_when_fetched_then_it_carries_its_offsets(self, graph):
         # Given a loaded graph
@@ -413,6 +420,7 @@ class TestGetSection:
         assert retrieval.get_section("999.999") is None
 
 
+@pytest.mark.neo4j
 class TestQuery:
     def test_given_a_parameter_called_query_when_run_then_it_is_not_the_cypher(
             self, graph):

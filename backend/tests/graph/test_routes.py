@@ -46,6 +46,7 @@ class TestGraphHealth:
         assert response.status_code == 503
         assert "connection refused" in response.json()["detail"]
 
+    @pytest.mark.neo4j
     def test_given_a_live_graph_when_asked_then_it_answers_for_itself(self, client,
                                                                       graph):
         # Given a database that is actually up, with the graph loaded

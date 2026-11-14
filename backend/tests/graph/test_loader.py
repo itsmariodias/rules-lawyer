@@ -225,6 +225,7 @@ def loaded(document, vectors, graph_session):
     return document, data, vectors, graph_session
 
 
+@pytest.mark.neo4j
 class TestLoadGraphAgainstNeo4j:
     def test_given_the_artifact_when_loaded_then_every_check_passes(self, loaded):
         # Given the artifact loaded into the graph
@@ -295,6 +296,7 @@ class TestLoadGraphAgainstNeo4j:
         assert missing == 0
 
 
+@pytest.mark.neo4j
 class TestSession:
     def test_given_a_session_when_it_closes_then_the_driver_closes_with_it(
             self, graph_session):

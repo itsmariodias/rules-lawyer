@@ -74,6 +74,7 @@ class TestSystemPrompt:
 
 
 class TestSystemPromptSchema:
+    @pytest.mark.neo4j
     def test_given_a_loaded_graph_when_built_then_the_schema_is_appended(
             self, graph):
         # Given a loaded graph
