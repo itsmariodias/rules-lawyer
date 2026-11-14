@@ -101,24 +101,12 @@ pydantic for the document's types and pydantic-settings for configuration,
 PyMuPDF to read the PDF, the official `neo4j` driver, and LangChain with
 LangGraph for the agent. No numpy, FAISS or vector database beyond Neo4j.
 
-**PDF extraction (`srd/`).** PyMuPDF gives text spans with their fonts and
-positions; everything above that is ours. Lines are ordered by baseline
-within measured columns, typography decides headings, tables are rebuilt from
-text x positions, and stat blocks are parsed as cards. The output is typed
-blocks in a section tree, with entity records (creatures, spells, items,
-classes, glossary terms) and cross-reference edges read from the book's
-markup: italics for spells and items, bold for creatures. `verify.py` then
-holds the book to itself, for example every stat block against the book's own
-index and every damage average against its dice.
-
 **Database: Neo4j 5.26 Community.** The section tree is the spine: a spell is
 its `:Section` node with an extra `:Spell` label, so anything a query finds
 still carries the character offsets that locate it in the book. Derived nodes
 (creature abilities, class levels, damage types, weapons) hang off it.
-Uniqueness constraints double as the indexes loads `MERGE` on. Writes are
-batched `UNWIND`s, and a load empties the graph first by default, since the
-JSON is the whole truth. [GRAPH.md](../GRAPH.md) lists every label and
-relationship.
+Uniqueness constraints double as the indexes loads `MERGE` on.
+[GRAPH.md](../GRAPH.md) lists every label and relationship.
 
 **Embeddings.** Gemini `gemini-embedding-001`, one vector per section with
 prose, truncated to 1536 dimensions and normalised. They live in
@@ -175,6 +163,61 @@ Titles are written by the model beside the first turn.
 **Configuration.** `config.py` reads `.env` and the environment; each group
 (Neo4j, chat, embeddings) is built only when first used, so parsing needs no
 database or key.
+
+### Parsing
+
+`rules-lawyer parse` (`srd/artifact.py`) reads the PDF in steps, each reading
+only the output of the one before:
+
+1. **Lines.** PyMuPDF gives text spans with their fonts and positions. Spans
+   are grouped into lines by baseline, within columns measured on each page,
+   and the page footer is set aside.
+2. **Blocks.** Typography decides headings, paragraphs continue across column
+   and page breaks, tables are rebuilt from text x positions, and sidebars and
+   stat blocks become blocks of their own.
+3. **Sections.** Headings nest the blocks into a tree. Tables, sidebars and
+   stat blocks become sections of their own, under the section that names
+   them or where they are printed.
+4. **Types and records.** Each section is typed from evidence on the page (a
+   spell's italic subtitle, a stat block), and records are read from the
+   blocks: creatures, spells, items, classes, glossary terms. Cross-references
+   come from the book's markup: italics for spells and items, bold for
+   creatures, fixed phrases for conditions and damage types.
+5. **Checks.** `verify.py` holds the book to itself, for example every stat
+   block against the book's own index and every damage average against its
+   dice. Any disagreement not on the list of known quirks fails the parse.
+6. **Output.** The JSON is written, the markdown is rendered from it, and the
+   anchors file maps markdown character ranges to rectangles on the PDF page.
+
+Everything above PyMuPDF's spans is our own code. A wrong line in the
+markdown is fixed in the step that built its block, never by editing text
+afterwards, since the markdown is only ever rendered from the JSON.
+
+### Graph creation
+
+`rules-lawyer embed`, then `rules-lawyer load` (`graph/pipeline.py`), turn
+the JSON into the graph:
+
+1. **Embeddings.** `embed` sends each section with prose to the embedding
+   model and caches the vectors in `srd_embeddings.idx` (see Embeddings
+   above). `load` reuses the file, and refuses to start without it or a key
+   to make it.
+2. **Mapping.** `mapping.py` turns the JSON into batches of nodes and edges,
+   without touching the database. Every section becomes a node; a spell,
+   creature or class printed under its own heading becomes that node's extra
+   label, and table rows, creature abilities and class levels become nodes
+   of their own.
+3. **Writing.** Constraints and the full-text and vector indexes are applied,
+   the old graph is emptied (unless `--no-reset`), then nodes, relationships
+   and vectors are written as batched `UNWIND`s.
+4. **Checks.** The loaded graph is compared with the JSON's own counts: every
+   label, every reference edge, a vector for every section with prose, no
+   orphans. Any failure makes `load` exit non-zero.
+
+A load empties the graph by default because the JSON is the whole truth:
+merging alone would keep nodes a re-parse has dropped. If anything fails
+before the database is opened (no vectors, no key), the previous graph is
+left standing.
 
 ## API
 
