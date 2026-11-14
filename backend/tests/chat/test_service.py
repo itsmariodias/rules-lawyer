@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from dnd_graph_rag.chat import service, titles
+from rules_lawyer.chat import service, titles
 
 
 async def answer(saver, thread_id: str, question: str = "Prone condition") -> None:

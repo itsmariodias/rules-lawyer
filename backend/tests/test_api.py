@@ -6,7 +6,7 @@ import sys
 import pytest
 from fastapi.testclient import TestClient
 
-from dnd_graph_rag.api import app
+from rules_lawyer.api import app
 
 
 def routes_of(application) -> set[str]:
@@ -62,7 +62,7 @@ class TestRouteIsolation:
     def test_given_a_package_when_imported_then_no_web_framework_comes_with_it(
             self, package):
         # Given a fresh interpreter, so nothing else has imported FastAPI
-        script = (f"import dnd_graph_rag.{package}, sys; "
+        script = (f"import rules_lawyer.{package}, sys; "
                   "print('fastapi' in sys.modules)")
 
         # When the package alone is imported
@@ -74,7 +74,7 @@ class TestRouteIsolation:
 
     def test_given_the_srd_pipeline_imported_alone_when_inspected_then_no_server_is_needed(self):
         # Given the SRD's build, write and load
-        from dnd_graph_rag.srd.artifact import build, load, write
+        from rules_lawyer.srd.artifact import build, load, write
 
         # When they are inspected
         # Then they are callables reachable without the API
@@ -85,7 +85,7 @@ class TestLifespan:
     @pytest.fixture
     def isolated(self, settings_env, tmp_path):
         """Settings with the conversation stores in a temporary directory."""
-        return settings_env(DND_GRAPH_RAG_DATA=str(tmp_path))
+        return settings_env(RULES_LAWYER_DATA=str(tmp_path))
 
     def test_given_the_app_starts_when_the_lifespan_runs_then_both_stores_are_open(
             self, isolated):

@@ -6,7 +6,7 @@
       "type": "debugpy",
       "request": "launch",
       "module": "uvicorn",
-      "args": ["dnd_graph_rag.api:app", "--port", "8000", "--reload"],
+      "args": ["rules_lawyer.api:app", "--port", "8000", "--reload"],
       "subProcess": true,
       "cwd": "${workspaceFolder}/backend",
       "python": "${workspaceFolder}/backend/.venv/bin/python",

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from dnd_graph_rag.graph import pipeline
+from rules_lawyer.graph import pipeline
 
 
 class TestBuildGraph:
@@ -13,7 +13,7 @@ class TestBuildGraph:
 
         # When the graph is built from it
         # Then the failure names both the file and the command that makes it
-        with pytest.raises(FileNotFoundError, match="dnd-graph-rag parse"):
+        with pytest.raises(FileNotFoundError, match="rules-lawyer parse"):
             pipeline.build_graph(missing)
 
     @pytest.mark.neo4j

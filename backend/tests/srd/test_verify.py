@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from dnd_graph_rag.srd.model import (
+from rules_lawyer.srd.model import (
     Contents,
     Entry,
     Heading,
@@ -12,8 +12,8 @@ from dnd_graph_rag.srd.model import (
     StatBlock,
     Table,
 )
-from dnd_graph_rag.srd.sections import build_sections
-from dnd_graph_rag.srd.verify import (
+from rules_lawyer.srd.sections import build_sections
+from rules_lawyer.srd.verify import (
     KNOWN,
     check_classes,
     check_contents,

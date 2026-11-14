@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dnd_graph_rag.srd.entities.records import labelled_fields, named_entries
-from dnd_graph_rag.srd.model import Paragraph, Run
+from rules_lawyer.srd.entities.records import labelled_fields, named_entries
+from rules_lawyer.srd.model import Paragraph, Run
 
 
 class TestLabelledFields:

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from dnd_graph_rag.chat import agent
-from dnd_graph_rag.chat.stub import ScriptedModel
+from rules_lawyer.chat import agent
+from rules_lawyer.chat.stub import ScriptedModel
 
 
 class TestModel:
@@ -78,7 +78,7 @@ class TestSystemPromptSchema:
     def test_given_a_loaded_graph_when_built_then_the_schema_is_appended(
             self, graph):
         # Given a loaded graph
-        from dnd_graph_rag.chat import cypher
+        from rules_lawyer.chat import cypher
         cypher.shapes.cache_clear()
 
         # When the prompt is built
@@ -92,7 +92,7 @@ class TestSystemPromptSchema:
     def test_given_an_unreachable_graph_when_built_then_it_costs_the_schema_not_the_turn(
             self, monkeypatch):
         # Given a graph that cannot be reached
-        from dnd_graph_rag.chat import cypher
+        from rules_lawyer.chat import cypher
 
         def unreachable() -> str:
             raise OSError("connection refused")
@@ -138,7 +138,7 @@ class TestBuildAgent:
             self, settings_env, monkeypatch, saver):
         """Regression: an agent built while Neo4j was down kept no schema."""
         # Given an agent built while the graph was unreachable
-        from dnd_graph_rag.chat import cypher
+        from rules_lawyer.chat import cypher
 
         monkeypatch.setenv("GOOGLE_API_KEY", "not-a-real-key")
         settings_env()

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from dnd_graph_rag.chat import cypher
+from rules_lawyer.chat import cypher
 
 
 class TestGuard:

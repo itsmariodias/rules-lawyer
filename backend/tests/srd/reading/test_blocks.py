@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dnd_graph_rag.srd.model import (
+from rules_lawyer.srd.model import (
     Contents,
     Entry,
     Heading,
@@ -11,8 +11,8 @@ from dnd_graph_rag.srd.model import (
     StatBlock,
     Table,
 )
-from dnd_graph_rag.srd.reading.blocks import read_blocks
-from dnd_graph_rag.srd.reading.pages import Line, Span
+from rules_lawyer.srd.reading.blocks import read_blocks
+from rules_lawyer.srd.reading.pages import Line, Span
 from tests.srd.reading.helpers import MARGIN, line
 
 HEADING = "GillSans-SemiBold"

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dnd_graph_rag.srd.entities.characters import column_labels, progression
-from dnd_graph_rag.srd.model import Run, Table
+from rules_lawyer.srd.entities.characters import column_labels, progression
+from rules_lawyer.srd.model import Run, Table
 
 
 def cells(*texts: str) -> list[list[Run]]:

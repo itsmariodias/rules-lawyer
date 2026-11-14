@@ -22,10 +22,10 @@ repository root wherever you run from.
 ```bash
 uv sync                                         # install
 
-uv run dnd-graph-rag parse                      # PDF -> data/output/srd_hierarchy.{json,md,anchors.json}
-uv run dnd-graph-rag embed                      # JSON -> srd_embeddings.idx (needs GOOGLE_API_KEY)
-uv run dnd-graph-rag load                       # JSON + embeddings -> Neo4j, then verify
-uv run uvicorn dnd_graph_rag.api:app --reload --reload-include '*.md'
+uv run rules-lawyer parse                       # PDF -> data/output/srd_hierarchy.{json,md,anchors.json}
+uv run rules-lawyer embed                       # JSON -> srd_embeddings.idx (needs GOOGLE_API_KEY)
+uv run rules-lawyer load                        # JSON + embeddings -> Neo4j, then verify
+uv run uvicorn rules_lawyer.api:app --reload --reload-include '*.md'
 uv run pytest                                   # the tests; see Tests below
 ```
 
@@ -50,8 +50,8 @@ The browser at <http://localhost:7474> is handy for trying Cypher by hand.
 ## Layout
 
 ```text
-src/dnd_graph_rag/
-  cli.py              the dnd-graph-rag command
+src/rules_lawyer/
+  cli.py              the rules-lawyer command
   api.py              the FastAPI app: every package's router, plus the
                       SQLite stores for conversations
   config.py           settings from .env (paths, NEO4J_*, CHAT_*, EMBED_*)

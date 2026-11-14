@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from dnd_graph_rag.graph.model import (EdgeBatch, GraphData, NodeBatch,
+from rules_lawyer.graph.model import (EdgeBatch, GraphData, NodeBatch,
                                        as_json, clean)
 
 

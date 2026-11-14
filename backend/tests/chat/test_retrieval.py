@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from dnd_graph_rag.chat import retrieval
+from rules_lawyer.chat import retrieval
 
 
 class TestEscapeLucene:

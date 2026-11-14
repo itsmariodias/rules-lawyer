@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from dnd_graph_rag.srd.model import (
+from rules_lawyer.srd.model import (
     Contents,
     Entry,
     Heading,
@@ -14,7 +14,7 @@ from dnd_graph_rag.srd.model import (
     StatBlock,
     Table,
 )
-from dnd_graph_rag.srd.sections import build_sections, captioned_tables, walk
+from rules_lawyer.srd.sections import build_sections, captioned_tables, walk
 
 
 def paragraph(text: str, page: int) -> Paragraph:

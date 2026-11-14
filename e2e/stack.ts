@@ -28,15 +28,15 @@ export async function startNeo4j(): Promise<StartedNeo4jContainer> {
 }
 
 /**
- * Load the artifact with `dnd-graph-rag load`, which exits non-zero if
+ * Load the artifact with `rules-lawyer load`, which exits non-zero if
  * verification fails.
  */
 export async function loadGraph(backend: string, data: string): Promise<void> {
-  await run('uv', ['run', 'dnd-graph-rag', 'load'], {
+  await run('uv', ['run', 'rules-lawyer', 'load'], {
     cwd: backend,
     env: {
       ...process.env,
-      DND_GRAPH_RAG_DATA: data,
+      RULES_LAWYER_DATA: data,
       NEO4J_URI, NEO4J_PASSWORD,
     },
     // Writes and verifies the whole graph.

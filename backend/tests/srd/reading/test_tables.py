@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dnd_graph_rag.srd.model import Run, Table, plain
-from dnd_graph_rag.srd.reading.pages import Line, Span
-from dnd_graph_rag.srd.reading.tables import (
+from rules_lawyer.srd.model import Run, Table, plain
+from rules_lawyer.srd.reading.pages import Line, Span
+from rules_lawyer.srd.reading.tables import (
     extend_table,
     is_table_line,
     repeat_width,

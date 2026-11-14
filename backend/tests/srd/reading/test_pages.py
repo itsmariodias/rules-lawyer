@@ -5,9 +5,9 @@ from collections import Counter
 import pymupdf
 import pytest
 
-from dnd_graph_rag.config import get_settings
-from dnd_graph_rag.srd.model import Box
-from dnd_graph_rag.srd.reading.pages import (
+from rules_lawyer.config import get_settings
+from rules_lawyer.srd.model import Box
+from rules_lawyer.srd.reading.pages import (
     Line,
     Span,
     attach_superscripts,

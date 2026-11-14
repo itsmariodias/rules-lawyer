@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from dnd_graph_rag.graph import mapping, schema
+from rules_lawyer.graph import mapping, schema
 
 
 class TestConstraintStatements:

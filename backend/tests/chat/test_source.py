@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from dnd_graph_rag.chat import source
+from rules_lawyer.chat import source
 
 
 @pytest.mark.neo4j
@@ -122,7 +122,7 @@ class TestAnchors:
     def test_given_no_anchors_when_read_then_a_citation_still_resolves(
             self, settings_env, tmp_path):
         # Given an output directory with no anchors file in it
-        settings_env(DND_GRAPH_RAG_DATA=str(tmp_path))
+        settings_env(RULES_LAWYER_DATA=str(tmp_path))
         source.anchors.cache_clear()
 
         # When the anchors are read

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from dnd_graph_rag.srd.model import Run
-from dnd_graph_rag.srd.reading.pages import Line, Span
-from dnd_graph_rag.srd.reading.statblock import ability_rows, fields_of
+from rules_lawyer.srd.model import Run
+from rules_lawyer.srd.reading.pages import Line, Span
+from rules_lawyer.srd.reading.statblock import ability_rows, fields_of
 
 LABELS = Line(258, 177.0, [Span(t, "GillSans", 6.0, x, x + 14) for x, t in
                            ((101.9, "MOD"), (120.2, "SAVE"))], 0, 63.0, 290.0)

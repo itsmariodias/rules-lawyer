@@ -11,7 +11,7 @@ import os
 
 import pytest
 
-from dnd_graph_rag.config import (anchors_path_for, get_settings,
+from rules_lawyer.config import (anchors_path_for, get_settings,
                                   markdown_path_for)
 
 NEO4J_IMAGE = "neo4j:5.26-community"
@@ -53,11 +53,11 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 @pytest.fixture(scope="session")
 def document() -> dict:
     """The real artifact; skips if it has not been generated."""
-    from dnd_graph_rag.srd.artifact import load
+    from rules_lawyer.srd.artifact import load
 
     settings = get_settings()
     if not settings.output_path.exists():
-        pytest.skip(f"no artifact at {settings.output_path}; run `dnd-graph-rag parse`")
+        pytest.skip(f"no artifact at {settings.output_path}; run `rules-lawyer parse`")
     return load(settings.output_path)
 
 
@@ -92,7 +92,7 @@ def neo4j():
 
 def _forget_connections() -> None:
     """Drop cached settings, driver and schema, so the next use reconnects."""
-    from dnd_graph_rag.chat import cypher, retrieval
+    from rules_lawyer.chat import cypher, retrieval
 
     if retrieval.driver.cache_info().currsize:
         retrieval.driver().close()
@@ -104,7 +104,7 @@ def _forget_connections() -> None:
 @pytest.fixture(scope="session")
 def graph_session(neo4j):
     """A session on the test container."""
-    from dnd_graph_rag.graph.loader import session
+    from rules_lawyer.graph.loader import session
 
     with session() as open_session:
         yield open_session
@@ -313,7 +313,7 @@ def anchors() -> list[dict]:
     """The anchors file; skips if it has not been generated."""
     path = anchors_path_for(markdown_path_for(get_settings().output_path))
     if not path.exists():
-        pytest.skip(f"no anchors at {path}; run `dnd-graph-rag parse`")
+        pytest.skip(f"no anchors at {path}; run `rules-lawyer parse`")
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -322,18 +322,18 @@ def markdown() -> str:
     """The stage 1 markdown; skips if it has not been generated."""
     path = markdown_path_for(get_settings().output_path)
     if not path.exists():
-        pytest.skip(f"no markdown at {path}; run `dnd-graph-rag parse`")
+        pytest.skip(f"no markdown at {path}; run `rules-lawyer parse`")
     return path.read_text(encoding="utf-8")
 
 
 @pytest.fixture(scope="session")
 def vectors():
     """The embeddings file; skips if it is absent."""
-    from dnd_graph_rag.graph import embeddings
+    from rules_lawyer.graph import embeddings
 
     path = get_settings().embeddings_path
     if not path.exists():
-        pytest.skip(f"no embeddings at {path}; run `dnd-graph-rag embed`")
+        pytest.skip(f"no embeddings at {path}; run `rules-lawyer embed`")
     return embeddings.read(path)
 
 
@@ -350,8 +350,8 @@ def graph(graph_session, document, vectors):
     A session on the test container with the real artifact loaded; skips
     without the artifact or its embeddings.
     """
-    from dnd_graph_rag.graph import mapping
-    from dnd_graph_rag.graph.loader import load_graph
+    from rules_lawyer.graph import mapping
+    from rules_lawyer.graph.loader import load_graph
 
     load_graph(mapping.build(document), graph_session, vectors=vectors, reset=True)
     return graph_session
@@ -380,7 +380,7 @@ def stub_model(settings_env):
     either side, since it would otherwise hand back an agent built with the
     other model.
     """
-    from dnd_graph_rag.chat.agent import compile_agent
+    from rules_lawyer.chat.agent import compile_agent
 
     compile_agent.cache_clear()
     yield settings_env(CHAT_STUB="1")

@@ -22,8 +22,8 @@ npx playwright test specs/graph.spec.ts   # one file
 Nothing needs to be running first. You do need:
 
 - **Docker**, for the database;
-- **the parsed SRD** (`cd ../backend && uv run dnd-graph-rag parse`);
-- **the embeddings** (`uv run dnd-graph-rag embed`, or a shared
+- **the parsed SRD** (`cd ../backend && uv run rules-lawyer parse`);
+- **the embeddings** (`uv run rules-lawyer embed`, or a shared
   `srd_embeddings.idx` in `data/output/`).
 
 Without any of them the run prints why and skips, rather than failing.
@@ -44,7 +44,7 @@ A fresh database means a passing run tests the whole chain (parse, load,
 search, answer, cite) rather than whatever happens to be in your local graph.
 
 **No API key, no model.** The API runs with `CHAT_STUB=1`, so a scripted
-model (`backend/src/dnd_graph_rag/chat/stub.py`) stands in for Gemini. It
+model (`backend/src/rules_lawyer/chat/stub.py`) stands in for Gemini. It
 calls the real `search_srd` tool against the real graph and cites the first
 result, so every event a real turn sends still crosses the wire; only the
 answer's wording is canned. With no key, search is full-text only.

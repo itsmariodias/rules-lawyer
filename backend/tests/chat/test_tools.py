@@ -4,7 +4,7 @@ import re
 
 import pytest
 
-from dnd_graph_rag.chat import retrieval, tools
+from rules_lawyer.chat import retrieval, tools
 
 
 class TestSearchSrd:

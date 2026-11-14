@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from dnd_graph_rag.config import (ChatSettings, EmbeddingSettings,
+from rules_lawyer.config import (ChatSettings, EmbeddingSettings,
                                   Neo4jSettings, Settings, anchors_path_for,
                                   get_settings, markdown_path_for)
 
@@ -220,7 +220,7 @@ class TestGetSettings:
     def test_given_a_cleared_cache_when_read_then_the_environment_is_reread(
             self, settings_env):
         # Given the output filename overridden in the environment
-        settings = settings_env(DND_GRAPH_RAG_OUTPUT_NAME="elsewhere.json")
+        settings = settings_env(RULES_LAWYER_OUTPUT_NAME="elsewhere.json")
 
         # When the output path is read
         # Then the override took effect, because the cache was cleared

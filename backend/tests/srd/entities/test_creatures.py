@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dnd_graph_rag.srd.entities.creatures import check_mechanics, creature, entries_of
-from dnd_graph_rag.srd.model import (
+from rules_lawyer.srd.entities.creatures import check_mechanics, creature, entries_of
+from rules_lawyer.srd.model import (
     Field,
     Paragraph,
     Run,

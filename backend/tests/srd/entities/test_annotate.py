@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dnd_graph_rag.srd.entities.annotate import annotate
-from dnd_graph_rag.srd.model import Section, Source, StatBlock
+from rules_lawyer.srd.entities.annotate import annotate
+from rules_lawyer.srd.model import Section, Source, StatBlock
 
 
 def section(id: str, heading: str, entity_type: str, *subsections: Section) -> Section:

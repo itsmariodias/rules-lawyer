@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from dnd_graph_rag.chat import neighbourhood, retrieval
+from rules_lawyer.chat import neighbourhood, retrieval
 
 
 def row(anchor, uid, type_="REFERENCES_SPELL", outgoing=True, total=1,

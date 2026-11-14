@@ -1,4 +1,4 @@
-# dnd-graph-rag
+# rules-lawyer
 
 Knowledge-graph RAG over the D&D 5e SRD (`SRD_CC_v5.2.1.pdf`, 364 pages).
 The app is called Rules Lawyer: a chat that answers rules questions from the
@@ -29,13 +29,13 @@ data/
   source/            the SRD PDF; checked in, never written
   output/            srd_hierarchy.{json,md,anchors.json}: reproducible
                      srd_embeddings.idx: reproducible only with an API key,
-                     so also shared as a file (DND_GRAPH_RAG_EMBEDDINGS)
+                     so also shared as a file (RULES_LAWYER_EMBEDDINGS)
   chat/              chat.sqlite (checkpoints), chat-store.sqlite (pins,
                      titles): not reproducible
 
-backend/src/dnd_graph_rag/
-  cli.py             dnd-graph-rag parse | embed | load
-  config.py          pydantic-settings: DND_GRAPH_RAG_*, NEO4J_*, CHAT_*, EMBED_*
+backend/src/rules_lawyer/
+  cli.py             rules-lawyer parse | embed | load
+  config.py          pydantic-settings: RULES_LAWYER_*, NEO4J_*, CHAT_*, EMBED_*
   api.py             FastAPI app; assembles each package's router
   srd/               stage 1
     reading/         PDF to blocks, in reading order
@@ -115,7 +115,7 @@ GRAPH.md             reference for every label and relationship type
   being prevented, an SRD fact, a measured number. They describe the code
   and the book as they are, never the history of a change, a plan, or this
   file. Design rationale lives here.
-- **Imports** are absolute from the top package (`from dnd_graph_rag.srd.model
+- **Imports** are absolute from the top package (`from rules_lawyer.srd.model
   import Section`), never relative. An `__init__.py` with no code is empty:
   no docstring, no comment.
 - **Constants for book facts** are named, with a comment giving the
@@ -161,15 +161,15 @@ GRAPH.md             reference for every label and relationship type
 docker compose up -d neo4j                     # NEO4J_PASSWORD from .env
 
 cd backend
-uv run dnd-graph-rag parse                     # data/output/srd_hierarchy.{json,md,anchors.json}
-uv run dnd-graph-rag parse --pdf other.pdf --out /tmp/x.json
-uv run dnd-graph-rag embed                     # srd_embeddings.idx; needs a key
-uv run dnd-graph-rag embed --refresh           # re-embed everything
-uv run dnd-graph-rag load                      # artifact + vectors -> graph, verify
-uv run dnd-graph-rag load --no-reset --skip-verify
-uv run dnd-graph-rag load --embeddings ~/Downloads/srd_embeddings.idx
+uv run rules-lawyer parse                      # data/output/srd_hierarchy.{json,md,anchors.json}
+uv run rules-lawyer parse --pdf other.pdf --out /tmp/x.json
+uv run rules-lawyer embed                      # srd_embeddings.idx; needs a key
+uv run rules-lawyer embed --refresh            # re-embed everything
+uv run rules-lawyer load                       # artifact + vectors -> graph, verify
+uv run rules-lawyer load --no-reset --skip-verify
+uv run rules-lawyer load --embeddings ~/Downloads/srd_embeddings.idx
 uv run pytest                                  # -m "not neo4j" for the Docker-free set
-uv run uvicorn dnd_graph_rag.api:app --reload --reload-include '*.md'
+uv run uvicorn rules_lawyer.api:app --reload --reload-include '*.md'
 
 cd ../frontend && npm install && npm run dev   # http://localhost:5173
 npm test                                       # vitest
@@ -426,7 +426,7 @@ used and the printed one kept in `printed_score`.
 
 ## Stage 2: the graph
 
-`dnd-graph-rag load` writes **3900 nodes and 12025 relationships**, then runs
+`rules-lawyer load` writes **3900 nodes and 12025 relationships**, then runs
 **79 verification checks**. Loads MERGE on stable keys, but a full reset is
 the default: the artifact is the whole truth, and merging alone would keep
 nodes a re-parse has dropped.
@@ -804,7 +804,7 @@ browser stays on one origin and the SSE stream shares it.
 
 ## Testing
 
-- `uv run pytest`: backend, 667 tests. Tests needing Neo4j share one
+- `uv run pytest`: backend. Tests needing Neo4j share one
   Testcontainers `neo4j:5.26-community` container per run (the `neo4j`
   fixture), loaded once from the artifact and its vectors (`graph`), its
   memory capped as e2e's is (512 MB heap, 256 MB page cache).
@@ -812,8 +812,8 @@ browser stays on one origin and the SSE stream shares it.
   that forgets the fixture fails rather than writing to the `.env`
   database. Those tests carry `@pytest.mark.neo4j` (on the class when every
   method needs it), and collection fails if the mark and the fixture
-  disagree, so `-m "not neo4j"` is exactly the Docker-free set (538 tests,
-  about 9s). Markers are strict.
+  disagree, so `-m "not neo4j"` is exactly the Docker-free set.
+  Markers are strict.
 - A new database test asks for `graph` (a session on the loaded container),
   or `graph_session` if it loads what it needs itself, and is marked.
 - `npm test` in `frontend/`: vitest and Testing Library in jsdom, no

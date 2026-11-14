@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from dnd_graph_rag.srd.entities.glossary import glossary
-from dnd_graph_rag.srd.model import Paragraph, Run, Section, Source, Table
-from dnd_graph_rag.srd.vocabulary import Action, AreaOfEffect, Condition, TermType
+from rules_lawyer.srd.entities.glossary import glossary
+from rules_lawyer.srd.model import Paragraph, Run, Section, Source, Table
+from rules_lawyer.srd.vocabulary import Action, AreaOfEffect, Condition, TermType
 
 DAMAGE_TYPES = ["Acid", "Bludgeoning", "Cold", "Fire", "Force", "Lightning", "Necrotic", "Piercing", "Poison",
                 "Psychic", "Radiant", "Slashing", "Thunder"]

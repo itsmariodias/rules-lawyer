@@ -1,6 +1,6 @@
 # The graph
 
-What `dnd-graph-rag load` builds in Neo4j from `data/output/srd_hierarchy.json`:
+What `rules-lawyer load` builds in Neo4j from `data/output/srd_hierarchy.json`:
 every node label and every relationship type, what it means, what identifies
 it, and what it carries.
 
@@ -63,7 +63,7 @@ of its ancestor headings and its content, indexed by `srd_vector`. 2173 of
 the 2256 have one; the rest are headings whose children hold all the text,
 so there was nothing to embed. The vectors come from
 `data/output/srd_embeddings.idx`, which is either generated once with a
-Gemini key (`dnd-graph-rag embed`) or downloaded; see **Constraints and
+Gemini key (`rules-lawyer embed`) or downloaded; see **Constraints and
 indexes**.
 
 ### `:Section:ClassFeature`

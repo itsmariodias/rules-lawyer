@@ -57,13 +57,13 @@ export default defineConfig({
     {
       // Builds the data directory and starts the server in one command.
       command: `node "${prepare}" `
-               + `&& uv run uvicorn dnd_graph_rag.api:app --port ${API_PORT}`,
+               + `&& uv run uvicorn rules_lawyer.api:app --port ${API_PORT}`,
       cwd: backend,
       // Needs neither the database nor a key.
       url: `http://127.0.0.1:${API_PORT}/health`,
       // The container starts later in global setup; the driver connects lazily.
       env: {
-        DND_GRAPH_RAG_DATA: data,
+        RULES_LAWYER_DATA: data,
         CHAT_STUB: '1',
         // Blank, not unset, to override the root .env: otherwise every query
         // is embedded live and spends quota.  Search runs lexical-only.

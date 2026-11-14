@@ -7,12 +7,12 @@ from __future__ import annotations
 
 import pytest
 
-from dnd_graph_rag.graph import mapping
-from dnd_graph_rag.graph.embeddings import Vectors
-from dnd_graph_rag.graph.loader import (EMBEDDING_QUERY, edge_query, load_graph,
+from rules_lawyer.graph import mapping
+from rules_lawyer.graph.embeddings import Vectors
+from rules_lawyer.graph.loader import (EMBEDDING_QUERY, edge_query, load_graph,
                                         node_query, session, write_embeddings)
-from dnd_graph_rag.graph.model import EdgeBatch, NodeBatch
-from dnd_graph_rag.graph.verify import verify
+from rules_lawyer.graph.model import EdgeBatch, NodeBatch
+from rules_lawyer.graph.verify import verify
 
 
 class TestNodeQuery:

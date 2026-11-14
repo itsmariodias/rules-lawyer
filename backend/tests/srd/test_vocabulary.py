@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from dnd_graph_rag.srd.vocabulary import (
+from rules_lawyer.srd.vocabulary import (
     Coin,
     Condition,
     EntityType,

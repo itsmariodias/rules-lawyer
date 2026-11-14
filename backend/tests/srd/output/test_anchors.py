@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dnd_graph_rag.srd.model import Box, Paragraph, Run, Section, Source
-from dnd_graph_rag.srd.output.anchors import anchors, misplaced
+from rules_lawyer.srd.model import Box, Paragraph, Run, Section, Source
+from rules_lawyer.srd.output.anchors import anchors, misplaced
 
 RAGE = Box(28, 313.5, 223.1, 382.7, 235.6)
 

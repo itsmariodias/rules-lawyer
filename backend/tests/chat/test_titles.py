@@ -5,7 +5,7 @@ import asyncio
 import pytest
 from langchain_core.messages import AIMessage
 
-from dnd_graph_rag.chat import agent, titles
+from rules_lawyer.chat import agent, titles
 
 
 class Replying:

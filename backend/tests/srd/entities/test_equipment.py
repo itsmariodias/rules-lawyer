@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dnd_graph_rag.srd.entities.equipment import gear, price, weapons, weight_lb
-from dnd_graph_rag.srd.model import Paragraph, Run, Section, Source, Table
+from rules_lawyer.srd.entities.equipment import gear, price, weapons, weight_lb
+from rules_lawyer.srd.model import Paragraph, Run, Section, Source, Table
 
 
 def cells(*texts: str) -> list[list[Run]]:

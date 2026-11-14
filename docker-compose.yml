@@ -1,7 +1,9 @@
+name: rules-lawyer
+
 services:
   neo4j:
     image: neo4j:5.26-community
-    container_name: dnd-neo4j
+    container_name: rules-lawyer-neo4j
     ports:
       - "7474:7474"  # HTTP (Browser UI)
       - "7687:7687"  # Bolt (driver connections)

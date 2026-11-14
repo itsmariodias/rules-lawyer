@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from dnd_graph_rag.srd.model import BLOCKS, Paragraph, Run, Table, add_page
+from rules_lawyer.srd.model import BLOCKS, Paragraph, Run, Table, add_page
 
 RUN = TypeAdapter(Run)
 

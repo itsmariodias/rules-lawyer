@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from dnd_graph_rag.srd.model import (
+from rules_lawyer.srd.model import (
     Contents,
     Entry,
     Field,
@@ -18,7 +18,7 @@ from dnd_graph_rag.srd.model import (
     StatSection,
     Table,
 )
-from dnd_graph_rag.srd.output.document import from_json, to_json
+from rules_lawyer.srd.output.document import from_json, to_json
 
 BLOCKS = [Paragraph([Run("Cast "), Run("Fireball", italic=True)], [1, 2]),
           Paragraph([Run("Quoted.")], [2], "quote"),

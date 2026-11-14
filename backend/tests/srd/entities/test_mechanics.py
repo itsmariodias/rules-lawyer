@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dnd_graph_rag.srd.entities.mechanics import (
+from rules_lawyer.srd.entities.mechanics import (
     average,
     conditions_imposed,
     damage,
@@ -9,7 +9,7 @@ from dnd_graph_rag.srd.entities.mechanics import (
     spell_mechanics,
     uses,
 )
-from dnd_graph_rag.srd.model import Run
+from rules_lawyer.srd.model import Run
 
 
 def label(text: str) -> Run:

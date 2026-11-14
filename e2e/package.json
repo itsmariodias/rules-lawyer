@@ -1,5 +1,5 @@
 {
-  "name": "dnd-graph-rag-e2e",
+  "name": "rules-lawyer-e2e",
   "private": true,
   "version": "0.0.0",
   "description": "Browser tests over the whole stack: Vite, FastAPI, Neo4j.",

@@ -24,7 +24,7 @@ export default async function globalSetup() {
 
   if (!(await artifactExists())) {
     skip('the artifact has not been generated',
-         'cd backend && uv run dnd-graph-rag parse')
+         'cd backend && uv run rules-lawyer parse')
     return
   }
 

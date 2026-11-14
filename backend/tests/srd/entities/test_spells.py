@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dnd_graph_rag.srd.entities.spells import components, magic_item, spell
-from dnd_graph_rag.srd.model import Paragraph, Run, Section, Source
+from rules_lawyer.srd.entities.spells import components, magic_item, spell
+from rules_lawyer.srd.model import Paragraph, Run, Section, Source
 
 
 def field(label: str, value: str) -> Paragraph:

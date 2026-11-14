@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dnd_graph_rag.srd.entity_types import type_from_records, type_sections
-from dnd_graph_rag.srd.model import Heading, Paragraph, Run, Section, Source, StatBlock
-from dnd_graph_rag.srd.sections import build_sections, walk
+from rules_lawyer.srd.entity_types import type_from_records, type_sections
+from rules_lawyer.srd.model import Heading, Paragraph, Run, Section, Source, StatBlock
+from rules_lawyer.srd.sections import build_sections, walk
 
 
 def subtitle(text: str, page: int) -> Paragraph:

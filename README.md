@@ -64,7 +64,7 @@ the file; uncomment any of them to override:
 | --- | --- | --- |
 | `NEO4J_PASSWORD` | none | **Required.** The database password, for the container and the app |
 | `GOOGLE_API_KEY` | none | **Required** for chat and `embed`. A blank value counts as unset |
-| `DND_GRAPH_RAG_EMBEDDINGS` | `data/output/srd_embeddings.idx` | An embeddings file to use instead of generating one |
+| `RULES_LAWYER_EMBEDDINGS` | `data/output/srd_embeddings.idx` | An embeddings file to use instead of generating one |
 | `NEO4J_URI` | `bolt://localhost:7687` | |
 | `NEO4J_USER` / `NEO4J_DATABASE` | `neo4j` / `neo4j` | |
 | `CHAT_MODEL` | `gemini-3.8-flash` | The Gemini model that answers |
@@ -80,11 +80,11 @@ Build the graph and start the API, from `backend/`:
 ```bash
 cd backend
 uv sync
-uv run dnd-graph-rag parse      # the PDF into data/output/, about 30 seconds
-uv run dnd-graph-rag embed      # embeddings, about 2 minutes (see below)
+uv run rules-lawyer parse       # the PDF into data/output/, about 30 seconds
+uv run rules-lawyer embed       # embeddings, about 2 minutes (see below)
 (cd .. && docker compose up -d neo4j)   # Neo4j Browser on :7474
-uv run dnd-graph-rag load       # load the graph and verify it
-uv run uvicorn dnd_graph_rag.api:app --reload
+uv run rules-lawyer load        # load the graph and verify it
+uv run uvicorn rules_lawyer.api:app --reload
 ```
 
 Then the app, from `frontend/`:
@@ -101,7 +101,7 @@ Ask it a rules question and click a citation.
 `srd_embeddings.idx`, skip `embed` and point at it instead:
 
 ```text
-DND_GRAPH_RAG_EMBEDDINGS=/path/to/srd_embeddings.idx
+RULES_LAWYER_EMBEDDINGS=/path/to/srd_embeddings.idx
 ```
 
 Re-running `embed` after a re-parse only embeds sections whose text changed.
@@ -114,8 +114,8 @@ data/
   output/          generated: srd_hierarchy.{json,md,anchors.json}, srd_embeddings.idx
   chat/            saved conversations (SQLite)
 
-backend/src/dnd_graph_rag/
-  cli.py           dnd-graph-rag parse | embed | load
+backend/src/rules_lawyer/
+  cli.py           rules-lawyer parse | embed | load
   api.py           the FastAPI app
   srd/             PDF to a validated JSON document of entities and edges
   graph/           that document and its embeddings into Neo4j

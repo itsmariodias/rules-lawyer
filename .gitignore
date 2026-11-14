@@ -6,7 +6,7 @@ __pycache__/
 .DS_Store
 .pytest_cache/
 
-# Pipeline output (regenerate with `uv run dnd-graph-rag parse`)
+# Pipeline output (regenerate with `uv run rules-lawyer parse`)
 data/output/
 
 # Conversation state (LangGraph checkpoints)

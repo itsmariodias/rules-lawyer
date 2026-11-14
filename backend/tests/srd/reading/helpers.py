@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dnd_graph_rag.srd.reading.pages import Line, Span
+from rules_lawyer.srd.reading.pages import Line, Span
 
 MARGIN = 63.0       # the left column's edge on a body page
 RIGHT = 291.5       # how far page 5's left column reaches

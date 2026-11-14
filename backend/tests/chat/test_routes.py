@@ -5,7 +5,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from dnd_graph_rag.api import app
+from rules_lawyer.api import app
 
 
 def events_of(response) -> list[dict]:
@@ -22,14 +22,14 @@ def client(settings_env, tmp_path):
     directory.  ``source/`` and ``output/`` are symlinked to the checkout for
     ``/source``.
     """
-    from dnd_graph_rag.chat import source
-    from dnd_graph_rag.chat.agent import compile_agent
-    from dnd_graph_rag.config import get_settings
+    from rules_lawyer.chat import source
+    from rules_lawyer.chat.agent import compile_agent
+    from rules_lawyer.config import get_settings
 
     real = get_settings().data_dir
     for name in ("source", "output"):
         (tmp_path / name).symlink_to(real / name)
-    settings_env(DND_GRAPH_RAG_DATA=str(tmp_path), CHAT_STUB="1")
+    settings_env(RULES_LAWYER_DATA=str(tmp_path), CHAT_STUB="1")
     compile_agent.cache_clear()
     source.markdown.cache_clear()
     source.anchors.cache_clear()
@@ -85,7 +85,7 @@ class TestChat:
     def test_given_no_api_key_when_posted_then_the_turn_is_refused_outright(
             self, client, settings_env, monkeypatch):
         # Given a server with the key blanked out and no stub
-        from dnd_graph_rag.chat.agent import compile_agent
+        from rules_lawyer.chat.agent import compile_agent
 
         monkeypatch.setenv("GOOGLE_API_KEY", "")
         settings_env(CHAT_STUB="0")
@@ -149,7 +149,7 @@ class TestChatThreads:
     def test_given_a_new_conversation_when_listed_then_its_summary_is_the_title(
             self, client, graph, monkeypatch):
         # Given a model that titles every question it is asked about
-        from dnd_graph_rag.chat import titles
+        from rules_lawyer.chat import titles
 
         asked: list[str] = []
 

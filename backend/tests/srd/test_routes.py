@@ -7,10 +7,10 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from dnd_graph_rag.api import app
-from dnd_graph_rag.config import get_settings
-from dnd_graph_rag.srd import routes
-from dnd_graph_rag.srd.artifact import Artifact
+from rules_lawyer.api import app
+from rules_lawyer.config import get_settings
+from rules_lawyer.srd import routes
+from rules_lawyer.srd.artifact import Artifact
 
 
 @pytest.fixture
@@ -61,7 +61,7 @@ class TestParse:
 class TestPdf:
     def test_given_no_pdf_when_asked_then_it_is_a_404(self, client, settings_env, tmp_path):
         # Given a data directory with no PDF in it
-        settings_env(DND_GRAPH_RAG_DATA=str(tmp_path))
+        settings_env(RULES_LAWYER_DATA=str(tmp_path))
 
         # When the PDF is asked for
         # Then it is not found

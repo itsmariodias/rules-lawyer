@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from dnd_graph_rag.graph import mapping
+from rules_lawyer.graph import mapping
 
 ROOT = Path(__file__).resolve().parents[2]
 GRAPH_MD = ROOT / "GRAPH.md"
@@ -133,7 +133,7 @@ class TestGraphViewPalette:
 class TestCitationPattern:
     def test_given_the_frontend_copy_when_compared_then_it_matches_the_backend(self):
         # Given the citation pattern the frontend numbers and links
-        from dnd_graph_rag.chat.retrieval import CITATION
+        from rules_lawyer.chat.retrieval import CITATION
 
         source = MARKDOWN_TSX.read_text(encoding="utf-8")
         found = re.search(r"const CITATION = /(.+)/g\n", source)
@@ -148,7 +148,7 @@ class TestTheArtifactsOwnClaims:
     def test_given_the_artifact_when_checked_then_every_section_has_geometry_on_its_pages(
             self, document, anchors):
         # Given the artifact and the anchors beside it
-        from dnd_graph_rag.srd.output.anchors import boxes_between
+        from rules_lawyer.srd.output.anchors import boxes_between
 
         # When each section's range is resolved to rectangles
         stack = list(document["sections"])

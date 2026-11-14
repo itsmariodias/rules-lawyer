@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from dnd_graph_rag.graph import mapping
-from dnd_graph_rag.graph.loader import load_graph
-from dnd_graph_rag.graph.schema import VECTOR_NAME
+from rules_lawyer.graph import mapping
+from rules_lawyer.graph.loader import load_graph
+from rules_lawyer.graph.schema import VECTOR_NAME
 # Not via the package: ``graph.verify`` there is the function, not the module.
-from dnd_graph_rag.graph.verify import _check, verify
+from rules_lawyer.graph.verify import _check, verify
 
 
 class TestCheck:

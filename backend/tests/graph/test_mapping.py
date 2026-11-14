@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from dnd_graph_rag.graph import mapping
+from rules_lawyer.graph import mapping
 
 
 def rows_for(data, *labels) -> list[dict]:

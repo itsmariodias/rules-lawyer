@@ -3,9 +3,9 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from dnd_graph_rag.api import app
-from dnd_graph_rag.graph import routes
-from dnd_graph_rag.graph.embeddings import MissingEmbeddings
+from rules_lawyer.api import app
+from rules_lawyer.graph import routes
+from rules_lawyer.graph.embeddings import MissingEmbeddings
 
 
 @pytest.fixture
@@ -119,7 +119,7 @@ class TestGraphLoad:
             self, client, monkeypatch):
         # Given a pipeline that cannot find the artifact
         def missing(input_path, **kwargs):
-            raise FileNotFoundError("artifact not found: x (run dnd-graph-rag parse)")
+            raise FileNotFoundError("artifact not found: x (run rules-lawyer parse)")
 
         monkeypatch.setattr(routes.pipeline, "build_graph", missing)
 
@@ -136,9 +136,9 @@ class TestGraphLoad:
         def missing(input_path, **kwargs):
             raise MissingEmbeddings(
                 "2156 of 2156 sections have no embedding and GOOGLE_API_KEY "
-                "is not set.\nEither set it and run `uv run dnd-graph-rag embed`, or "
+                "is not set.\nEither set it and run `uv run rules-lawyer embed`, or "
                 "download srd_embeddings.idx and point "
-                "DND_GRAPH_RAG_EMBEDDINGS at it.")
+                "RULES_LAWYER_EMBEDDINGS at it.")
 
         monkeypatch.setattr(routes.pipeline, "build_graph", missing)
 
@@ -147,5 +147,5 @@ class TestGraphLoad:
 
         # Then it is a conflict carrying the remedy rather than a 500
         assert response.status_code == 409
-        assert "dnd-graph-rag embed" in response.json()["detail"]
-        assert "DND_GRAPH_RAG_EMBEDDINGS" in response.json()["detail"]
+        assert "rules-lawyer embed" in response.json()["detail"]
+        assert "RULES_LAWYER_EMBEDDINGS" in response.json()["detail"]

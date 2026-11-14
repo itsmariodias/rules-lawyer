@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dnd_graph_rag.srd.model import (
+from rules_lawyer.srd.model import (
     Contents,
     Entry,
     Field,
@@ -15,7 +15,7 @@ from dnd_graph_rag.srd.model import (
     StatSection,
     Table,
 )
-from dnd_graph_rag.srd.output.render import render, render_book, render_run
+from rules_lawyer.srd.output.render import render, render_book, render_run
 
 
 class TestRender:
