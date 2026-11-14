@@ -207,6 +207,7 @@ arrives as an `error` event in the stream.
 uv run pytest                    # everything
 uv run pytest -m "not neo4j"     # only the tests that need no database: seconds, no Docker
 uv run pytest -m neo4j           # only the tests that need the database
+uv run pytest --cov=rules_lawyer # with a coverage report
 uv run pytest tests/srd          # one package
 uv run pytest tests/graph/test_mapping.py -k fold   # one file, tests matching a name
 ```

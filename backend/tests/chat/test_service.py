@@ -632,7 +632,8 @@ class TestHistory:
         assert turns[1]["citations"]
 
     @pytest.mark.asyncio
-    async def test_given_a_thread_nobody_used_when_read_then_it_is_empty(self, saver):
+    async def test_given_a_thread_nobody_used_when_read_then_it_is_empty(
+            self, stub_model, saver):
         # Given an id nothing was stored under
         # When it is read back
         # Then the route can answer 404 from the emptiness

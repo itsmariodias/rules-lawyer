@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Compile
+        run: uv run python -m compileall -q src tests
+      # Parsing also checks the book against itself, and gives the tests the
+      # artifact they need. Without embeddings or a key, the tests needing
+      # vectors skip; the Neo4j tests start their own container.
+      - name: Parse the SRD
+        run: uv run rules-lawyer parse
+      - name: Test
+        run: uv run pytest --cov=rules_lawyer --cov-report=xml --cov-report=term:skip-covered
+      # Uploads need no token once the repository is public.
+      - uses: codecov/codecov-action@v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: backend/coverage.xml
+          flags: backend
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Compile and build
+        run: npm run build
+      - name: Test
+        run: npm run coverage -- --coverage.reporter=text-summary --coverage.reporter=lcov
+      - uses: codecov/codecov-action@v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: frontend/coverage/lcov.info
+          flags: frontend
+
+  e2e:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: e2e
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      - run: npm ci
+      # The suite itself needs srd_embeddings.idx, which is not in the
+      # repository, so only its types are checked here.
+      - name: Compile
+        run: npm run typecheck

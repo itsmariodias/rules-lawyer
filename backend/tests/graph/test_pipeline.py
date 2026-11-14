@@ -18,7 +18,7 @@ class TestBuildGraph:
 
     @pytest.mark.neo4j
     def test_given_a_report_callable_when_run_then_progress_is_announced(
-            self, document, graph_session, monkeypatch):
+            self, document, vectors, graph_session):
         # Given somewhere to report to
         lines: list[str] = []
 
@@ -32,7 +32,7 @@ class TestBuildGraph:
 
     @pytest.mark.neo4j
     def test_given_verification_is_skipped_when_run_then_it_says_so(
-            self, document, graph_session):
+            self, document, vectors, graph_session):
         # Given a load that skips the checks
         result = pipeline.build_graph(skip_verify=True)
 
@@ -42,7 +42,7 @@ class TestBuildGraph:
 
     @pytest.mark.neo4j
     def test_given_a_run_when_it_finishes_then_the_report_names_its_input(
-            self, document, graph_session):
+            self, document, vectors, graph_session):
         # Given a load from the configured artifact
         result = pipeline.build_graph(skip_verify=True)
 
