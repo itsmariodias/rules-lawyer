@@ -227,6 +227,33 @@ class TestTable:
         assert [plain(c) for c in built.rows[0]] == ["Arctic", "10"]
 
 
+class TestCategories:
+    def test_given_a_category_row_when_built_then_only_its_indented_rows_are_under_it(self):
+        # Given page 100's Tack: italic "Saddle", three rows indented 8pt, then "Sled" at the edge
+        lines = [row(345.1, (317.5, "Item"), (450.6, "Weight"), (516.0, "Cost"), font=HEADER),
+                 row(405.4, (317.1, "Feed per day"), (461.0, "10 lb."), (517.2, "5 CP")),
+                 row(420.5, (317.1, "Saddle"), font=("GillSans-Italic", 9.5)),
+                 row(435.7, (325.1, "Exotic"), (460.4, "40 lb."), (512.0, "60 GP")),
+                 row(450.8, (325.1, "Military"), (460.5, "30 lb."), (512.0, "20 GP")),
+                 row(481.0, (317.1, "Sled"), (455.4, "300 lb."), (512.0, "20 GP"))]
+
+        # When the table is built
+        built = table([], lines, set())
+
+        # Then Exotic and Military are under Saddle (row 1), and Sled under nothing
+        assert [plain(r[0]) for r in built.rows] == ["Feed per day", "Saddle", "Exotic", "Military", "Sled"]
+        assert built.under == [None, None, 1, 1, None]
+
+    def test_given_no_category_row_when_built_then_nothing_is_under_one(self):
+        # Given page 5's Ability Descriptions
+        lines = [row(186.0, (317.5, "Ability"), (380.1, "Score Measures"), font=HEADER),
+                 row(200.8, (317.1, "Strength"), (379.7, "Physical might"))]
+
+        # When the table is built
+        # Then no row is under a category
+        assert table([], lines, set()).under == []
+
+
 class TestTableEnd:
     def test_given_a_second_header_a_row_step_below_when_measured_then_a_new_table_starts(self):
         # Given page 160's Scrying tables, the second header 24pt below the first's last row
@@ -271,8 +298,8 @@ def rows(*labels: str) -> list[list[list[Run]]]:
 class TestExtendTable:
     def test_given_numbered_halves_when_extended_then_each_half_goes_on_in_order(self):
         # Given page 256's XP table: 0-10 beside 14-27, then 11-13 beside 28-30 (shortened)
-        start = Table([], [], rows("0", "1/8", "14", "15"), [256], [2, 2])
-        rest = Table([], [], rows("11", "28"), [256], [1, 1])
+        start = Table([], [], rows("0", "1/8", "14", "15"), [256], halves=[2, 2], indented=[False] * 4)
+        rest = Table([], [], rows("11", "28"), [256], halves=[1, 1], indented=[False] * 2)
 
         # When the rest is added
         extend_table(start, rest)
@@ -282,8 +309,9 @@ class TestExtendTable:
 
     def test_given_unnumbered_halves_when_extended_then_they_flow_half_by_half(self):
         # Given pages 101-102's Food, Drink, and Lodging, printed in flowing halves
-        start = Table([], [], rows("Ale", "Modest", "Comfortable", "Modest"), [101], [2, 2])
-        rest = Table([], [], rows("Comfortable", "Wine"), [102], [1, 1])
+        start = Table([], [], rows("Ale", "Modest", "Comfortable", "Modest"), [101], halves=[2, 2],
+                      indented=[False] * 4)
+        rest = Table([], [], rows("Comfortable", "Wine"), [102], halves=[1, 1], indented=[False] * 2)
 
         # When the rest is added
         extend_table(start, rest)
@@ -292,6 +320,19 @@ class TestExtendTable:
         assert [plain(r[0]) for r in start.rows] == [
             "Ale", "Modest", "Comfortable", "Modest", "Comfortable", "Wine"]
         assert start.pages == [101, 102]
+
+    def test_given_a_categorys_rows_broken_off_when_extended_then_they_stay_under_it(self):
+        # Given page 101's "Meal" and its first member, and page 102's last
+        meal = [[Run("Meal", italic=True)], []]
+        start = Table([], [], [meal, [[Run("Squalid")], [Run("1 CP")]]], [101], halves=[2],
+                      indented=[False, True])
+        rest = Table([], [], [[[Run("Aristocratic")], [Run("6 SP")]]], [102], halves=[1], indented=[True])
+
+        # When the rest is added
+        extend_table(start, rest)
+
+        # Then both members are under the category
+        assert start.under == [None, 0, 0]
 
 
 class TestWrapsField:

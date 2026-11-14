@@ -27,6 +27,8 @@ BLOCKS = [Heading(1, "Legal Information", 1),
           ListBlock(True, [[Paragraph([Run("Do.")], [2])]], [2], 3),
           Sidebar([Run("Round Down", bold=True)], [Paragraph([Run("Whenever.")], [2])], [2]),
           Table([Run("Scores", bold=True)], [[[Run("Score", bold=True)]]], [[[Run("1")]]], [2]),
+          Table([], [[[Run("Item", bold=True)], [Run("Cost", bold=True)]]],
+                [[[Run("Saddle", italic=True)], []], [[Run("Exotic")], [Run("60 GP")]]], [100], [None, 0]),
           StatBlock("Aboleth", [Run("Large Aberration", italic=True)], [Field("AC", [Run("17")])],
                     [["Str", "21", "+5", "+5"]],
                     [Section("Traits", [Paragraph([Run("Amphibious.", True, True)], [258])])], [258])]

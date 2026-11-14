@@ -31,6 +31,10 @@ HEADER_SIZES = (HEADER_FONT[1], CELL_FONT[1])
 ROW_STEP = 14.0
 # A labelled field's wrapped lines hang 8pt right of its label (page 94).
 HANG = 4.0
+# A category row (italic, its other cells empty) heads the rows indented under
+# it, by 8pt: Weapons, Armor, Tack, and Food, Drink, and Lodging (pages 91 to
+# 101). A row back at the column's edge ends the category ("Sled", page 100).
+CATEGORY_INDENT = 4.0
 
 
 def is_header_line(line: Line) -> bool:
@@ -149,12 +153,17 @@ def table(caption: list[Run], lines: list[Line], hyphenated: set[str]) -> Table:
     else:
         width = len(columns)
     body_cells = [cells_of(line, columns) for line in body]
-    halves = [wrapped_rows([cells[start:start + width] for cells in body_cells])
-              for start in range(0, len(columns), width)]
-    return Table(caption,
-                 [[runs_of(c, hyphenated) for c in cells[:width]] for cells in header_cells],
-                 [[runs_of(c, hyphenated) for c in row] for half in halves for row in half],
-                 pages_of(lines), [len(half) for half in halves])
+    starts = range(0, len(columns), width)
+    halves = [wrapped_rows([cells[start:start + width] for cells in body_cells]) for start in starts]
+    indented = []
+    for start, half in zip(starts, halves):
+        for row in half:
+            first = row[0]
+            indented.append(bool(first) and first[0].x0 - columns[start].x0 > CATEGORY_INDENT)
+    rows = [[runs_of(c, hyphenated) for c in row] for half in halves for row in half]
+    return Table(caption, [[runs_of(c, hyphenated) for c in cells[:width]] for cells in header_cells],
+                 rows, pages_of(lines), categories(rows, indented),
+                 halves=[len(half) for half in halves], indented=indented)
 
 
 def extend_table(table: Table, rest: Table) -> None:
@@ -166,18 +175,40 @@ def extend_table(table: Table, rest: Table) -> None:
     prints 0-10 beside 14-27, then 11-13 beside 28-30, page 256).
     """
     rows = table.rows + rest.rows
+    indented = table.indented + rest.indented
     if len(table.halves) > 1 and len(table.halves) == len(rest.halves):
-        interleaved, start, more = [], 0, 0
+        # Row indices, each half followed by its own rest.
+        order: list[int] = []
+        start, more = 0, len(table.rows)
         for size, extra in zip(table.halves, rest.halves):
-            interleaved += table.rows[start:start + size] + rest.rows[more:more + extra]
+            order += [*range(start, start + size), *range(more, more + extra)]
             start, more = start + size, more + extra
-        numbers = [number(plain(row[0])) for row in interleaved]
+        numbers = [number(plain(rows[i][0])) for i in order]
         if None not in numbers and numbers == sorted(numbers):
-            rows = interleaved
+            rows = [rows[i] for i in order]
+            indented = [indented[i] for i in order]
         table.halves = [a + b for a, b in zip(table.halves, rest.halves)]
-    table.rows = rows
+    table.rows, table.indented = rows, indented
+    table.under = categories(rows, indented)
     for page in rest.pages:
         add_page(table.pages, page)
+
+
+def categories(rows: list[list[list[Run]]], indented: list[bool]) -> list[int | None]:
+    """For each row, the index of the category row it is indented under, or None; empty if
+    no row is under one. A category row is italic, its other cells empty."""
+    under: list[int | None] = []
+    category = None
+    for i, (row, is_indented) in enumerate(zip(rows, indented)):
+        if len(row) > 1 and row[0] and all(r.italic for r in row[0]) and not any(row[1:]):
+            category = i
+            under.append(None)
+        elif is_indented and category is not None:
+            under.append(category)
+        else:
+            category = None
+            under.append(None)
+    return under if any(i is not None for i in under) else []
 
 
 def number(text: str) -> float | None:

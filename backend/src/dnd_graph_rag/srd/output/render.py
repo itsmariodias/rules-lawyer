@@ -24,6 +24,9 @@ _ORDERED_MARK = re.compile(r"^(\d+)\.")
 # The deepest heading, so a creature printed inside a spell or item nests under it.
 STAT_BLOCK_LEVEL = 6
 ABILITY_HEADER = ["Ability", "Score", "MOD", "SAVE"]
+# GFM tables cannot nest and trim leading spaces, so a row under a category
+# row is marked instead of indented as printed.
+CATEGORY_MEMBER = "\u21b3 "
 
 
 def render(blocks: list[Block]) -> str:
@@ -122,13 +125,18 @@ def render_field(field: Field) -> str:
 def render_table(block: Table) -> str:
     """A GFM table under its caption; header cells plain, since GFM bolds them.
 
-    GFM has one header row, so a column's labels are joined top to bottom.
+    GFM has one header row, so a column's labels are joined top to bottom. A
+    row under a category row starts with ``CATEGORY_MEMBER``.
     """
     width = max(len(row) for row in block.header + block.rows)
     header = [" ".join(label for row in block.header if (label := cell_text(row[i], plain_text=True)))
               for i in range(width)] if block.header else [""] * width
     lines = [row_text(header), row_text(["---"] * width)]
-    lines += [row_text([cell_text(c) for c in row]) for row in block.rows]
+    for i, row in enumerate(block.rows):
+        cells = [cell_text(c) for c in row]
+        if block.under and block.under[i] is not None:
+            cells[0] = CATEGORY_MEMBER + cells[0]
+        lines.append(row_text(cells))
     table = "\n".join(lines)
     return f"{render_runs(block.caption)}\n\n{table}" if block.caption else table
 

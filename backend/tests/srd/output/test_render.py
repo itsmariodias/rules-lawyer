@@ -81,6 +81,17 @@ class TestRender:
         assert render([block]) == ("**Ability Scores**\n\n| Score | Meaning |\n| --- | --- |\n"
                                    "| 1 | Lowest \\| rare |\n")
 
+    def test_given_rows_under_a_category_when_rendered_then_they_are_marked(self):
+        # Given page 100's Tack: Exotic under "Saddle", Sled under nothing
+        block = Table([], [[[Run("Item", bold=True)], [Run("Cost", bold=True)]]],
+                      [[[Run("Saddle", italic=True)], []], [[Run("Exotic")], [Run("60 GP")]],
+                       [[Run("Sled")], [Run("20 GP")]]], [100], [None, 0, None])
+
+        # When rendered
+        # Then only the member is marked
+        assert render([block]).splitlines()[2:] == [
+            "| _Saddle_ |  |", "| \u21b3 Exotic | 60 GP |", "| Sled | 20 GP |"]
+
     def test_given_a_header_of_two_lines_when_rendered_then_each_column_joins_its_labels(self):
         # Given Travel Pace's header: a label over Minute, then the column labels
         block = Table([], [[[], [Run("Distance Traveled Per …")]], [[Run("Pace")], [Run("Minute")]]],

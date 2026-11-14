@@ -78,8 +78,14 @@ class Table:
     header: list[list[list[Run]]]
     rows: list[list[list[Run]]]
     pages: list[int]
-    # Rows from each side-by-side half, while the table is read; not in the JSON.
+    # For each row, the index of the category row it is printed under, or None
+    # ("Saddle" over Exotic, Military and Riding, not Sled, page 100); empty
+    # when the table has no categories.
+    under: list[int | None] = field(default_factory=list)
+    # While the table is read, not in the JSON: rows from each side-by-side
+    # half, and whether each row's first cell is indented from its label.
     halves: list[int] = field(default_factory=list, compare=False, repr=False)
+    indented: list[bool] = field(default_factory=list, compare=False, repr=False)
 
 
 @dataclass

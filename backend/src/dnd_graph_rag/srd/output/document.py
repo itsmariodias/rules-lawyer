@@ -70,9 +70,12 @@ def block_json(block: Block) -> dict:
             return {"type": "sidebar", "pages": block.pages, "title": runs_json(block.title),
                     "blocks": [block_json(b) for b in block.blocks]}
         case Table():
-            return {"type": "table", "pages": block.pages, "caption": runs_json(block.caption),
+            data = {"type": "table", "pages": block.pages, "caption": runs_json(block.caption),
                     "header": [[runs_json(c) for c in row] for row in block.header],
                     "rows": [[runs_json(c) for c in row] for row in block.rows]}
+            if block.under:
+                data["under"] = block.under
+            return data
         case StatBlock():
             return {"type": "statblock", "pages": block.pages, "name": block.name,
                     "subtitle": runs_json(block.subtitle),
@@ -101,7 +104,8 @@ def block_of(data: dict) -> Block:
         case "table":
             return Table(runs_of_json(data["caption"]),
                          [[runs_of_json(c) for c in row] for row in data["header"]],
-                         [[runs_of_json(c) for c in row] for row in data["rows"]], data["pages"])
+                         [[runs_of_json(c) for c in row] for row in data["rows"]], data["pages"],
+                         data.get("under", []))
         case "statblock":
             return StatBlock(data["name"], runs_of_json(data["subtitle"]),
                              [Field(f["label"], runs_of_json(f["value"])) for f in data["fields"]],
