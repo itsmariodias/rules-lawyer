@@ -91,12 +91,26 @@ def render_book(title: str, sections: list[Section],
 
 
 def section_text(section: Section) -> str:
-    """A section's own text, without its heading or subsections, as the markdown renders it."""
+    """A section's own text, without its heading or subsections, as the markdown renders it.
+
+    Args:
+        section: A section.
+
+    Returns:
+        Its blocks' markdown, a blank line between them.
+    """
     return "\n\n".join(render_block(untitled(block)) for block in section.blocks)
 
 
 def untitled(block: Block) -> Block:
-    """A float without the caption, title or name its section's heading shows."""
+    """A float without the caption, title or name its section's heading shows.
+
+    Args:
+        block: Any block.
+
+    Returns:
+        A copy without it for a float; any other block unchanged.
+    """
     match block:
         case Table():
             return replace(block, caption=[])
@@ -108,7 +122,14 @@ def untitled(block: Block) -> Block:
 
 
 def render_block(block: Block) -> str:
-    """One block as markdown."""
+    """One block as markdown.
+
+    Args:
+        block: Any block.
+
+    Returns:
+        Its markdown, without a trailing newline.
+    """
     match block:
         case Heading():
             return f"{'#' * block.level} {block.text}"
@@ -128,14 +149,28 @@ def render_block(block: Block) -> str:
 
 
 def render_contents(block: Contents) -> str:
-    """A nested list, one item per entry, indented by level, page last."""
+    """A nested list, one item per entry, indented by level, page last.
+
+    Args:
+        block: A run of contents entries.
+
+    Returns:
+        The list's markdown.
+    """
     top = min(e.level for e in block.entries)
     return "\n".join(f"{'  ' * (e.level - top)}- {render_runs(e.runs)} (p. {e.page})"
                      for e in block.entries)
 
 
 def render_list(block: ListBlock) -> str:
-    """One item per line; an item's later blocks indented beneath it."""
+    """One item per line; an item's later blocks indented beneath it.
+
+    Args:
+        block: A list.
+
+    Returns:
+        The list's markdown.
+    """
     items = []
     for number, item in enumerate(block.items, start=block.start):
         marker = f"{number}." if block.ordered else "-"
@@ -146,14 +181,28 @@ def render_list(block: ListBlock) -> str:
 
 
 def render_sidebar(block: Sidebar) -> str:
-    """A blockquote: the title in bold, then the sidebar's blocks."""
+    """A blockquote: the title in bold, then the sidebar's blocks.
+
+    Args:
+        block: A sidebar.
+
+    Returns:
+        The blockquote's markdown.
+    """
     parts = ([f"**{plain(block.title)}**"] if block.title else []) + [render_block(b) for b in block.blocks]
     return "\n".join("> " + line if line else ">" for line in "\n\n".join(parts).split("\n"))
 
 
 def render_stat_block(block: StatBlock) -> str:
     """A stat block: its name as a heading (if it has one here), a line per field, the scores
-    as a table after Speed, and each section under its bold title."""
+    as a table after Speed, and each section under its bold title.
+
+    Args:
+        block: A stat block.
+
+    Returns:
+        Its markdown.
+    """
     parts = [f"{'#' * STAT_BLOCK_LEVEL} {block.name}"] if block.name else []
     parts.append(render_runs(block.subtitle))
     for field in block.fields:
@@ -168,7 +217,14 @@ def render_stat_block(block: StatBlock) -> str:
 
 
 def render_field(field: Field) -> str:
-    """A field as its bold label and value."""
+    """A field as its bold label and value.
+
+    Args:
+        field: A stat block field.
+
+    Returns:
+        One line of markdown.
+    """
     return f"**{field.label}** {render_runs(field.value)}"
 
 
@@ -177,6 +233,12 @@ def render_table(block: Table) -> str:
 
     GFM has one header row, so a column's labels are joined top to bottom. A
     row under a category row starts with ``CATEGORY_MEMBER``.
+
+    Args:
+        block: A table.
+
+    Returns:
+        The caption, if any, a blank line, then the table.
     """
     width = max(len(row) for row in block.header + block.rows)
     header = [" ".join(label for row in block.header if (label := cell_text(row[i], plain_text=True)))
@@ -192,28 +254,64 @@ def render_table(block: Table) -> str:
 
 
 def row_text(cells: list[str]) -> str:
-    """One GFM table row."""
+    """One GFM table row.
+
+    Args:
+        cells: Each cell's markdown.
+
+    Returns:
+        The row, pipes around and between the cells.
+    """
     return "| " + " | ".join(cells) + " |"
 
 
 def cell_text(runs: list[Run], plain_text: bool = False) -> str:
-    """A cell's markdown, with pipes escaped."""
+    """A cell's markdown, with pipes escaped.
+
+    Args:
+        runs: The cell's runs.
+        plain_text: Drop the runs' styles, as for a header cell.
+
+    Returns:
+        The cell's markdown.
+    """
     text = _SPECIAL.sub(r"\\\1", plain(runs)) if plain_text else render_runs(runs)
     return text.replace("|", "\\|")
 
 
 def render_runs(runs: list[Run]) -> str:
-    """Runs as inline markdown."""
+    """Runs as inline markdown.
+
+    Args:
+        runs: Runs in order.
+
+    Returns:
+        Their markdown, escaped and emphasised.
+    """
     return "".join(render_run(r) for r in runs)
 
 
 def escape_start(text: str) -> str:
-    """Escape what markdown would read as a block marker at the start of a line."""
+    """Escape what markdown would read as a block marker at the start of a line.
+
+    Args:
+        text: A paragraph's markdown.
+
+    Returns:
+        The text, a leading "#", ">", "+", "-" or "1." escaped.
+    """
     return _ORDERED_MARK.sub(r"\1\\.", _BLOCK_MARK.sub(r"\\\1", text))
 
 
 def render_run(run: Run) -> str:
-    """One run, escaped, with emphasis outside its edge whitespace."""
+    """One run, escaped, with emphasis outside its edge whitespace.
+
+    Args:
+        run: A run.
+
+    Returns:
+        Its markdown.
+    """
     text = _SPECIAL.sub(r"\\\1", run.text)
     core = text.strip()
     if not core or not (run.bold or run.italic):

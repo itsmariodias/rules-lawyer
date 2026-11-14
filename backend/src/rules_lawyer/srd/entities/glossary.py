@@ -8,9 +8,9 @@ paragraphs in "Poison". Each names the section that defines it.
 from __future__ import annotations
 
 from rules_lawyer.srd.entities.records import source
-from rules_lawyer.srd.model import Paragraph, Section, Table, plain
+from rules_lawyer.srd.model import Paragraph, Section, plain
 from rules_lawyer.srd.output.render import render_runs, section_text
-from rules_lawyer.srd.sections import walk
+from rules_lawyer.srd.sections import captioned_tables, walk
 from rules_lawyer.srd.vocabulary import (
     Action,
     AreaOfEffect,
@@ -43,8 +43,7 @@ def glossary(sections: list[Section], pdf: str) -> list[dict]:
         names = sorted(term["name"] for term in terms if term["term_type"] == term_type)
         if names != sorted(vocabulary):
             raise ValueError(f"the glossary's {term_type} terms are {names}, not {sorted(vocabulary)}")
-    damage = next(s for s in walk(sections) if len(s.blocks) == 1 and isinstance(s.blocks[0], Table)
-                  and plain(s.blocks[0].caption) == "Damage Types")
+    damage = captioned_tables(sections)["Damage Types"]
     rows = [[plain(cell).strip() for cell in row] for row in damage.blocks[0].rows]
     if sorted(name for name, _ in rows) != sorted(DamageType):
         raise ValueError(f"the Damage Types table lists {[name for name, _ in rows]}, not the 13 damage types")
@@ -59,6 +58,17 @@ def glossary(sections: list[Section], pdf: str) -> list[dict]:
 
 
 def record(name: str, term_type: TermType, text: str, section: Section, pdf: str) -> dict:
-    """One glossary record."""
+    """One glossary record.
+
+    Args:
+        name: The term.
+        term_type: What kind of term it is.
+        text: Its description.
+        section: The section defining it.
+        pdf: The PDF's file name, recorded in ``source``.
+
+    Returns:
+        ``name``, ``term_type``, ``description``, ``section_id`` and ``source``.
+    """
     return {"name": name, "term_type": term_type, "description": text, "section_id": section.id,
             "source": source(section, pdf)}

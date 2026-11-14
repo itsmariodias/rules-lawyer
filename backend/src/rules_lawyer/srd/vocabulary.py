@@ -207,5 +207,12 @@ class Target(StrEnum):
 
 
 def alternatives(vocabulary: type[StrEnum]) -> str:
-    """A regex alternation of a vocabulary's values, longest first ("Very Rare" before "Rare")."""
+    """A regex alternation of a vocabulary's values, longest first ("Very Rare" before "Rare").
+
+    Args:
+        vocabulary: A ``StrEnum``.
+
+    Returns:
+        The values joined with "|", unescaped.
+    """
     return "|".join(sorted((member.value for member in vocabulary), key=len, reverse=True))

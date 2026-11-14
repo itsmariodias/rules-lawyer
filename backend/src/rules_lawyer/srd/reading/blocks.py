@@ -174,6 +174,13 @@ def caption_lines(lines: list[Line], start: int) -> list[Line]:
 
     A caption may wrap ("Multiclass Spellcaster: / Spell Slots per Spell
     Level", page 26).
+
+    Args:
+        lines: The book's lines.
+        start: Where the caption would begin.
+
+    Returns:
+        The caption's lines, or empty if no table follows in the same column.
     """
     end = start
     while (end < len(lines) and heading_level(lines[end]) == CAPTION_LEVEL
@@ -186,8 +193,17 @@ def caption_lines(lines: list[Line], start: int) -> list[Line]:
 
 def take(lines: list[Line], start: int, keep: Callable[[Line], bool],
          same: Callable[[Line], Hashable] | None = None) -> list[Line]:
-    """The run of lines from ``start`` for which ``keep`` holds and, if given, ``same`` is
-    what it is for the first."""
+    """The run of lines from ``start`` that all belong together.
+
+    Args:
+        lines: The book's lines.
+        start: The first line of the run.
+        keep: Whether a line can be in the run.
+        same: If given, every line must give what the first line gives.
+
+    Returns:
+        The lines from ``start`` up to the first that fails either test.
+    """
     end = start
     while (end < len(lines) and keep(lines[end])
            and (same is None or same(lines[end]) == same(lines[start]))):
@@ -196,24 +212,53 @@ def take(lines: list[Line], start: int, keep: Callable[[Line], bool],
 
 
 def frame_key(line: Line) -> tuple[int, int | None]:
-    """Which sidebar frame a line is printed in: its page and frame."""
+    """Which sidebar frame a line is printed in.
+
+    Args:
+        line: A line of the book.
+
+    Returns:
+        Its page and frame index (None outside a frame).
+    """
     return line.page, line.frame
 
 
 def ends_sentence(line: Line) -> bool:
-    """Whether the line's text ends a sentence (or a clause before a colon)."""
+    """Whether the line's text ends a sentence (or a clause before a colon).
+
+    Args:
+        line: A line of the book.
+
+    Returns:
+        True if it ends in ".", "!", "?" or ":", closing quotes or brackets allowed after.
+    """
     return bool(_SENTENCE_END.search(line.text.rstrip()))
 
 
 def heading_level(line: Line) -> int | None:
-    """The heading level if every span is heading type, else None."""
+    """The line's heading level, from its font and size.
+
+    Args:
+        line: A line of the book.
+
+    Returns:
+        1 to 5 if every span is heading type at a heading size, else None.
+    """
     if all(s.font in HEADING_FONTS for s in line.spans):
         return HEADING_LEVELS.get(line.size)
     return None
 
 
 def continues(prev: Line | None, line: Line) -> bool:
-    """Whether ``line`` is the next line of the same column after ``prev``."""
+    """Whether ``line`` is the next line of the same column after ``prev``.
+
+    Args:
+        prev: The line before, or None.
+        line: The line that may follow it.
+
+    Returns:
+        True if both share page, column and frame, and ``line`` sits within a line step below ``prev``.
+    """
     return (prev is not None
             and (prev.page, prev.column, prev.frame) == (line.page, line.column, line.frame)
             and 0 < line.baseline - prev.baseline <= LINE_STEP * line.size + PARAGRAPH_SLACK)
@@ -225,6 +270,14 @@ def continues_across(prev: Line, line: Line, hanging: bool) -> bool:
     It does unless ``prev`` ends a sentence and the next word would have fitted
     on it: line breaking fills a line while the next word fits. A hanging
     paragraph goes on only with an indented line, any other only at the edge.
+
+    Args:
+        prev: The last line of the paragraph so far.
+        line: The first line of the next column or page.
+        hanging: Whether the paragraph is a hanging one (``is_hanging``).
+
+    Returns:
+        True if ``line`` continues the paragraph.
     """
     next_column = (prev.page, prev.column + 1)
     next_page = (prev.page + 1, 0)
@@ -246,6 +299,13 @@ def starts_paragraph(para: list[Line], line: Line) -> bool:
     page 13) always starts one. A hanging paragraph ("**Weapons.** Anyone
     can...", page 9) starts at the edge with a bold lead and indents the rest,
     so in it a line back at the edge starts the next.
+
+    Args:
+        para: The open paragraph's lines, at least one.
+        line: The line after them.
+
+    Returns:
+        True if ``line`` starts a paragraph of its own.
     """
     prev = para[-1]
     span = line.spans[0]
@@ -277,13 +337,27 @@ def continues_table(prev: Block, block: Block) -> bool:
 
     A table broken by a column or page break prints its header again on the
     other side (Actions, pages 9 and 10).
+
+    Args:
+        prev: The block placed last.
+        block: The block about to be placed.
+
+    Returns:
+        True if both are tables and ``block`` goes on with ``prev``.
     """
     return (isinstance(prev, Table) and isinstance(block, Table) and not block.caption
             and block.header == prev.header)
 
 
 def has_lead(line: Line) -> bool:
-    """Whether the line starts with a bold run ending a sentence, plain text after it."""
+    """Whether the line starts with a bold run ending a sentence, plain text after it.
+
+    Args:
+        line: A line of the book.
+
+    Returns:
+        True for a lead such as "**Weapons.** Anyone can...".
+    """
     first = line.spans[0]
     # The stop may be set plain after the bold ("**Touch**.", page 105).
     lead = first.text.rstrip() + (line.spans[1].text[:1] if len(line.spans) > 1 else "")
@@ -293,32 +367,69 @@ def has_lead(line: Line) -> bool:
 
 
 def is_formula(line: Line) -> bool:
-    """Whether the line sets out a formula: a bold label, then "=" ("**Spell save DC** =
-    8 + ...", page 23; "**Miles per day** (Normal pace) = ...", page 192)."""
+    """Whether the line sets out a formula: a bold label, then "=".
+
+    As in "**Spell save DC** = 8 + ..." (page 23) and "**Miles per day**
+    (Normal pace) = ..." (page 192).
+
+    Args:
+        line: A line of the book.
+
+    Returns:
+        True if an "=" follows the bold label in the line's first sentence.
+    """
     return (len(line.spans) > 1 and is_bold(line.spans[0])
             and "=" in "".join(s.text for s in line.spans[1:]).split(".")[0])
 
 
 def is_hanging(para: list[Line]) -> bool:
-    """Whether the paragraph has a bold lead at the edge and indents its later lines."""
+    """Whether the paragraph has a bold lead at the edge and indents its later lines.
+
+    Args:
+        para: A paragraph's lines.
+
+    Returns:
+        True for a paragraph of two or more lines laid out that way.
+    """
     # The bold need not end a sentence: "**Aberrations** are ..." (page 254).
     return (len(para) > 1 and len(para[0].spans) > 1 and is_bold(para[0].spans[0])
             and not is_indented(para[0]) and is_indented(para[1]))
 
 
 def is_indented(line: Line) -> bool:
-    """Whether the line starts right of its column's edge."""
+    """Whether the line starts right of its column's edge.
+
+    Args:
+        line: A line with its column's ``left`` edge set.
+
+    Returns:
+        True if it starts more than ``INDENT`` right of the edge.
+    """
     return line.x0 - line.left > INDENT
 
 
 def is_term_line(line: Line) -> bool:
-    """Whether the line is a row of a grid of names: term type, at its column's edge."""
+    """Whether the line is a row of a grid of names: term type, at its column's edge.
+
+    Args:
+        line: A line of the book.
+
+    Returns:
+        True if every span is ``TERM_FONT`` and the line is neither framed nor indented.
+    """
     return (line.frame is None and not is_indented(line)
             and all(s.face == TERM_FONT for s in line.spans))
 
 
 def term_list(lines: list[Line]) -> ListBlock:
-    """A grid of names as a bulleted list, read down each column in turn."""
+    """A grid of names as a bulleted list, read down each column in turn.
+
+    Args:
+        lines: The grid's lines, from ``take`` with ``is_term_line``.
+
+    Returns:
+        An unordered list, one name per item.
+    """
     edges = sorted({round(s.x0) for line in lines for s in line.spans})
     spans = sorted((s for line in lines for s in line.spans),
                    key=lambda s: edges.index(round(s.x0)))
@@ -327,7 +438,14 @@ def term_list(lines: list[Line]) -> ListBlock:
 
 
 def is_key_line(line: Line) -> bool:
-    """Whether the line is in a grid of labels and meanings: label and term type only."""
+    """Whether the line is in a grid of labels and meanings: label and term type only.
+
+    Args:
+        line: A line of the book.
+
+    Returns:
+        True if every span is ``KEY_FONT`` or ``TERM_FONT`` and the line is not framed.
+    """
     return line.frame is None and all(s.face in (KEY_FONT, TERM_FONT) for s in line.spans)
 
 
@@ -337,6 +455,12 @@ def key_list(lines: list[Line]) -> ListBlock:
     It starts on a line with a label in each half ("AC Armor Class", "M Material
     component", page 176). The halves set their lines apart, and a meaning
     wraps onto a line of its own ("Nonplayer / character").
+
+    Args:
+        lines: The grid's lines, from ``take`` with ``is_key_line``.
+
+    Returns:
+        An unordered list, one bold label and its meaning per item.
     """
     halves = [s.x0 for s in lines[0].spans if s.face == KEY_FONT]
     entries: list[list[list[str]]] = [[] for _ in halves]
@@ -354,7 +478,15 @@ def key_list(lines: list[Line]) -> ListBlock:
 
 
 def item_lines(lines: list[Line], start: int) -> list[Line]:
-    """A list item: its marker line and the indented lines hanging under it."""
+    """A list item: its marker line and the indented lines hanging under it.
+
+    Args:
+        lines: The book's lines.
+        start: The item's marker line.
+
+    Returns:
+        The item's lines, the marker line first.
+    """
     item = [lines[start]]
     for line in lines[start + 1:]:
         if (line.frame is not None or heading_level(line) is not None or _MARKER.match(line.text)
@@ -365,7 +497,15 @@ def item_lines(lines: list[Line], start: int) -> list[Line]:
 
 
 def paragraph(lines: list[Line], hyphenated: set[str]) -> Paragraph:
-    """Join a paragraph's lines into runs."""
+    """Join a paragraph's lines into runs.
+
+    Args:
+        lines: The paragraph's lines.
+        hyphenated: Output of ``compounds``, for undoing hyphenation.
+
+    Returns:
+        The paragraph, a quote if every line is indented and it is not a formula.
+    """
     # A formula is centred, so indented, but displayed rather than quoted.
     quote = (len(lines) > 1 and all(is_indented(line) for line in lines)
              and not is_formula(lines[0]))
@@ -374,14 +514,28 @@ def paragraph(lines: list[Line], hyphenated: set[str]) -> Paragraph:
 
 
 def continues_list(blocks: list[Block], line: Line) -> bool:
-    """Whether the item ``line`` starts adds to the list just before it."""
+    """Whether the item ``line`` starts adds to the list just before it.
+
+    Args:
+        blocks: The blocks read so far.
+        line: A list item's marker line.
+
+    Returns:
+        True if the last block is a list of the same kind, numbered or bulleted.
+    """
     last = blocks[-1] if blocks else None
     ordered = _MARKER.match(line.text).group("number") is not None
     return isinstance(last, ListBlock) and last.ordered == ordered
 
 
 def add_item(blocks: list[Block], lines: list[Line], hyphenated: set[str]) -> None:
-    """Add a list item, continuing the list just before it if it is the same kind."""
+    """Add a list item, continuing the list just before it if it is the same kind.
+
+    Args:
+        blocks: The blocks read so far; the item is added in place.
+        lines: The item's lines, from ``item_lines``.
+        hyphenated: Output of ``compounds``, for undoing hyphenation.
+    """
     number = _MARKER.match(lines[0].text).group("number")
     runs = runs_of(lines, hyphenated)
     runs[0].text = _MARKER_TEXT.sub("", runs[0].text)
@@ -397,7 +551,15 @@ def add_item(blocks: list[Block], lines: list[Line], hyphenated: set[str]) -> No
 
 
 def sidebar(lines: list[Line], hyphenated: set[str]) -> Sidebar:
-    """A sidebar: its small-caps title, then its other lines read as blocks."""
+    """A sidebar: its small-caps title, then its other lines read as blocks.
+
+    Args:
+        lines: Every line inside one frame.
+        hyphenated: Output of ``compounds``, for undoing hyphenation.
+
+    Returns:
+        The sidebar, its title empty if the first line is not small caps.
+    """
     has_title = all(SMALL_CAPS in s.font for s in lines[0].spans)
     title = runs_of(lines[:1], hyphenated) if has_title else []
     body = [replace(line, frame=None) for line in lines[1 if has_title else 0:]]
@@ -405,7 +567,13 @@ def sidebar(lines: list[Line], hyphenated: set[str]) -> Sidebar:
 
 
 def add_entry(blocks: list[Block], entry: Entry, lines: list[Line]) -> None:
-    """Add a contents entry printed on ``lines``, continuing the contents block just before it."""
+    """Add a contents entry, continuing the contents block just before it.
+
+    Args:
+        blocks: The blocks read so far; the entry is added in place.
+        entry: The entry, from ``contents_entry``.
+        lines: The lines it is printed on.
+    """
     if blocks and isinstance(blocks[-1], Contents):
         blocks[-1].entries.append(entry)
         add_page(blocks[-1].pages, lines[-1].page)
@@ -415,7 +583,15 @@ def add_entry(blocks: list[Block], entry: Entry, lines: list[Line]) -> None:
 
 
 def contents_entry(lines: list[Line], hyphenated: set[str]) -> Entry:
-    """One contents entry from its lines, the last ending in leader and page."""
+    """One contents entry from its lines, the last ending in leader and page.
+
+    Args:
+        lines: The entry's lines.
+        hyphenated: Output of ``compounds``, for undoing hyphenation.
+
+    Returns:
+        The entry: level 1 if bold, 3 if indented, else 2.
+    """
     runs = runs_of(lines, hyphenated)
     found = _ENTRY.match(runs[-1].text)
     runs[-1].text = found.group("text")

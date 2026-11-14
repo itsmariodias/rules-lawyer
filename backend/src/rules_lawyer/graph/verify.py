@@ -1,5 +1,4 @@
-"""
-Post-load checks of the graph against the artifact's own counts.
+"""Post-load checks of the graph against the artifact's own counts.
 
 Expected values come from the document (``meta.counts`` and its
 collections), never from the loader's tally.
@@ -18,25 +17,18 @@ if TYPE_CHECKING:  # pragma: no cover
     from neo4j import Session
 
 
-def _scalar(session: "Session", query: str, **parameters: Any) -> Any:
+def _scalar(session: Session, query: str, **parameters: Any) -> Any:
     return session.run(query, **parameters).single()[0]
 
 
 def _sections_with_prose(document: dict) -> int:
-    """
-    Sections with non-blank content, counted from the document.
+    """Sections with non-blank content, counted from the document.
 
     Matches the keys ``embeddings.texts`` produces, so a stale ``.idx`` fails
     the embedding check.
     """
-    total = 0
-    stack = list(document.get("sections") or [])
-    while stack:
-        node = stack.pop()
-        if (node.get("content") or "").strip():
-            total += 1
-        stack.extend(node.get("subsections") or [])
-    return total
+    return sum(1 for node in mapping.walk(document.get("sections") or [])
+               if (node.get("content") or "").strip())
 
 
 def _check(checks: list[dict], name: str, expected: Any, found: Any,
@@ -48,10 +40,9 @@ def _check(checks: list[dict], name: str, expected: Any, found: Any,
     checks.append(row)
 
 
-def verify(document: dict, data: GraphData, session: "Session",
+def verify(document: dict, data: GraphData, session: Session,
            vectors: Vectors) -> dict:
-    """
-    Compare the loaded graph with the document and the mapped batches.
+    """Compare the loaded graph with the document and the mapped batches.
 
     Args:
         document: The stage 1 artifact.
@@ -163,8 +154,7 @@ def verify(document: dict, data: GraphData, session: "Session",
            detail=data.unresolved[:20])
 
     abilities = sum(1 for creature in document["creatures"]
-                    for field in ("traits", "actions", "bonus_actions",
-                                  "reactions", "legendary_actions")
+                    for field in mapping.ABILITY_LISTS
                     for _ in creature.get(field) or [])
     _check(checks, "creature abilities", abilities,
            _scalar(session, "MATCH (n:CreatureAbility) RETURN count(n)"))
@@ -173,8 +163,7 @@ def verify(document: dict, data: GraphData, session: "Session",
                             "WHERE NOT (:Creature)-[:HAS_ABILITY]->(n) "
                             "RETURN count(n)"))
     with_damage = sum(1 for creature in document["creatures"]
-                      for field in ("traits", "actions", "bonus_actions",
-                                    "reactions", "legendary_actions")
+                      for field in mapping.ABILITY_LISTS
                       for entry in creature.get(field) or []
                       if entry.get("damage"))
     _check(checks, "abilities carrying damage", with_damage,

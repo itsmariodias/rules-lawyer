@@ -129,23 +129,52 @@ class Book:
 
 
 def word_gap(before: Span, span: Span) -> bool:
-    """Whether a word space separates two spans of a line that print none between them."""
+    """Whether a word space separates two spans of a line that print none between them.
+
+    Args:
+        before: The span on the left.
+        span: The span after it.
+
+    Returns:
+        True if the gap between them is wider than ``WORD_GAP``.
+    """
     return span.x0 - before.x1 > WORD_GAP
 
 
 def column_key(line: Line) -> tuple[int, int]:
-    """Where a line is printed: its page and column."""
+    """Where a line is printed.
+
+    Args:
+        line: A line of the book.
+
+    Returns:
+        Its page and column.
+    """
     return line.page, line.column
 
 
 def boxes_of(lines: list[Line]) -> list[Box]:
-    """Each line's box: its spans' extent, from its baseline up by ``ASCENT`` and down by ``DESCENT``."""
+    """Each line's box: its spans' extent, from its baseline up by ``ASCENT`` and down by ``DESCENT``.
+
+    Args:
+        lines: Lines of the book.
+
+    Returns:
+        One box per line, in PDF points rounded to 0.1.
+    """
     return [Box(line.page, round(line.x0, 1), round(line.baseline - ASCENT * line.size, 1),
                 round(line.x1, 1), round(line.baseline + DESCENT * line.size, 1)) for line in lines]
 
 
 def pages_of(lines: list[Line]) -> list[int]:
-    """The pages the lines are printed on, in order, each once."""
+    """The pages the lines are printed on.
+
+    Args:
+        lines: Lines of the book.
+
+    Returns:
+        The page numbers in order, each once.
+    """
     return sorted({line.page for line in lines})
 
 
@@ -243,6 +272,12 @@ def attach_superscripts(spans: list[Span]) -> list[Span]:
     A superscript is smaller, touches the span's end, and sits above its
     baseline: "Special" and a dagger 3.2pt up (Travel Terrain, page 192), too
     far for ``BASELINE_TOLERANCE``.
+
+    Args:
+        spans: A page's spans; the spans superscripts join are changed in place.
+
+    Returns:
+        The spans less the superscripts.
     """
     kept = []
     for span in spans:
@@ -257,8 +292,17 @@ def attach_superscripts(spans: list[Span]) -> list[Span]:
 
 
 def is_table_or_note(span: Span) -> bool:
-    """Whether a span is a table's: a header or cell, or a note under it, which may run
-    the page's width (GillSans 8pt and its daggers, Travel Terrain, page 192)."""
+    """Whether a span is a table's: a header or cell, or a note under it.
+
+    A note may run the page's width (GillSans 8pt and its daggers, Travel
+    Terrain, page 192).
+
+    Args:
+        span: A span of the page.
+
+    Returns:
+        True for a table's span.
+    """
     return span.face in TABLE_FONTS or (span.font.startswith("GillSans") and span.size <= TABLE_NOTE)
 
 
@@ -267,6 +311,9 @@ def set_edges(lines: list[Line]) -> None:
 
     The right edge is the column's text, not its tables: a table across both
     columns would put it at the far margin.
+
+    Args:
+        lines: A page's lines, given ``right`` (and ``left`` if framed) in place.
     """
     groups: dict[tuple[int, int | None], list[Line]] = {}
     for line in lines:
@@ -283,13 +330,28 @@ def set_edges(lines: list[Line]) -> None:
 
 
 def filled(drawing: dict, shade: float) -> bool:
-    """Whether a drawing is filled in the given grey."""
+    """Whether a drawing is filled in the given grey.
+
+    Args:
+        drawing: A drawing from ``Page.get_drawings``.
+        shade: The grey level, 0 black to 1 white.
+
+    Returns:
+        True if every colour component is within ``FILL_TOLERANCE`` of it.
+    """
     fill = drawing.get("fill")
     return bool(fill) and all(abs(c - shade) < FILL_TOLERANCE for c in fill)
 
 
 def sidebar_frames(drawings: list[dict]) -> list[pymupdf.Rect]:
-    """The page's sidebar boxes: light grey fills with a dark shadow behind."""
+    """The page's sidebar boxes: light grey fills with a dark shadow behind.
+
+    Args:
+        drawings: The page's drawings.
+
+    Returns:
+        The frames' rectangles.
+    """
     shadows = [d["rect"] for d in drawings if filled(d, SHADOW_FILL)]
     return [d["rect"] for d in drawings if filled(d, SIDEBAR_FILL)
             and any(s.x0 < d["rect"].x0 and s.y1 > d["rect"].y1 and s.intersects(d["rect"])
@@ -300,6 +362,13 @@ def row_shading(drawings: list[dict], frames: list[pymupdf.Rect]) -> list[pymupd
     """The shaded table rows: sidebar-grey rectangles outside sidebar frames.
 
     Rows alternate, so every row boundary is a change of shading (page 27).
+
+    Args:
+        drawings: The page's drawings.
+        frames: Its sidebar frames, from ``sidebar_frames``.
+
+    Returns:
+        One rectangle per shaded row.
     """
     return [pymupdf.Rect(item[1]) for d in drawings
             if filled(d, SIDEBAR_FILL) and d["rect"] not in frames
@@ -311,6 +380,13 @@ def shaded_across(shading: list[pymupdf.Rect], edges: list[float]) -> list[pymup
 
     Shading starting just left of the second edge is that column's own: the
     edge is measured from text inset in the shading (317 over 313.5, page 27).
+
+    Args:
+        shading: The page's table shading.
+        edges: Its column edges.
+
+    Returns:
+        The shading crossing the gutter; empty on a one-column page.
     """
     if len(edges) < 2:
         return []
@@ -348,6 +424,13 @@ def spanning_cells(spans: list[Span], shading: list[pymupdf.Rect]) -> set[int]:
 
     Each shaded band takes the table spans on its baselines, then grows a row
     at a time to the unshaded rows and header above and below it.
+
+    Args:
+        spans: The page's spans.
+        shading: Shading across the gutter, from ``shaded_across``.
+
+    Returns:
+        The ``id`` of each span in such a table.
     """
     cells = [span for span in spans if span.face in TABLE_TYPE]
     wide: set[int] = set()
@@ -365,12 +448,27 @@ def spanning_cells(spans: list[Span], shading: list[pymupdf.Rect]) -> set[int]:
 
 
 def frame_of(span: Span, frames: list[pymupdf.Rect]) -> int | None:
-    """The index of the frame a span is printed in, or None."""
+    """The index of the frame a span is printed in.
+
+    Args:
+        span: A span of the page.
+        frames: The page's sidebar frames.
+
+    Returns:
+        The frame's index, or None outside every frame.
+    """
     return next((i for i, rect in enumerate(frames) if rect.contains(inside(span))), None)
 
 
 def inside(span: Span) -> pymupdf.Point:
-    """A point just inside the span's start, for testing which box it is printed in."""
+    """A point just inside the span's start, for testing which box it is printed in.
+
+    Args:
+        span: A span of the page.
+
+    Returns:
+        A point 1pt right of its start and 1pt above its baseline.
+    """
     return pymupdf.Point(span.x0 + 1, span.baseline - 1)
 
 
@@ -420,5 +518,13 @@ def column_edges(starts: Counter[float], prose: Counter[float], spans: list[Span
 
 
 def column_of(x0: float, edges: list[float]) -> int:
-    """The column a span starting at ``x0`` belongs to: the last edge at or left of it."""
+    """The column a span starting at ``x0`` belongs to: the last edge at or left of it.
+
+    Args:
+        x0: The span's left edge.
+        edges: The page's column edges, left to right.
+
+    Returns:
+        The column's index; 0 if the span starts left of every edge.
+    """
     return max((i for i, edge in enumerate(edges) if edge <= x0 + 0.5), default=0)

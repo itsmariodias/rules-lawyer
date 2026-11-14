@@ -1,15 +1,19 @@
-"""
-Node and edge batches: what ``mapping`` produces and ``loader`` writes.
+"""Node and edge batches: what ``mapping`` produces and ``loader`` writes.
 
 Rows hold only values Neo4j accepts (primitives and homogeneous arrays).
+Also ``Report``, the progress callback every stage 2 step takes.
 """
 
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+# Receives one progress line; the CLI passes ``print``.
+Report = Callable[[str], None]
 
 # Neo4j stores primitives and homogeneous arrays, nothing else.
 _PRIMITIVES = (str, int, float, bool)
@@ -34,8 +38,10 @@ class NodeBatch(BaseModel):
         return ":".join(self.labels)
 
     def add(self, **row: Any) -> None:
-        """
-        Append a row of properties.
+        """Append a row of properties.
+
+        Args:
+            **row: Property name to value, the key among them.
 
         Raises:
             TypeError: A property is not a Neo4j value; see ``clean``.
@@ -47,8 +53,7 @@ class NodeBatch(BaseModel):
 
 
 class EdgeBatch(BaseModel):
-    """
-    Rows that MATCH both endpoints and MERGE a relationship between them.
+    """Rows that MATCH both endpoints and MERGE a relationship between them.
 
     Endpoints are never merged, so a missing target creates no node.
     """
@@ -61,8 +66,7 @@ class EdgeBatch(BaseModel):
     rows: list[dict[str, Any]] = Field(default_factory=list)
 
     def add(self, start: str, end: str, **properties: Any) -> None:
-        """
-        Append an edge.
+        """Append an edge.
 
         Args:
             start: Value of ``start_key`` on the start node.
@@ -98,11 +102,19 @@ class GraphData(BaseModel):
         return sum(len(batch) for batch in self.edges)
 
     def counts_by_label(self) -> dict[str, int]:
-        """Rows per batch, keyed by ``signature``."""
+        """Rows per batch.
+
+        Returns:
+            Row count keyed by ``signature``.
+        """
         return {batch.signature: len(batch) for batch in self.nodes}
 
     def counts_by_type(self) -> dict[str, int]:
-        """Rows per relationship type, summed across batches."""
+        """Rows per relationship type, summed across batches.
+
+        Returns:
+            Row count keyed by relationship type.
+        """
         counts: dict[str, int] = {}
         for batch in self.edges:
             counts[batch.type] = counts.get(batch.type, 0) + len(batch)
@@ -110,8 +122,7 @@ class GraphData(BaseModel):
 
 
 def clean(row: dict[str, Any]) -> dict[str, Any]:
-    """
-    Drop None and empty-list values, and reject what Neo4j cannot store.
+    """Drop None and empty-list values, and reject what Neo4j cannot store.
 
     Fails at map time naming the field; Neo4j's ``CypherTypeError`` mid-load
     names only the value.
@@ -139,8 +150,7 @@ def clean(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def as_json(value: Any) -> str | None:
-    """
-    Serialise a nested value that is carried but never queried on.
+    """Serialise a nested value that is carried but never queried on.
 
     Args:
         value: e.g. a creature action's ``outcomes``.

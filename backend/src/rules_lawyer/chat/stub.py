@@ -1,5 +1,4 @@
-"""
-A scripted chat model for the test suites, selected by ``CHAT_STUB``.
+"""A scripted chat model for the test suites, selected by ``CHAT_STUB``.
 
 Never a fallback for a failing provider.  In the package rather than
 ``tests/`` because e2e runs a real uvicorn process configured by environment.
@@ -31,8 +30,16 @@ class ScriptedModel(BaseChatModel):
     def _llm_type(self) -> str:
         return "scripted-srd"
 
-    def bind_tools(self, tools: Sequence[Any], **kwargs: Any) -> "ScriptedModel":
-        """Ignore ``tools``; the script only ever calls ``search_srd``."""
+    def bind_tools(self, tools: Sequence[Any], **kwargs: Any) -> ScriptedModel:
+        """Ignore ``tools``; the script only ever calls ``search_srd``.
+
+        Args:
+            tools: The agent's tools.
+            **kwargs: Binding options, ignored.
+
+        Returns:
+            This model, unchanged.
+        """
         return self
 
     def _generate(self, messages: list[BaseMessage], stop: list[str] | None = None,

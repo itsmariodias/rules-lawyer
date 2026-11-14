@@ -1,5 +1,4 @@
-"""
-Constraints, indexes and the graph reset.  Every statement is idempotent.
+"""Constraints, indexes and the graph reset.  Every statement is idempotent.
 
 Each uniqueness constraint is also the index the loader's ``MERGE`` uses.
 """
@@ -47,8 +46,7 @@ VECTOR_NAME = "srd_vector"
 
 
 def vector_statement(dimensions: int) -> str:
-    """
-    The vector index statement.
+    """The vector index statement.
 
     ``IF NOT EXISTS`` would keep an index of another width, so
     ``apply_schema`` drops one first (see ``drop_stale_vector_index``).
@@ -72,9 +70,8 @@ RETURN options.indexConfig['vector.dimensions'] AS dimensions
 """
 
 
-def vector_index_width(session: "Session") -> int | None:
-    """
-    The width ``srd_vector`` was created with.
+def vector_index_width(session: Session) -> int | None:
+    """The width ``srd_vector`` was created with.
 
     Args:
         session: An open session.
@@ -86,9 +83,8 @@ def vector_index_width(session: "Session") -> int | None:
     return None if row is None else row["dimensions"]
 
 
-def drop_stale_vector_index(session: "Session", dimensions: int) -> bool:
-    """
-    Drop ``srd_vector`` if it was created with a different width.
+def drop_stale_vector_index(session: Session, dimensions: int) -> bool:
+    """Drop ``srd_vector`` if it was created with a different width.
 
     An index of the wrong width accepts the writes and indexes none of them,
     so the dense search returns nothing without any error.
@@ -108,12 +104,24 @@ def drop_stale_vector_index(session: "Session", dimensions: int) -> bool:
 
 
 def constraint_name(label: str, prop: str) -> str:
-    """The name ``constraint_statements`` gives a key's constraint."""
+    """The name ``constraint_statements`` gives a key's constraint.
+
+    Args:
+        label: The node label.
+        prop: The key property.
+
+    Returns:
+        ``<label>_<prop>_unique``, the label lowercased.
+    """
     return f"{label.lower()}_{prop}_unique"
 
 
 def constraint_statements() -> list[str]:
-    """A uniqueness constraint per ``NODE_KEYS`` entry."""
+    """A uniqueness constraint per ``NODE_KEYS`` entry.
+
+    Returns:
+        ``CREATE CONSTRAINT ... IF NOT EXISTS`` statements.
+    """
     return [
         f"CREATE CONSTRAINT {constraint_name(label, prop)} IF NOT EXISTS "
         f"FOR (n:{label}) REQUIRE n.{prop} IS UNIQUE"
@@ -121,9 +129,8 @@ def constraint_statements() -> list[str]:
     ]
 
 
-def drop_stale_constraints(session: "Session") -> list[str]:
-    """
-    Drop uniqueness constraints for keys no longer in ``NODE_KEYS``.
+def drop_stale_constraints(session: Session) -> list[str]:
+    """Drop uniqueness constraints for keys no longer in ``NODE_KEYS``.
 
     ``reset`` deletes nodes, not schema, so a key the mapper stopped merging
     on (``Trait.key``) would otherwise be constrained forever.
@@ -146,7 +153,14 @@ def drop_stale_constraints(session: "Session") -> list[str]:
 
 
 def index_statements(dimensions: int) -> list[str]:
-    """The ``INDEXES``, the full-text index and the vector index."""
+    """The ``INDEXES``, the full-text index and the vector index.
+
+    Args:
+        dimensions: Width of the vector index.
+
+    Returns:
+        ``CREATE ... INDEX ... IF NOT EXISTS`` statements.
+    """
     return [
         f"CREATE INDEX {label.lower()}_{prop}_index IF NOT EXISTS "
         f"FOR (n:{label}) ON (n.{prop})"
@@ -154,9 +168,8 @@ def index_statements(dimensions: int) -> list[str]:
     ] + [FULLTEXT, vector_statement(dimensions)]
 
 
-def apply_schema(session: "Session", *, dimensions: int) -> int:
-    """
-    Create every constraint and index, then wait up to 300s for them.
+def apply_schema(session: Session, *, dimensions: int) -> int:
+    """Create every constraint and index, then wait up to 300s for them.
 
     A vector index of another width is dropped and recreated, and a
     constraint on a key no longer merged on is dropped.
@@ -177,9 +190,8 @@ def apply_schema(session: "Session", *, dimensions: int) -> int:
     return len(statements)
 
 
-def reset(session: "Session", batch_size: int = 10_000) -> int:
-    """
-    Delete every node and relationship, ``batch_size`` nodes per transaction.
+def reset(session: Session, batch_size: int = 10_000) -> int:
+    """Delete every node and relationship, ``batch_size`` nodes per transaction.
 
     Args:
         session: An open session.

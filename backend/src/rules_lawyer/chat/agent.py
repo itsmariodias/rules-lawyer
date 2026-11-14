@@ -23,12 +23,14 @@ class NoApiKey(RuntimeError):
 
 
 def system_prompt() -> str:
-    """
-    ``system.md`` plus the derived graph schema.
+    """``system.md`` plus the derived graph schema.
 
     If the graph is unreachable the schema is omitted rather than failing the
     agent build; the tools then report the outage themselves.  ``build_agent``
     asks again on every call, so the schema is added once the graph is up.
+
+    Returns:
+        The full system prompt.
     """
     try:
         return f"{SYSTEM_PROMPT}\n\n{cypher.schema()}"
@@ -37,8 +39,10 @@ def system_prompt() -> str:
 
 
 def model() -> BaseChatModel:
-    """
-    The chat model: Gemini, or ``ScriptedModel`` under ``CHAT_STUB``.
+    """The chat model: Gemini, or ``ScriptedModel`` under ``CHAT_STUB``.
+
+    Returns:
+        A chat model ready to bind tools to.
 
     Raises:
         NoApiKey: ``GOOGLE_API_KEY`` is unset and the stub is off.
@@ -59,8 +63,7 @@ def model() -> BaseChatModel:
 
 @lru_cache(maxsize=1)
 def compile_agent(checkpointer: BaseCheckpointSaver | None, prompt: str):
-    """
-    Compile the agent for a checkpointer and system prompt, caching the last.
+    """Compile the agent for a checkpointer and system prompt, caching the last.
 
     Keyed on the prompt so that an agent compiled while the graph was down
     (no schema) is replaced once the schema can be read.
@@ -84,8 +87,7 @@ def compile_agent(checkpointer: BaseCheckpointSaver | None, prompt: str):
 
 
 def build_agent(checkpointer: BaseCheckpointSaver | None = None):
-    """
-    The agent for ``checkpointer`` with the current system prompt.
+    """The agent for ``checkpointer`` with the current system prompt.
 
     Args:
         checkpointer: Where conversation state is stored.

@@ -1,5 +1,4 @@
-"""
-Prompt files sent to the model verbatim.
+"""Prompt files sent to the model verbatim.
 
 Keep each paragraph on one line: a line break in a file is a line break
 the model receives.  Tool descriptions live in ``tools.py`` docstrings.
@@ -13,8 +12,7 @@ HERE = Path(__file__).parent
 
 
 def prompt(name: str) -> str:
-    """
-    Read ``<name>.md`` beside this module.  Called at import time, so a
+    """Read ``<name>.md`` beside this module.  Called at import time, so a
     misspelt name fails at startup.
 
     Args:

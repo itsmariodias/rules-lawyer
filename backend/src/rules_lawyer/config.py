@@ -19,8 +19,7 @@ _ENV = SettingsConfigDict(env_file=_REPO_ROOT / ".env",
 
 
 def _blank_is_absent(value: object) -> object:
-    """
-    Treat ``GOOGLE_API_KEY=`` as no key, not as an empty credential.
+    """Treat ``GOOGLE_API_KEY=`` as no key, not as an empty credential.
 
     An unset environment variable does not override ``.env``, so a blank
     value is the only way to force the keyless path from a checkout that has
@@ -76,8 +75,7 @@ class ChatSettings(BaseSettings):
 
 
 class EmbeddingSettings(BaseSettings):
-    """
-    Settings for ``rules-lawyer embed``.
+    """Settings for ``rules-lawyer embed``.
 
     Model, dimensions and task type are written into the ``.idx`` header; a
     file made under different values is discarded whole on load.
@@ -162,8 +160,7 @@ class Settings(BaseSettings):
 
     @property
     def embeddings_path(self) -> Path:
-        """
-        Where the vectors are read from and written to.
+        """Where the vectors are read from and written to.
 
         On ``Settings`` because building ``EmbeddingSettings`` requires an API
         key and reading the file does not.
@@ -189,13 +186,16 @@ class Settings(BaseSettings):
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    """Process-wide settings, read once."""
+    """Process-wide settings, read once.
+
+    Returns:
+        The settings; ``cache_clear`` makes the next call read them again.
+    """
     return Settings()
 
 
 def markdown_path_for(output: Path) -> Path:
-    """
-    The markdown written beside a JSON artifact.
+    """The markdown written beside a JSON artifact.
 
     Args:
         output: Path of ``srd_hierarchy.json`` or equivalent.
@@ -207,8 +207,7 @@ def markdown_path_for(output: Path) -> Path:
 
 
 def anchors_path_for(markdown: Path) -> Path:
-    """
-    The page-geometry file written beside a markdown artifact.
+    """The page-geometry file written beside a markdown artifact.
 
     Args:
         markdown: Path of the markdown the anchors index.

@@ -39,7 +39,14 @@ CATEGORY_INDENT = 4.0
 
 
 def is_header_line(line: Line) -> bool:
-    """Whether every span is header type, at least one at the header size."""
+    """Whether every span is header type, at least one at the header size.
+
+    Args:
+        line: A line of the book.
+
+    Returns:
+        True for a line of header labels.
+    """
     return (all(s.font == HEADER_FONT[0] and s.size in HEADER_SIZES for s in line.spans)
             and any(s.size == HEADER_FONT[1] for s in line.spans))
 
@@ -51,6 +58,12 @@ def header_count(lines: list[Line]) -> int:
     with none: Travel Terrain prints four of its six labels in the cell font
     (page 192). In a key/value table every line has one ("Primary Ability",
     page 28).
+
+    Args:
+        lines: The table's lines.
+
+    Returns:
+        The number of header lines, possibly 0.
     """
     count = len(list(takewhile(is_header_line, lines)))
     labelled = [any(s.face == HEADER_FONT for s in line.spans) for line in lines[:2]]
@@ -63,6 +76,12 @@ def is_table_line(line: Line) -> bool:
     Semibold at the cell size counts only after the first span: a creature's
     name inside a cell ("A **Treant** sprouts", Bag of Beans, page 211), not the
     label leading a spell's or tool's line ("Casting Time:", "Ability:").
+
+    Args:
+        line: A line of the book.
+
+    Returns:
+        True for a table's line.
     """
     return line.frame is None and (is_header_line(line) or (
         line.spans[0].face in TABLE_FONTS and all(s.face in TABLE_TYPE for s in line.spans[1:])))
@@ -74,6 +93,13 @@ def wraps_field(lines: list[Line], index: int) -> bool:
     A spell's or tool's field is a semibold label and plain text at the cell
     size ("**Components:** V, S, M (a diamond worth 1,000+ GP," page 125); its
     wrapped lines are plain, each within a row step of the one above.
+
+    Args:
+        lines: The book's lines.
+        index: The line in question.
+
+    Returns:
+        True if the lines above lead back, a row step at most apart, to a field's label.
     """
     while index > 0:
         prev, line = lines[index - 1], lines[index]
@@ -99,6 +125,13 @@ def table_run(lines: list[Line], start: int) -> list[Line]:
     sits within a row step of the line above ("**2,** Acheron", Plane Shift
     in Amulet of the Planes, page 209); ``is_table_line`` alone cannot tell
     it from a spell's "Casting Time:".
+
+    Args:
+        lines: The book's lines.
+        start: The table's first line (after any caption).
+
+    Returns:
+        The run of table lines, which may hold more than one table (``table_end``).
     """
     first = lines[start]
     end = start
@@ -114,10 +147,19 @@ def table_run(lines: list[Line], start: int) -> list[Line]:
 
 
 def table_end(lines: list[Line]) -> int:
-    """How many of ``lines`` form one table: its header lines, then body lines up to a
-    header line a row step or more below the last, which starts another (Scrying's two
-    tables, page 160). Nearer, it is a label wrapped within its row ("Saving Throw /
-    Proficiencies", page 28)."""
+    """How many of ``lines`` form one table.
+
+    Its header lines, then body lines up to a header line a row step or more
+    below the last, which starts another (Scrying's two tables, page 160).
+    Nearer, it is a label wrapped within its row ("Saving Throw /
+    Proficiencies", page 28).
+
+    Args:
+        lines: A run of table lines, from ``table_run``.
+
+    Returns:
+        The number of lines in the first table.
+    """
     start = header_count(lines)
     return next((i for i in range(max(start, 1), len(lines)) if is_header_line(lines[i])
                  and lines[i].baseline - lines[i - 1].baseline >= ROW_STEP), len(lines))
@@ -174,6 +216,10 @@ def extend_table(table: Table, rest: Table) -> None:
     pages 101-102), unless its rows are numbered: then each half goes on with
     its own rest, in number order (Experience Points by Challenge Rating
     prints 0-10 beside 14-27, then 11-13 beside 28-30, page 256).
+
+    Args:
+        table: The table so far, extended in place.
+        rest: Its continuation, header repeated and no caption.
     """
     rows = table.rows + rest.rows
     indented = table.indented + rest.indented
@@ -197,8 +243,17 @@ def extend_table(table: Table, rest: Table) -> None:
 
 
 def categories(rows: list[list[list[Run]]], indented: list[bool]) -> list[int | None]:
-    """For each row, the index of the category row it is indented under, or None; empty if
-    no row is under one. A category row is italic, its other cells empty."""
+    """For each row, the index of the category row it is indented under.
+
+    A category row is italic, its other cells empty.
+
+    Args:
+        rows: The table's rows.
+        indented: Whether each row's first cell is indented from its label.
+
+    Returns:
+        The category row's index or None per row; empty if no row is under one.
+    """
     under: list[int | None] = []
     category = None
     for i, (row, is_indented) in enumerate(zip(rows, indented)):
@@ -214,7 +269,14 @@ def categories(rows: list[list[list[Run]]], indented: list[bool]) -> list[int | 
 
 
 def number(text: str) -> float | None:
-    """A row's number: "14", "1/8", or the start of a range ("0–4"); None if not one."""
+    """A row's number: "14", "1/8", or the start of a range ("0–4").
+
+    Args:
+        text: The row's first cell.
+
+    Returns:
+        The number, or None if the cell is not one.
+    """
     match = re.match(r"(\d+)(?:/(\d+))?(?:\u2013\d+)?$", text.strip())
     if not match:
         return None
@@ -222,7 +284,14 @@ def number(text: str) -> float | None:
 
 
 def repeat_width(labels: list[str]) -> int:
-    """The width of the repeating unit of header labels; all of them if none repeats."""
+    """The width of the repeating unit of header labels.
+
+    Args:
+        labels: The header labels, left to right.
+
+    Returns:
+        The shortest width whose repeats make up the labels; all of them if none repeats.
+    """
     for width in range(1, len(labels)):
         if len(labels) % width == 0 and labels == labels[:width] * (len(labels) // width):
             return width
@@ -236,6 +305,12 @@ def wrapped_rows(lines: list[list[list[Line]]]) -> list[list[list[Line]]]:
     same shading: rows alternate shaded and plain, and a table printed in
     halves sets both on one line grid, so a row may sit a wrapped line's step
     below the last (rows 35 and 36 of Trinkets, page 27).
+
+    Args:
+        lines: Each body line's cells, from ``cells_of``.
+
+    Returns:
+        Each row's cells, a wrapped cell holding all its lines.
     """
     rows: list[list[list[Line]]] = []
     last: Span | None = None
@@ -255,11 +330,18 @@ def wrapped_rows(lines: list[list[list[Line]]]) -> list[list[list[Line]]]:
 
 
 def centred_cells(line: Line, labels: Line) -> list[list[Line]]:
-    """Split a header line into cells: a span over several labels goes to the first it
-    overlaps, any other to the label nearest its centre.
+    """Split a header line above the labels into cells.
 
-    Overlap, not centres, finds the first: "Spell Slots per Spell Level" starts
-    over "1" but right of its centre (page 31).
+    A span over several labels goes to the first it overlaps, any other to the
+    label nearest its centre. Overlap, not centres, finds the first: "Spell
+    Slots per Spell Level" starts over "1" but right of its centre (page 31).
+
+    Args:
+        line: A header line above ``labels``.
+        labels: The header line that sets the columns.
+
+    Returns:
+        One single-line ``Line`` per column, empty where nothing is printed.
     """
     centres = [(s.x0 + s.x1) / 2 for s in labels.spans]
     cells: list[list[Line]] = [[] for _ in centres]
@@ -278,11 +360,18 @@ def centred_cells(line: Line, labels: Line) -> list[list[Line]]:
 
 
 def cells_of(line: Line, columns: list[Span]) -> list[list[Line]]:
-    """Split a line into one single-line ``Line`` per column (empty where nothing is printed).
+    """Split a line into one single-line ``Line`` per column.
 
     A span goes under the one label it overlaps: right-aligned cells start left
     of their label ("25 GP" at 525.2 under "Cost" at 529.1, page 91). Over
     none or several, it goes to the last label starting left of it.
+
+    Args:
+        line: A header or body line.
+        columns: The labels setting the columns.
+
+    Returns:
+        The cells, empty where nothing is printed.
     """
     cells: list[list[Line]] = [[] for _ in columns]
     for span in line.spans:

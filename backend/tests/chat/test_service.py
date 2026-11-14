@@ -21,6 +21,25 @@ def raising(exc: Exception):
     return build
 
 
+async def stored(saver, thread_id: str, *messages) -> dict:
+    """Write one checkpoint holding ``messages``, as a finished turn leaves it."""
+    from langgraph.checkpoint.base import empty_checkpoint
+
+    checkpoint = empty_checkpoint()
+    checkpoint["channel_values"] = {"messages": list(messages)}
+    # A checkpointer stores only the channels whose versions it is given.
+    checkpoint["channel_versions"] = {"messages": 1}
+    return await saver.aput({"configurable": {"thread_id": thread_id, "checkpoint_ns": ""}},
+                            checkpoint, {}, {"messages": 1})
+
+
+def answered(question: str, answer: str = "Prone creatures crawl."):
+    """A question and its answer, with no section cited."""
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    return HumanMessage(content=question), AIMessage(content=answer)
+
+
 async def collect(message, saver) -> list[dict]:
     return [event async for event in
             service.stream_turn(message, "test", saver)]
@@ -416,6 +435,39 @@ class TestFindResult:
         assert found["truncated"] is True
 
 
+class TestLookup:
+    @pytest.mark.asyncio
+    async def test_given_a_step_still_running_when_looked_up_then_a_finished_result_is_found(
+            self, saver):
+        # Given a lookup whose result is written while its step is unfinished
+        from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+        config = await stored(saver, "busy", HumanMessage(content="Prone?"), AIMessage(
+            content="", tool_calls=[{"name": "search_srd", "args": {}, "id": "call-1"}]))
+        await saver.aput_writes(config, [("messages", [ToolMessage(
+            content="the result", tool_call_id="call-1", name="search_srd")])], "task-1")
+
+        # When it is looked up
+        found = await service.lookup("busy", "call-1", saver)
+
+        # Then it is there before the step is checkpointed
+        assert found["content"] == "the result"
+
+    @pytest.mark.asyncio
+    async def test_given_no_api_key_when_looked_up_then_the_stored_result_still_comes_back(
+            self, saver, settings_env):
+        # Given a stored result, and no key to build a model with
+        from langchain_core.messages import ToolMessage
+        settings_env(GOOGLE_API_KEY="", CHAT_STUB="0")
+        await stored(saver, "kept", ToolMessage(content="kept result", tool_call_id="call-1",
+                                                name="search_srd"))
+
+        # When it is looked up
+        found = await service.lookup("kept", "call-1", saver)
+
+        # Then reading what was stored needed no model
+        assert found["content"] == "kept result"
+
+
 class TestNameMissingSubjects:
     @staticmethod
     def _turn(**call):
@@ -632,6 +684,19 @@ class TestHistory:
         assert turns[1]["citations"]
 
     @pytest.mark.asyncio
+    async def test_given_no_api_key_when_read_then_the_stored_turns_still_come_back(
+            self, saver, settings_env):
+        # Given a stored conversation, and no key to build a model with
+        settings_env(GOOGLE_API_KEY="", CHAT_STUB="0")
+        await stored(saver, "kept", *answered("Prone?"))
+
+        # When it is read back
+        turns = await service.history("kept", saver)
+
+        # Then reading what was stored needed no model
+        assert [turn["content"] for turn in turns] == ["Prone?", "Prone creatures crawl."]
+
+    @pytest.mark.asyncio
     async def test_given_a_thread_nobody_used_when_read_then_it_is_empty(
             self, stub_model, saver):
         # Given an id nothing was stored under
@@ -722,8 +787,8 @@ class TestRewind:
         assert await service.rewind("never-used", saver) is None
 
 
-@pytest.mark.neo4j
 class TestThreads:
+    @pytest.mark.neo4j
     @pytest.mark.asyncio
     async def test_given_two_conversations_when_listed_then_the_newest_leads(
             self, graph, stub_model, saver, store):
@@ -737,6 +802,7 @@ class TestThreads:
         # Then the most recent is first
         assert [t["thread_id"] for t in listed] == ["newer", "older"]
 
+    @pytest.mark.neo4j
     @pytest.mark.asyncio
     async def test_given_a_pinned_conversation_when_listed_then_it_sorts_above(
             self, graph, stub_model, saver, store):
@@ -752,6 +818,7 @@ class TestThreads:
         assert [t["thread_id"] for t in listed] == ["older", "newer"]
         assert [t["pinned"] for t in listed] == [True, False]
 
+    @pytest.mark.neo4j
     @pytest.mark.asyncio
     async def test_given_no_store_when_listed_then_nothing_is_pinned(
             self, graph, stub_model, saver):
@@ -764,6 +831,7 @@ class TestThreads:
         # Then the listing still works, with nothing pinned
         assert [t["pinned"] for t in listed] == [False]
 
+    @pytest.mark.neo4j
     @pytest.mark.asyncio
     async def test_given_a_conversation_when_listed_then_it_is_titled_by_its_question(
             self, graph, stub_model, saver):
@@ -779,6 +847,7 @@ class TestThreads:
         assert listed["title"].endswith("…")
         assert len(listed["title"]) <= 61
 
+    @pytest.mark.neo4j
     @pytest.mark.asyncio
     async def test_given_a_stored_title_when_listed_then_it_names_the_conversation(
             self, graph, stub_model, saver, store):
@@ -793,6 +862,23 @@ class TestThreads:
         # Then the title is used where there is one, and the question elsewhere
         assert listed == {"titled": "Prone condition effects",
                           "untitled": "Restrained condition"}
+
+    @pytest.mark.asyncio
+    async def test_given_pins_beyond_the_scan_when_listed_then_every_pin_is_there(
+            self, saver, store, monkeypatch):
+        # Given two pinned conversations and a scan that reaches only one
+        monkeypatch.setattr(service, "CHECKPOINTS_PER_THREAD", 1)
+        await stored(saver, "first", *answered("Prone?"))
+        await stored(saver, "second", *answered("Restrained?"))
+        await service.set_pinned(store, "first", True)
+        await service.set_pinned(store, "second", True)
+
+        # When one thread is asked for
+        listed = await service.threads(saver, store, limit=1)
+
+        # Then both pins are listed anyway: the limit is for the rest
+        assert sorted(t["thread_id"] for t in listed) == ["first", "second"]
+        assert all(t["pinned"] for t in listed)
 
 
 class TestPinned:

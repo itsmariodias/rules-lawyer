@@ -34,7 +34,16 @@ def creatures(sections: list[Section], pdf: str) -> list[dict]:
 
 
 def creature(section: Section, pdf: str) -> dict:
-    """The record for one stat block section."""
+    """The record for one stat block section.
+
+    Args:
+        section: A section typed ``creature``, its one block the stat block.
+        pdf: The PDF's file name, recorded in the record's ``source``.
+
+    Returns:
+        The stat block's fields parsed, its entries with their mechanics, and
+        ``warnings`` where the book disagrees with itself.
+    """
     block: StatBlock = section.blocks[0]
     kind, _, alignment = plain(block.subtitle).rpartition(",")
     record: dict = {"name": block.name, "entity_type": "creature",
@@ -84,7 +93,15 @@ def creature(section: Section, pdf: str) -> dict:
 
 
 def abilities(rows: list[list[str]]) -> dict[str, dict]:
-    """Each ability's score, modifier and save, checked: a save other than the modifier is proficient."""
+    """Each ability's score, modifier and save, checked: a save other than the modifier is proficient.
+
+    Args:
+        rows: The stat block's ``[name, score, MOD, SAVE]`` rows.
+
+    Returns:
+        Lowercased ability name to ``score``, ``modifier``, ``save``,
+        ``modifier_valid`` and ``save_has_proficiency``.
+    """
     found = {}
     for name, score, modifier, save in rows:
         score_value, modifier_value, save_value = int(score), to_int(modifier), to_int(save)
@@ -95,7 +112,15 @@ def abilities(rows: list[list[str]]) -> dict[str, dict]:
 
 
 def hit_points(value: str, warnings: list[str]) -> dict:
-    """The HP field: stated average, formula, and the formula's own average where it is dice."""
+    """The HP field: stated average, formula, and the formula's own average where it is dice.
+
+    Args:
+        value: The field as printed ("45 (6d10 + 12)").
+        warnings: The creature's warnings, appended to if the average is wrong.
+
+    Returns:
+        ``average``, ``formula``, ``calculated`` and ``valid``.
+    """
     found = re.match(r"(\d+)\s*\((.+?)\)", value)
     if not found:
         return {"average": None, "formula": value, "calculated": None, "valid": True}
@@ -108,12 +133,26 @@ def hit_points(value: str, warnings: list[str]) -> dict:
 
 
 def listed(value: str) -> list[str]:
-    """A comma-separated field's entries."""
+    """A comma-separated field's entries.
+
+    Args:
+        value: The field's text.
+
+    Returns:
+        The entries, trimmed, empty ones dropped.
+    """
     return [entry.strip() for entry in value.split(",") if entry.strip()]
 
 
 def challenge(value: str) -> dict:
-    """The CR field: "10 (XP 5,900, or 7,200 in lair; PB +4)"."""
+    """The CR field: "10 (XP 5,900, or 7,200 in lair; PB +4)".
+
+    Args:
+        value: The field as printed.
+
+    Returns:
+        ``cr``, and ``xp``, ``xp_in_lair`` and ``proficiency_bonus`` where printed.
+    """
     found = re.match(r"([\d/]+|None)\s*(?:\(([^)]*)\))?", value)
     record: dict = {"cr": found.group(1)}
     detail = found.group(2) or ""
@@ -127,15 +166,29 @@ def challenge(value: str) -> dict:
 
 
 def entries_of(paragraphs: list[Paragraph]) -> list[dict]:
-    """A stat block section's entries with their mechanics. A paragraph not led by a name in
-    bold italics continues the entry before it ("**At Will:** ..." after "**_Spellcasting._**",
-    the Vampire's "**Sunlight.**" in "**_Vampire Weakness._**")."""
+    """A stat block section's entries with their mechanics.
+
+    A paragraph not led by a name in bold italics continues the entry before it
+    ("**At Will:** ..." after "**_Spellcasting._**", the Vampire's
+    "**Sunlight.**" in "**_Vampire Weakness._**").
+
+    Args:
+        paragraphs: The section's paragraphs.
+
+    Returns:
+        One ``{"name", "description", ...}`` per entry, with ``entry_mechanics``.
+    """
     return [{"name": name, "description": render_runs(runs).strip().lstrip(".").strip(),
              **entry_mechanics(name, runs)} for name, runs in named_entries(paragraphs)]
 
 
 def passive_perception(record: dict, warnings: list[str]) -> None:
-    """Warn if Passive Perception is not 10 + Wis (+ PB or 2 x PB), give or take 5."""
+    """Warn if Passive Perception is not 10 + Wis (+ PB or 2 x PB), give or take 5.
+
+    Args:
+        record: The creature's record, its senses, abilities and proficiency bonus read.
+        warnings: The creature's warnings, appended to on a mismatch.
+    """
     stated = re.search(r"Passive Perception (\d+)", record.get("senses", ""))
     if not stated or "abilities" not in record:
         return
@@ -151,6 +204,11 @@ def resolve_initiative(record: dict, warnings: list[str]) -> None:
 
     The printed score stays as ``printed_score``. The Gray Ooze prints +5 with
     nothing granting Advantage (it lost False Appearance in the 2024 revision).
+
+    Args:
+        record: The creature's record, its ``initiative`` and traits read;
+            ``initiative`` is updated in place.
+        warnings: The creature's warnings, appended to on a mismatch.
     """
     initiative = record.get("initiative")
     if not initiative:
@@ -173,6 +231,9 @@ def resolve_initiative(record: dict, warnings: list[str]) -> None:
 def check_mechanics(records: list[dict]) -> dict:
     """Damage averages against their dice, and attack bonuses against an ability modifier
     plus the proficiency bonus (an attack with a note is skipped: its bonus is not the sum).
+
+    Args:
+        records: The creature records.
 
     Returns:
         Counts checked, and the mismatches of each.

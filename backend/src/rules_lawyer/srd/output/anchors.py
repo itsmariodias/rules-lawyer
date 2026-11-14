@@ -53,6 +53,13 @@ def misplaced(sections: list[Section], anchors: list[dict]) -> list[str]:
 
     The pages come from the blocks and the boxes from the lines, so a
     disagreement is a defect in one of them.
+
+    Args:
+        sections: The book's sections, offsets written.
+        anchors: The anchors of the markdown they were rendered to.
+
+    Returns:
+        One message per misplaced section.
     """
     found: list[str] = []
     for section in walk(sections):

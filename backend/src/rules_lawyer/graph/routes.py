@@ -1,5 +1,4 @@
-"""
-Stage 2 over HTTP: ``/graph/health`` and ``/graph/load``.
+"""Stage 2 over HTTP: ``/graph/health`` and ``/graph/load``.
 
 The Neo4j driver is synchronous, so both run in a worker thread.
 """
@@ -28,8 +27,11 @@ class GraphLoadRequest(BaseModel):
 
 @router.get("/health")
 async def graph_health() -> dict:
-    """
-    Live node and relationship counts.
+    """Live node and relationship counts.
+
+    Returns:
+        ``status``, then ``pipeline.counts``'s ``uri``, ``database``,
+        ``nodes`` and ``relationships``.
 
     Raises:
         HTTPException: 503 if Neo4j cannot be reached.
@@ -43,8 +45,7 @@ async def graph_health() -> dict:
 
 @router.post("/load")
 async def graph_load(request: GraphLoadRequest | None = None) -> dict:
-    """
-    Run what ``rules-lawyer load`` runs.
+    """Run what ``rules-lawyer load`` runs.
 
     Args:
         request: Overrides for ``build_graph``'s arguments.

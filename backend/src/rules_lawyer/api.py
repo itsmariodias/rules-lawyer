@@ -1,5 +1,4 @@
-"""
-The FastAPI app: each package's router, plus the conversation stores.
+"""The FastAPI app: each package's router, plus the conversation stores.
 
     uv run uvicorn rules_lawyer.api:app --reload
 """
@@ -22,8 +21,7 @@ from rules_lawyer.srd import routes as srd_routes
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """
-    Open the checkpointer and the pin/title store for the process lifetime.
+    """Open the checkpointer and the pin/title store for the process lifetime.
 
     Routes reach them through ``request.app.state``.
 

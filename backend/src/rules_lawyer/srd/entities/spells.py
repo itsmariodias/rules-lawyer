@@ -5,11 +5,10 @@ from __future__ import annotations
 import re
 
 from rules_lawyer.srd.entities.mechanics import spell_mechanics
+from rules_lawyer.srd.entity_types import SPELL_SUBTITLE
 from rules_lawyer.srd.model import ListBlock, Paragraph, Section, plain
 from rules_lawyer.srd.vocabulary import Rarity, alternatives
 
-# "Level 2 Evocation (Wizard)", "Evocation Cantrip (Sorcerer, Wizard)".
-SPELL_SUBTITLE = re.compile(r"^(?:Level (\d+) (\w+)|(\w+) Cantrip)(?: \(([^)]+)\))?")
 # A spell's fields, each a paragraph led by its bold label; the book writes
 # "Component:" as well as "Components:" (12 spells).
 SPELL_FIELDS = {"Casting Time": "casting_time", "Range": "range", "Components": "components",
@@ -33,8 +32,8 @@ def spell(section: Section) -> dict:
         ``concentration``, ``duration``, and ``spell_mechanics``'s fields.
     """
     found = SPELL_SUBTITLE.match(plain(section.blocks[0].runs))
-    record: dict = {"level": int(found.group(1) or 0), "school": found.group(2) or found.group(3),
-                    "classes": [c.strip() for c in found.group(4).split(",")] if found.group(4) else []}
+    record: dict = {"level": int(found["level"] or 0), "school": found["school"] or found["cantrip"],
+                    "classes": [c.strip() for c in found["classes"].split(",") if c.strip()]}
     fields: dict[str, str] = {}
     for block in section.blocks[1:]:
         if isinstance(block, Paragraph) and block.runs[0].bold:
@@ -56,7 +55,15 @@ def spell(section: Section) -> dict:
 
 
 def components(printed: str) -> dict:
-    """"V, S, M (a diamond worth 300+ GP, which the spell consumes)" read into parts."""
+    """"V, S, M (a diamond worth 300+ GP, which the spell consumes)" read into parts.
+
+    Args:
+        printed: The Components field as printed.
+
+    Returns:
+        ``verbal``, ``somatic`` and ``material``; with a material,
+        ``material_cost_gp`` and ``material_consumed`` too.
+    """
     letters = {part.strip().upper() for part in printed.split("(")[0].split(",")}
     material = MATERIAL.search(printed)
     found: dict = {"verbal": "V" in letters, "somatic": "S" in letters,
@@ -69,8 +76,17 @@ def components(printed: str) -> dict:
 
 
 def magic_item(section: Section) -> dict:
-    """A magic item's category, subtype, rarity and attunement, from its subtitle
-    ("Weapon (Any Sword), Rare (Requires Attunement)")."""
+    """A magic item's category, subtype, rarity and attunement, from its subtitle.
+
+    A subtitle reads like "Weapon (Any Sword), Rare (Requires Attunement)".
+
+    Args:
+        section: A section typed ``magic_item``, its subtitle first.
+
+    Returns:
+        ``category``, ``subtype``, ``rarity``, ``requires_attunement`` and
+        ``attunement_requirement``.
+    """
     text = plain(section.blocks[0].runs).strip()
     requirement = None
     if attunement := ATTUNEMENT.search(text):
@@ -84,7 +100,14 @@ def magic_item(section: Section) -> dict:
 
 
 def text_of(block: object) -> str:
-    """A paragraph's or list's text, styles dropped; other blocks have none here."""
+    """A paragraph's or list's text, styles dropped.
+
+    Args:
+        block: Any block.
+
+    Returns:
+        The text; empty for other blocks.
+    """
     if isinstance(block, Paragraph):
         return plain(block.runs)
     if isinstance(block, ListBlock):

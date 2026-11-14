@@ -1,5 +1,4 @@
-"""
-One vector per section, and the ``srd_embeddings.idx`` file that carries them.
+"""One vector per section, and the ``srd_embeddings.idx`` file that carries them.
 
 The file lets a load run without an API key.  A load with neither a complete
 file nor a key raises ``MissingEmbeddings``.
@@ -16,15 +15,17 @@ import struct
 import sys
 import time
 from array import array
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from datetime import date
 from hashlib import sha256
 from pathlib import Path
-from typing import Callable, Iterable, Iterator
 
 from rules_lawyer.config import EmbeddingSettings
+from rules_lawyer.graph.model import Report
 
-Report = Callable[[str], None]
+# Attempts per batch while rate limited, waiting 1, 2, 4 and 8 seconds between.
+ATTEMPTS = 5
 
 MAGIC = b"DNDEMB\x00"
 VERSION = 1
@@ -42,8 +43,7 @@ class BadEmbeddingsFile(ValueError):
 
 @dataclass(slots=True)
 class Vectors:
-    """
-    Every section's embedding, and a digest of the text embedded.
+    """Every section's embedding, and a digest of the text embedded.
 
     Attributes:
         keys: Section ids.
@@ -66,12 +66,23 @@ class Vectors:
         return len(self.keys)
 
     def by_key(self) -> dict[str, tuple[str, list[float]]]:
-        """Section id to ``(digest, vector)``."""
+        """Each section's stored digest and vector.
+
+        Returns:
+            Section id to ``(digest, vector)``.
+        """
         return {key: (digest, row)
                 for key, digest, row in zip(self.keys, self.digests, self.rows)}
 
     def matches(self, settings: EmbeddingSettings) -> bool:
-        """Whether model, dimensions and task type all equal the settings'."""
+        """Whether these vectors were made as the settings would make them.
+
+        Args:
+            settings: The embedding settings in force.
+
+        Returns:
+            True if model, dimensions and task type all equal the settings'.
+        """
         return (self.model == settings.model
                 and self.dimensions == settings.dimensions
                 and self.task_type == settings.task_type)
@@ -82,7 +93,14 @@ class Vectors:
 
 
 def digest(text: str) -> str:
-    """First 16 hex chars of the text's SHA-256; for change detection only."""
+    """A short fingerprint of a text, for change detection only.
+
+    Args:
+        text: The text embedded.
+
+    Returns:
+        The first 16 hex characters of its SHA-256.
+    """
     return sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
@@ -93,8 +111,7 @@ def _truncate(text: str, limit: int) -> str:
 
 
 def texts(document: dict, max_chars: int = 6000) -> dict[str, str]:
-    """
-    The text to embed for each section with prose.
+    """The text to embed for each section with prose.
 
     Each is prefixed with its heading path (``Monsters > Goblin > Actions``),
     since dozens of sections share headings like "Actions".  Truncated here,
@@ -130,8 +147,7 @@ def texts(document: dict, max_chars: int = 6000) -> dict[str, str]:
 
 
 def write(path: Path, vectors: Vectors) -> Path:
-    """
-    Write vectors in the format described in the module docstring.
+    """Write vectors in the format described in the module docstring.
 
     Args:
         path: Destination; parent directories are created.
@@ -170,8 +186,7 @@ def write(path: Path, vectors: Vectors) -> Path:
 
 
 def read(path: Path) -> Vectors:
-    """
-    Read a file written by ``write``.
+    """Read a file written by ``write``.
 
     Args:
         path: The ``.idx`` file.
@@ -231,8 +246,7 @@ def _chunks(items: list[str], size: int) -> Iterator[list[str]]:
 
 
 def normalise(vector: Iterable[float]) -> list[float]:
-    """
-    Scale a vector to unit length.
+    """Scale a vector to unit length.
 
     The API normalises only at the native 3072 dimensions.
 
@@ -249,11 +263,10 @@ def normalise(vector: Iterable[float]) -> list[float]:
 
 def embed(batch: list[str], settings: EmbeddingSettings,
           report: Report = lambda _: None) -> list[list[float]]:
-    """
-    Embed texts with the Gemini API.
+    """Embed texts with the Gemini API.
 
     Rate limits (429 / RESOURCE_EXHAUSTED) are retried with exponential
-    backoff, up to five attempts per batch.
+    backoff, up to ``ATTEMPTS`` attempts per batch.
 
     Args:
         batch: Texts to embed.
@@ -265,7 +278,7 @@ def embed(batch: list[str], settings: EmbeddingSettings,
 
     Raises:
         MissingEmbeddings: No API key.
-        RuntimeError: Rate limited five times in a row.
+        RuntimeError: Rate limited ``ATTEMPTS`` times in a row.
         Exception: Any other SDK error, unchanged.
     """
     from google import genai
@@ -281,7 +294,7 @@ def embed(batch: list[str], settings: EmbeddingSettings,
 
     out: list[list[float]] = []
     for index, chunk in enumerate(_chunks(batch, settings.batch)):
-        for attempt in range(5):
+        for attempt in range(ATTEMPTS):
             try:
                 response = client.models.embed_content(
                     model=settings.model, contents=chunk, config=config)
@@ -289,11 +302,13 @@ def embed(batch: list[str], settings: EmbeddingSettings,
             except Exception as exc:  # the SDK raises a family of these
                 if "429" not in str(exc) and "RESOURCE_EXHAUSTED" not in str(exc):
                     raise
+                if attempt == ATTEMPTS - 1:
+                    raise RuntimeError(
+                        f"rate limited {ATTEMPTS} times in a row; try later"
+                    ) from exc
                 wait = 2 ** attempt
                 report(f"  rate limited, retrying in {wait}s")
                 time.sleep(wait)
-        else:  # pragma: no cover - only on a sustained rate limit
-            raise RuntimeError("rate limited five times in a row; try later")
         out.extend(normalise(item.values) for item in response.embeddings)
         report(f"  embedded {len(out)}/{len(batch)}")
     return out
@@ -306,8 +321,7 @@ def embed(batch: list[str], settings: EmbeddingSettings,
 def resolve(document: dict, *, path: Path, settings: EmbeddingSettings,
             refresh: bool = False, report: Report = lambda _: None,
             embedder: Callable[..., list[list[float]]] = embed) -> Vectors:
-    """
-    Every section's vector, from the file where its digest matches (under
+    """Every section's vector, from the file where its digest matches (under
     any id) and the API otherwise.  Writes the file back if anything was
     generated or renumbered.
 

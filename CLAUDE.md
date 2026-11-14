@@ -109,8 +109,10 @@ GRAPH.md             reference for every label and relationship type
   Unit tests need nothing; tests needing the artifact, vectors or an API key
   skip cleanly without them, and tests needing Neo4j carry
   `@pytest.mark.neo4j` and skip without Docker (see Testing).
-- **Docstrings:** Google style. Public functions document `Args`, `Returns`,
-  `Raises` (and `Yields`) where they apply; private helpers get one line.
+- **Docstrings:** Google style, the summary on the opening `"""` line.
+  Public functions document `Args`, `Returns`, `Raises` (and `Yields`)
+  where they apply; private helpers get one line. Tool docstrings in
+  `chat/tools.py` are the exception (see below).
 - **Comments** only for what the code cannot say: a library quirk, a bug
   being prevented, an SRD fact, a measured number. They describe the code
   and the book as they are, never the history of a change, a plan, or this
@@ -183,8 +185,10 @@ known quirks; `load` exits non-zero if verification fails.
 `--reload-include '*.md'` makes editing a prompt file restart the server.
 
 The pipelines are importable: `srd.artifact.build`, `write` and `load`, and
-`graph.build_graph`. Progress goes through an injected `report` callable (the
-CLI passes `print`). No package's `__init__` imports its `routes.py`, so
+`graph.pipeline.build_graph`. Progress goes through an injected `report`
+callable (`graph.model.Report`; the CLI passes `print`). Every `__init__.py`
+is empty, so importing one module pulls in only what it imports
+(`graph.embeddings` loads no PDF reader, `chat.cypher` no agent), and
 importing a pipeline pulls in no web framework.
 
 ## API
@@ -210,7 +214,10 @@ GET  /source/{id}?context=400         markdown slice, highlight offsets, boxes,
 GET  /neighbourhood?section=|node=    &depth &fan &limit
 ```
 
-- The Neo4j driver is synchronous, so graph endpoints use `run_in_threadpool`.
+- The Neo4j driver is synchronous, so graph endpoints use `run_in_threadpool`,
+  and async chat code (building the agent, resolving citations) runs its
+  graph reads with `asyncio.to_thread`: on the event loop they stall every
+  other stream.
 - The API holds no state. `lifespan` opens one `AsyncSqliteSaver`
   (checkpoints) and one `AsyncSqliteStore` (pins and titles); routes reach
   them through `request.app.state`.
@@ -667,6 +674,13 @@ A LangGraph tool-calling agent (`langchain.agents.create_agent`) on Gemini
 
 - History lives in the checkpointer, keyed by a thread id the browser holds.
   There is no thread table: deleting the checkpoints is deleting the thread.
+- **Stored threads are read from the checkpointer, not the agent,** since
+  building the agent needs a model and so a key: a stored conversation opens
+  without one. Tool results a running step has already written are read
+  from its pending writes, as `aget_state` reads them.
+- **The list scans the newest checkpoints** (40 per thread listed; a turn of
+  20 lookups writes over 40), so old threads drop off it. Pinned threads are
+  fetched by id and always listed, beyond the limit too.
 - **Pins and titles live in a separate store,** because the checkpointer's
   tables are LangGraph's. Unpinning deletes the row. Deleting a thread
   deletes its pin and title. Store reads pass an explicit `limit`:
@@ -687,8 +701,8 @@ A LangGraph tool-calling agent (`langchain.agents.create_agent`) on Gemini
   leak into the next. `name_missing_subjects` fills `subject` for threads
   stored before tools returned artifacts.
 - **Tool results are fetched on demand** (`/lookups/{call_id}`): one turn of
-  the Frightened question stored 20 results and about 100 KB. Results are
-  checkpointed as each step completes, so this works mid-turn.
+  the Frightened question stored 20 results and about 100 KB. Each result
+  is stored as its tool finishes, so this works mid-turn.
 - **Turns are dated from the checkpoint** (`written_at`: the earliest
   checkpoint containing each message). Durations are measured in the browser,
   from send to stream end.

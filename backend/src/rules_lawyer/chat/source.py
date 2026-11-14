@@ -1,5 +1,4 @@
-"""
-A cited section's markdown slice and its page rectangles.
+"""A cited section's markdown slice and its page rectangles.
 
 ``srd_hierarchy.md`` and ``srd_hierarchy.anchors.json`` (about 4 MB together)
 are read once per process.
@@ -17,8 +16,10 @@ from rules_lawyer.srd.output.anchors import boxes_between
 
 @lru_cache(maxsize=1)
 def markdown() -> str:
-    """
-    The stage 1 markdown, cached.
+    """The stage 1 markdown, cached.
+
+    Returns:
+        The whole of ``srd_hierarchy.md``.
 
     Raises:
         FileNotFoundError: It has not been generated.
@@ -28,8 +29,11 @@ def markdown() -> str:
 
 @lru_cache(maxsize=1)
 def anchors() -> list[dict]:
-    """
-    The anchors file, cached; empty if absent (artifacts predating it).
+    """The anchors file, cached.
+
+    Returns:
+        The anchors in document order; empty if the file is absent (artifacts
+        predating it).
     """
     path = anchors_path_for(markdown_path_for(get_settings().output_path))
     if not path.exists():
@@ -45,8 +49,7 @@ def _read(path, what: str) -> str:
 
 
 def excerpt(section_id: str, context: int = 0) -> dict | None:
-    """
-    A section's source text, page boxes and tree neighbours.
+    """A section's source text, page boxes and tree neighbours.
 
     Args:
         section_id: Dotted section id.

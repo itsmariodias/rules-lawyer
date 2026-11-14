@@ -168,6 +168,31 @@ class TestNormalise:
         assert embeddings.normalise([0.0, 0.0]) == [0.0, 0.0]
 
 
+class TestEmbed:
+    def test_given_a_lasting_rate_limit_when_embedded_then_it_gives_up_without_a_last_wait(
+            self, monkeypatch):
+        # Given an API that answers every call with a rate limit
+        from google import genai
+
+        class Limited:
+            def __init__(self, **_):
+                self.models = self
+
+            def embed_content(self, **_):
+                raise RuntimeError("429 RESOURCE_EXHAUSTED")
+
+        waits: list[float] = []
+        monkeypatch.setattr(genai, "Client", Limited)
+        monkeypatch.setattr(embeddings.time, "sleep", waits.append)
+
+        # When a batch is embedded
+        with pytest.raises(RuntimeError, match="rate limited 5 times"):
+            embeddings.embed(["text"], settings(google_api_key="not-a-real-key"))
+
+        # Then it waited between attempts, and not after the last
+        assert waits == [1, 2, 4, 8]
+
+
 class TestResolve:
     def test_given_a_complete_file_when_resolved_then_nothing_is_embedded(
             self, tmp_path):

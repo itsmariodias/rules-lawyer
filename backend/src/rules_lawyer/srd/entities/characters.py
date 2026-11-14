@@ -46,7 +46,17 @@ def classes(sections: list[Section], pdf: str) -> list[dict]:
 
 
 def class_record(section: Section, pdf: str) -> dict:
-    """One class's record."""
+    """One class's record.
+
+    Args:
+        section: The class's section, under "Classes".
+        pdf: The PDF's file name, recorded in each record's ``source``.
+
+    Returns:
+        ``name``, ``section_id``, its core traits, ``progression``,
+        ``features_table_id``, ``features`` (the subclass's among them),
+        ``subclasses`` and ``source``.
+    """
     name = section.heading
     record: dict = {"name": name, "section_id": section.id}
     for row in table(section, f"Core {name} Traits").rows:
@@ -73,12 +83,28 @@ def class_record(section: Section, pdf: str) -> dict:
 
 
 def table(section: Section, caption: str) -> Table:
-    """The table captioned ``caption`` in the section's subtree."""
+    """The table captioned ``caption`` in the section's subtree.
+
+    Args:
+        section: The section to look under.
+        caption: The table's caption.
+
+    Returns:
+        The table.
+    """
     return captioned_tables(section.subsections)[caption].blocks[0]
 
 
 def progression(features_table: Table) -> list[dict]:
-    """A class's levels: proficiency bonus, features, and its other columns as ``resources``."""
+    """A class's levels: proficiency bonus, features, and its other columns as ``resources``.
+
+    Args:
+        features_table: The class's "<Class> Features" table.
+
+    Returns:
+        One ``{"level", "proficiency_bonus", "features"}`` per row, with
+        ``resources`` where the row has other columns filled.
+    """
     labels = column_labels(features_table)
     levels = []
     for row in features_table.rows:
@@ -100,6 +126,12 @@ def column_labels(features_table: Table) -> list[str]:
     spanning several columns, printed once over the first ("Spell Slots per
     Spell Level" over 1 to 9): it takes the nearest label above and to its
     left ("Spell Slots per Spell Level 3").
+
+    Args:
+        features_table: A class's features table.
+
+    Returns:
+        One label per column.
     """
     rows = [[plain(cell).strip() for cell in row] for row in features_table.header]
     labels = []
@@ -113,20 +145,46 @@ def column_labels(features_table: Table) -> list[str]:
 
 
 def features_of(section: Section, subclass: str | None) -> list[dict]:
-    """The "Level N: Name" features under a class's or subclass's section."""
+    """The "Level N: Name" features under a class's or subclass's section.
+
+    Args:
+        section: The class features or subclass section.
+        subclass: The subclass's name, or None for the class's own features.
+
+    Returns:
+        One ``{"level", "name", "subclass", "description", "section_id"}`` per feature.
+    """
     return [{"level": int(found.group(1)), "name": found.group(2), "subclass": subclass,
              "description": section_text(child), "section_id": child.id}
             for child in section.subsections if (found := FEATURE.match(child.heading))]
 
 
 def origins(sections: list[Section], heading: str, kind: str, pdf: str) -> list[dict]:
-    """The species or backgrounds under ``heading``, each with its labelled fields and traits."""
+    """The species or backgrounds under ``heading``, each with its labelled fields and traits.
+
+    Args:
+        sections: The book's sections.
+        heading: "Species Descriptions" or "Background Descriptions".
+        kind: The records' ``kind``: "species" or "background".
+        pdf: The PDF's file name, recorded in each record's ``source``.
+
+    Returns:
+        One record per subsection of ``heading``, as ``entity`` reads it.
+    """
     parent = next(s for s in walk(sections) if s.heading == heading)
     return [entity(section, kind, pdf) for section in parent.subsections]
 
 
 def feats(sections: list[Section], pdf: str) -> list[dict]:
-    """Every feat, with the category its italic line names (else its group's) and its group."""
+    """Every feat, with the category its italic line names (else its group's) and its group.
+
+    Args:
+        sections: The book's sections.
+        pdf: The PDF's file name, recorded in each record's ``source``.
+
+    Returns:
+        One record per feat, as ``entity`` reads it, plus ``category`` and ``group``.
+    """
     parent = next(s for s in walk(sections) if s.heading == "Feat Descriptions")
     records = []
     for group in parent.subsections:
@@ -147,6 +205,15 @@ def entity(section: Section, kind: str, pdf: str) -> dict:
 
     Traits are read from the whole subtree: a table printed mid-entry is a
     section of its own, and the traits after it are still the entry's.
+
+    Args:
+        section: The record's section.
+        kind: The record's ``kind``.
+        pdf: The PDF's file name, recorded in the record's ``source``.
+
+    Returns:
+        ``name``, ``kind``, ``section_id``, ``description`` and ``source``, each
+        labelled field, and ``traits`` if it names any.
     """
     record: dict = {"name": section.heading, "kind": kind, "section_id": section.id,
                     "description": section_text(section), "source": source(section, pdf)}

@@ -191,6 +191,16 @@ class TestBuildCreatures:
         assert creature["speed_climb"] == 20
         assert creature["str_score"] == 10
 
+    def test_given_a_nested_creature_field_when_built_then_the_field_is_named(
+            self, tiny_document):
+        # Given a stat block field Neo4j cannot store
+        tiny_document["creatures"][0]["senses"] = {"darkvision": 60}
+
+        # When the document is built
+        # Then it fails at map time, naming the field rather than the value
+        with pytest.raises(TypeError, match="'senses'"):
+            mapping.build(tiny_document)
+
     def test_given_a_creature_with_no_section_when_built_then_the_load_fails(
             self, tiny_document):
         # Given a creature whose name matches no section
@@ -501,6 +511,20 @@ class TestBuildReferences:
 
         # Then it resolves to the glossary term of that name
         assert {"start": "2", "end": "Fire"}.items() <= edges[0].items()
+
+    def test_given_a_term_of_another_type_when_built_then_it_is_not_the_target(
+            self, tiny_document):
+        # Given a reference to a condition that only a damage type is named
+        tiny_document["references"].append(
+            {"source": {"type": "rule", "id": "2", "name": "Rules"},
+             "target": {"type": "condition", "name": "Fire"},
+             "relation": "references_condition"})
+
+        # When the document is built
+        data = mapping.build(tiny_document)
+
+        # Then the damage type is not taken for a condition
+        assert {"type": "condition", "name": "Fire"}.items() <= data.unresolved[-1].items()
 
     def test_given_a_table_target_when_built_then_it_lands_on_the_tables_section(
             self, tiny_document):

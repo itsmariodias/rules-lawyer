@@ -23,9 +23,8 @@ from rules_lawyer.srd.model import (
     Table,
     plain,
 )
-from rules_lawyer.srd.sections import walk_paths
+from rules_lawyer.srd.sections import CONTENTS, walk_paths
 
-CONTENTS = "Contents"
 INDEX = "Index of Stat Blocks"
 # Disagreements printed in the book itself, not in the reading of it: Flaming
 # Sphere's subtitle names Conjuration where its lists say Evocation, Mind Spike's
@@ -66,7 +65,18 @@ def problems(blocks: list[Block], sections: list[Section]) -> list[str]:
 
 
 def listed(blocks: list[Block], title: str) -> Contents:
-    """The entries printed under the heading ``title``."""
+    """The entries printed under the heading ``title``.
+
+    Args:
+        blocks: The book's blocks in reading order.
+        title: "Contents" or "Index of Stat Blocks".
+
+    Returns:
+        The contents block directly after that heading.
+
+    Raises:
+        ValueError: No such heading is followed by contents.
+    """
     for block, after in pairwise(blocks):
         if isinstance(block, Heading) and block.text == title and isinstance(after, Contents):
             return after
@@ -81,6 +91,13 @@ def check_contents(sections: list[Section], contents: Contents) -> list[str]:
     compared: the Contents skips them ("Acolyte", a level 4 heading, is
     listed under level 2 "Character Backgrounds"). Every chapter is listed,
     except the lists' own.
+
+    Args:
+        sections: The book's top-level sections.
+        contents: The Contents' entries.
+
+    Returns:
+        One message per disagreement; empty when they agree.
     """
     ordered = list(walk_paths(sections))
     found: list[str] = []
@@ -111,6 +128,13 @@ def check_index(blocks: list[Block], index: Contents) -> list[str]:
 
     Stat blocks printed earlier, in spells and magic items (Giant Fly,
     Avatar of Death, ...), are not indexed.
+
+    Args:
+        blocks: The book's blocks in reading order.
+        index: The Index's entries.
+
+    Returns:
+        One message per disagreement; empty when they agree.
     """
     first = min(e.page for e in index.entries)
     printed = {(b.name, b.pages[0]) for b in blocks if isinstance(b, StatBlock) and b.pages[0] >= first}
@@ -128,6 +152,15 @@ def check_spells(blocks: list[Block]) -> list[str]:
     """Each spell's subtitle agrees with every class spell list, and each listed spell is described.
 
     A spell is a heading under "Spell Descriptions" with its subtitle below it.
+
+    Args:
+        blocks: The book's blocks in reading order.
+
+    Returns:
+        One message per disagreement; empty when they agree.
+
+    Raises:
+        ValueError: There is no "Spell Descriptions" heading.
     """
     described: dict[str, tuple[int, str, list[str]]] = {}
     found: list[str] = []
@@ -161,7 +194,15 @@ def check_spells(blocks: list[Block]) -> list[str]:
 
 
 def spell_kind(level: int, school: str) -> str:
-    """"Level 2 Evocation" or "Evocation Cantrip", as subtitles print it."""
+    """"Level 2 Evocation" or "Evocation Cantrip", as subtitles print it.
+
+    Args:
+        level: The spell's level, 0 for a cantrip.
+        school: Its school.
+
+    Returns:
+        The kind as printed.
+    """
     return f"Level {level} {school}" if level else f"{school} Cantrip"
 
 
@@ -171,6 +212,15 @@ def check_classes(blocks: list[Block]) -> list[str]:
     The table names a repeated feature at every level ("Ability Score
     Improvement" at 4, 8, 12, ...) and the book describes it once, at the
     first; "Subclass feature" is a heading in the subclass at that level.
+
+    Args:
+        blocks: The book's blocks in reading order.
+
+    Returns:
+        One message per disagreement; empty when they agree.
+
+    Raises:
+        ValueError: A class's features heading or table is missing.
     """
     found: list[str] = []
     titles = [b.text for b in blocks if isinstance(b, Heading)]
@@ -200,7 +250,14 @@ def check_classes(blocks: list[Block]) -> list[str]:
 
 
 def feature_headings(blocks: list[Block]) -> set[tuple[int, str]]:
-    """The (level, name) of each "Level N: Name" heading among ``blocks``."""
+    """The (level, name) of each "Level N: Name" heading among ``blocks``.
+
+    Args:
+        blocks: Blocks to look through.
+
+    Returns:
+        ``(level, name)`` per feature heading.
+    """
     return {(int(m["level"]), m["name"]) for b in blocks if isinstance(b, Heading)
             for m in [_FEATURE.match(b.text)] if m}
 
@@ -211,6 +268,15 @@ def check_gear(blocks: list[Block]) -> list[str]:
     A description heads "Acid (25 GP)"; one prices variants that are rows of
     their own: "Spell Scroll (Cantrip, 30 GP; Level 1, 50 GP)" covers the rows
     "Spell Scroll (Cantrip)" and "Spell Scroll (Level 1)".
+
+    Args:
+        blocks: The book's blocks in reading order.
+
+    Returns:
+        One message per disagreement; empty when they agree.
+
+    Raises:
+        ValueError: The Adventuring Gear heading or table is missing.
     """
     prices: dict[str, str] = {}
     found: list[str] = []
@@ -233,7 +299,17 @@ def check_gear(blocks: list[Block]) -> list[str]:
 
 
 def check_weapons(blocks: list[Block]) -> list[str]:
-    """Every property and mastery in the Weapons table is defined under Properties or Mastery Properties."""
+    """Every property and mastery in the Weapons table is defined under Properties or Mastery Properties.
+
+    Args:
+        blocks: The book's blocks in reading order.
+
+    Returns:
+        One message per undefined property or mastery.
+
+    Raises:
+        ValueError: A heading or the Weapons table is missing.
+    """
     defined = {b.text for b in under(blocks, "Properties") + under(blocks, "Mastery Properties")
                if isinstance(b, Heading)}
     found: list[str] = []
@@ -248,7 +324,18 @@ def check_weapons(blocks: list[Block]) -> list[str]:
 
 
 def under(blocks: list[Block], title: str) -> list[Block]:
-    """The blocks after the heading ``title``, up to the next heading at its level or above."""
+    """The blocks after the heading ``title``, up to the next heading at its level or above.
+
+    Args:
+        blocks: The book's blocks in reading order.
+        title: The heading's text.
+
+    Returns:
+        The blocks under it.
+
+    Raises:
+        ValueError: No heading has that text.
+    """
     start = next((i for i, b in enumerate(blocks) if isinstance(b, Heading) and b.text == title), None)
     if start is None:
         raise ValueError(f"no {title} heading")
@@ -259,7 +346,18 @@ def under(blocks: list[Block], title: str) -> list[Block]:
 
 
 def captioned(blocks: list[Block], caption: str) -> Table:
-    """The table captioned ``caption``."""
+    """The table captioned ``caption``.
+
+    Args:
+        blocks: The book's blocks in reading order.
+        caption: The caption's text.
+
+    Returns:
+        The first table with that caption.
+
+    Raises:
+        ValueError: No table has that caption.
+    """
     for block in blocks:
         if isinstance(block, Table) and plain(block.caption) == caption:
             return block

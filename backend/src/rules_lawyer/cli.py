@@ -65,7 +65,15 @@ def main(argv: list[str] | None = None) -> None:
 
 
 def run_parse(args: argparse.Namespace) -> None:
-    """Build and write the artifact; report every way the book disagrees with itself."""
+    """Build and write the artifact; report every way the book disagrees with itself.
+
+    Args:
+        args: ``pdf`` and ``out`` from the command line.
+
+    Raises:
+        FileNotFoundError: The PDF does not exist.
+        SystemExit: The book disagrees with itself other than in its known quirks.
+    """
     if not args.pdf.exists():
         raise FileNotFoundError(f"PDF not found: {args.pdf}")
     artifact = build(args.pdf, markdown_path_for(args.out).name)
@@ -79,7 +87,11 @@ def run_parse(args: argparse.Namespace) -> None:
 
 
 def run_embed(args: argparse.Namespace) -> None:
-    """Write ``srd_embeddings.idx`` without touching the database."""
+    """Write ``srd_embeddings.idx`` without touching the database.
+
+    Args:
+        args: ``input``, ``out`` and ``refresh`` from the command line.
+    """
     result = build_embeddings(args.input, embeddings_path=args.out, refresh=args.refresh, report=print)
     print(f"\n{result['count']} embeddings, {result['model']} at {result['dimensions']} dimensions "
           f"({result['task_type']})")
@@ -87,7 +99,15 @@ def run_embed(args: argparse.Namespace) -> None:
 
 
 def run_load(args: argparse.Namespace) -> None:
-    """Load and verify the graph; exit non-zero if verification fails."""
+    """Load and verify the graph.
+
+    Args:
+        args: ``input``, ``reset``, ``skip_verify``, ``embeddings`` and
+            ``refresh_embeddings`` from the command line.
+
+    Raises:
+        SystemExit: Verification failed.
+    """
     result = build_graph(args.input, reset=args.reset, skip_verify=args.skip_verify,
                          embeddings_path=args.embeddings, refresh_embeddings=args.refresh_embeddings, report=print)
     validation = result["validation"]

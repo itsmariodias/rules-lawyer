@@ -1,5 +1,4 @@
-"""
-Model-written conversation titles, stored beside the pins.
+"""Model-written conversation titles, stored beside the pins.
 
 Best effort: on any failure ``threads()`` falls back to the cut opening
 question.
@@ -29,8 +28,7 @@ PROMPT = prompt("title")
 
 
 def clean(raw: str) -> str | None:
-    """
-    Normalise a model's title reply.
+    """Normalise a model's title reply.
 
     Args:
         raw: The reply text.
@@ -48,8 +46,7 @@ def clean(raw: str) -> str | None:
 
 
 async def summarise(question: str) -> str | None:
-    """
-    Ask the model for a short title.  Never raises.
+    """Ask the model for a short title.  Never raises.
 
     Args:
         question: The conversation's first question.
@@ -73,17 +70,35 @@ async def summarise(question: str) -> str | None:
 
 
 async def remember(store: BaseStore, thread_id: str, title: str) -> None:
-    """Store a thread's title."""
+    """Store a thread's title.
+
+    Args:
+        store: Pins and titles.
+        thread_id: The conversation.
+        title: Its cleaned title.
+    """
     await store.aput(TITLES, thread_id, {"title": title})
 
 
 async def forget(store: BaseStore, thread_id: str) -> None:
-    """Delete a thread's title."""
+    """Delete a thread's title.
+
+    Args:
+        store: Pins and titles.
+        thread_id: The conversation.
+    """
     await store.adelete(TITLES, thread_id)
 
 
 async def titled(store: BaseStore | None) -> dict[str, str]:
-    """Thread id to title; empty without a store."""
+    """Every stored title.
+
+    Args:
+        store: Pins and titles, or None.
+
+    Returns:
+        Thread id to title; empty without a store.
+    """
     if store is None:
         return {}
     return {item.key: item.value["title"]

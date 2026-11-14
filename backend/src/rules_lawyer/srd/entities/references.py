@@ -49,13 +49,28 @@ IMPOSES_CONDITION = "imposes_condition"
 
 
 def phrase(vocabulary: type[Condition | Action | DamageType], noun: str) -> re.Pattern:
-    """``<name> <noun>``, or a list of names before it ("the Deafened and Frightened conditions")."""
+    """``<name> <noun>``, or a list of names before it ("the Deafened and Frightened conditions").
+
+    Args:
+        vocabulary: The names that may come before the noun.
+        noun: "condition", "action" or "damage"; a plural "s" is allowed.
+
+    Returns:
+        A pattern whose group 1 is the name or list of names.
+    """
     one = f"(?:{alternatives(vocabulary)})"
     return re.compile(rf"\b({one}(?:(?:,|\s+and|\s+or)\s+{one})*)\s+{noun}s?\b")
 
 
 def table_phrase(captions: list[str]) -> re.Pattern:
-    """``<caption> table`` for any of ``captions``; matches nothing if there are none."""
+    """``<caption> table`` for any of ``captions``.
+
+    Args:
+        captions: Every captioned table's caption.
+
+    Returns:
+        A pattern whose group 1 is the caption; it matches nothing if there are none.
+    """
     # An empty alternation would match the bare word "table" with no caption.
     names = "|".join(re.escape(caption) for caption in sorted(captions, key=len, reverse=True)) or "(?!)"
     return re.compile(rf"\b({names})\s+table\b")
@@ -72,7 +87,14 @@ class Names:
         self.by_key = {name.lower(): name for name in names}
 
     def resolve(self, text: str) -> str | None:
-        """The name ``text`` is ("two **Ghasts**" is Ghast), or None."""
+        """The name ``text`` is ("two **Ghasts**" is Ghast).
+
+        Args:
+            text: A styled run's text.
+
+        Returns:
+            The known name it matches, or None.
+        """
         key = text.strip(" .,;:!?’'\"()").lower()
         if key in self.by_key:
             return self.by_key[key]
@@ -124,7 +146,18 @@ def references(sections: list[Section]) -> list[dict]:
 
 def mentions(runs: list[Run], spells: Names, items: Names, creatures: Names,
              tables: re.Pattern) -> list[tuple[Target, str]]:
-    """What one piece of text names: italic spells and items, bold creatures, then phrases."""
+    """What one piece of text names: italic spells and items, bold creatures, then phrases.
+
+    Args:
+        runs: The text.
+        spells: Spell names.
+        items: Magic item names.
+        creatures: Creature names.
+        tables: The ``table_phrase`` of every caption.
+
+    Returns:
+        ``(target type, name)`` per mention, repeats included.
+    """
     found: list[tuple[Target, str]] = []
     for run in runs:
         if run.bold:
@@ -144,7 +177,14 @@ def mentions(runs: list[Run], spells: Names, items: Names, creatures: Names,
 
 
 def run_lists(block: Block) -> Iterator[list[Run]]:
-    """Each piece of text in a block, as runs: a paragraph, a table cell, a stat block field."""
+    """Each piece of text in a block, as runs: a paragraph, a table cell, a stat block field.
+
+    Args:
+        block: Any block.
+
+    Yields:
+        The runs of each piece, nested blocks included.
+    """
     match block:
         case Paragraph():
             yield block.runs

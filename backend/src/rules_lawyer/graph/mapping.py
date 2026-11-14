@@ -1,5 +1,4 @@
-"""
-The stage 1 document as node and edge batches.  Pure: no driver, no I/O.
+"""The stage 1 document as node and edge batches.  Pure: no driver, no I/O.
 
 Every tree node is a ``:Section`` keyed on its dotted id, with its entity
 type as a second label.  An entity printed under its own heading folds into
@@ -65,7 +64,8 @@ EQUIPMENT_LABELS = {
     "poison": "Poison",
 }
 
-# Reference target type -> glossary term_type.
+# Reference target type -> glossary term_type, the index a target of that
+# type is resolved in ("the Fire condition" must not reach a damage type).
 TARGET_TERM_TYPES = {
     "condition": "condition",
     "action": "action",
@@ -80,15 +80,21 @@ ABILITIES = ("str", "dex", "con", "int", "wis", "cha")
 
 
 def walk(nodes: list[dict]) -> Iterator[dict]:
-    """Depth-first over the section tree, parents before children."""
+    """Depth-first over the section tree, parents before children.
+
+    Args:
+        nodes: Sections from the artifact's tree.
+
+    Yields:
+        Each section, then its subsections.
+    """
     for node in nodes:
         yield node
         yield from walk(node.get("subsections", []))
 
 
 def ability_key(creature: str, category: str, name: str) -> str:
-    """
-    The ``:CreatureAbility`` key for a stat block entry.
+    """The ``:CreatureAbility`` key for a stat block entry.
 
     The part after ``|`` matches ``references[].source.part``, so
     ``_resolve_source`` can attach reference edges to the ability.
@@ -121,8 +127,7 @@ class Mapper:
     # -- batch plumbing ----------------------------------------------------
 
     def node_batch(self, *labels: str, key: str = "id") -> NodeBatch:
-        """
-        The batch for an exact label set, created on first use.
+        """The batch for an exact label set, created on first use.
 
         Args:
             *labels: Labels in order; rows MERGE on the first.
@@ -140,8 +145,7 @@ class Mapper:
 
     def edge(self, type_: str, start: tuple[str, str], start_id: str,
              end: tuple[str, str], end_id: str, **properties: Any) -> None:
-        """
-        Add an edge to the batch for its type and endpoint labels.
+        """Add an edge to the batch for its type and endpoint labels.
 
         Args:
             type_: Relationship type.
@@ -161,16 +165,25 @@ class Mapper:
         batch.add(start_id, end_id, **properties)
 
     def warn(self, message: str) -> None:
-        """Record a non-fatal mapping problem in ``data.warnings``."""
+        """Record a non-fatal mapping problem in ``data.warnings``.
+
+        Args:
+            message: What went wrong, naming the record.
+        """
         self.data.warnings.append(message)
 
     # -- name resolution ---------------------------------------------------
 
     def index(self, kind: str, name: str, key: str) -> None:
-        """
-        Record that ``name`` of ``kind`` resolves to node key ``key``.
+        """Record that ``name`` of ``kind`` resolves to node key ``key``.
 
         The first key for a name wins; a conflicting one marks it ambiguous.
+
+        Args:
+            kind: The index: an entity type, a glossary term type, or
+                ``"glossary"``, ``"equipment"``, ``"table"``.
+            name: The name references use.
+            key: The node's key value.
         """
         known = self._by_name[kind]
         if name in known and known[name] != key:
@@ -179,22 +192,42 @@ class Mapper:
         known[name] = key
 
     def index_if_absent(self, kind: str, name: str, key: str) -> None:
-        """Record ``name`` -> ``key`` only if ``name`` is not yet indexed."""
+        """Record ``name`` -> ``key`` only if ``name`` is not yet indexed.
+
+        Args:
+            kind: The index, as for ``index``.
+            name: The name references use.
+            key: The node's key value.
+        """
         self._by_name[kind].setdefault(name, key)
 
     def lookup(self, kind: str, name: str) -> str | None:
-        """The key ``index`` recorded for a name, or None."""
+        """The key ``index`` recorded for a name.
+
+        Args:
+            kind: The index, as for ``index``.
+            name: The name to resolve.
+
+        Returns:
+            The node's key value, or None.
+        """
         return self._by_name[kind].get(name)
 
     def ambiguous(self, kind: str) -> set[str]:
-        """Names of ``kind`` that ``index`` saw with conflicting keys."""
+        """Names that ``index`` saw with conflicting keys.
+
+        Args:
+            kind: The index, as for ``index``.
+
+        Returns:
+            The names.
+        """
         return self._ambiguous[kind]
 
     # -- sections ----------------------------------------------------------
 
     def add_section(self, label: str, row: dict) -> None:
-        """
-        Add a ``:Section`` row, remembered by id so later passes can fold
+        """Add a ``:Section`` row, remembered by id so later passes can fold
         entities into it.
 
         Args:
@@ -210,8 +243,7 @@ class Mapper:
         self._section_batches[row["id"]] = batch
 
     def relabel(self, section_id: str, *extra: str) -> dict:
-        """
-        Move a section's row to the batch with ``extra`` labels added.
+        """Move a section's row to the batch with ``extra`` labels added.
 
         Args:
             section_id: The section to relabel.
@@ -233,13 +265,19 @@ class Mapper:
         return row
 
     def section_row(self, section_id: str) -> dict:
-        """The row already emitted for a section, for adding properties to."""
+        """The row already emitted for a section, for adding properties to.
+
+        Args:
+            section_id: The section's dotted id.
+
+        Returns:
+            Its row, which the batch holds by reference.
+        """
         return self._section_rows[section_id]
 
     def fold(self, section_id: str | None, entity_type: str, *labels: str,
              **properties: Any) -> dict:
-        """
-        Fold a record into the section that prints it.
+        """Fold a record into the section that prints it.
 
         ``name`` overwrites the section's ("Acid (25 GP)" becomes "Acid");
         ``heading`` keeps the printed form.
@@ -270,7 +308,8 @@ class Mapper:
         return row
 
     def resolve_target(self, type_: str, name: str) -> tuple[str, str, str] | None:
-        """
+        """The node a reference target names.
+
         Args:
             type_: A reference target's ``type``.
             name: Its ``name``.
@@ -279,15 +318,14 @@ class Mapper:
             ``(label, key_property, key_value)``, or None if unresolved.
         """
         if type_ in TARGET_TERM_TYPES:
-            key = self.lookup("glossary", name)
+            key = self.lookup(TARGET_TERM_TYPES[type_], name)
             return ("GlossaryTerm", "name", key) if key else None
         key = self.lookup(type_, name)
         return ("Section", "id", key) if key else None
 
 
 def is_wrapper(node: dict) -> bool:
-    """
-    Whether a section is a monster entry that only repeats its stat block.
+    """Whether a section is a monster entry that only repeats its stat block.
 
     The book heads a stat block with its entry even when there is one
     ("Aboleth" above the Aboleth stat block).  With no prose and the same
@@ -310,8 +348,7 @@ def is_wrapper(node: dict) -> bool:
 
 
 def wrapper_groups(document: dict) -> set[str]:
-    """
-    The ids of the sections ``is_wrapper`` leaves out of the graph.
+    """The ids of the sections ``is_wrapper`` leaves out of the graph.
 
     Args:
         document: What ``srd.load()`` returns.
@@ -323,9 +360,8 @@ def wrapper_groups(document: dict) -> set[str]:
             if is_wrapper(node)}
 
 
-def add_sections(mapper: "Mapper") -> None:
-    """
-    Every tree node, with its entity type as a second label, plus
+def add_sections(mapper: Mapper) -> None:
+    """Every tree node, with its entity type as a second label, plus
     ``HAS_SUBSECTION``.  Indexes spells, creatures and magic items by name.
 
     A wrapper (``is_wrapper``) is skipped and its stat block hangs from the
@@ -333,6 +369,10 @@ def add_sections(mapper: "Mapper") -> None:
 
     "Deck of Illusions" heads two sections, so magic items are indexed in two
     passes and the one carrying ``item`` metadata wins.
+
+    Args:
+        mapper: The mapper of the document, after the passes before this one
+            in ``build``.
     """
     nodes = list(walk(mapper.document["sections"]))
 
@@ -357,8 +397,6 @@ def add_sections(mapper: "Mapper") -> None:
             "char_start": source.get("char_start"),
             "char_end": source.get("char_end"),
             "term_type": node.get("term_type"),
-            "preamble": node.get("preamble"),
-            "entries_json": as_json(node.get("entries")),
             "members": node.get("members"),
         }
         row |= _spell_properties(node.get("spell"))
@@ -435,8 +473,7 @@ def _range_properties(range_ft: int | dict | None) -> dict:
 
 
 def _damage_properties(damage: list[dict] | None) -> dict:
-    """
-    A damage list as parallel ``damage_dice``/``damage_types``/
+    """A damage list as parallel ``damage_dice``/``damage_types``/
     ``damage_averages`` arrays, since Neo4j has no list of maps.
 
     ``damage_averages`` is omitted unless every entry has one (spells print
@@ -455,13 +492,17 @@ def _damage_properties(damage: list[dict] | None) -> dict:
     return properties
 
 
-def add_creatures(mapper: "Mapper") -> None:
-    """
-    Fold each stat block into its section, and add a ``:CreatureAbility``
+def add_creatures(mapper: Mapper) -> None:
+    """Fold each stat block into its section, and add a ``:CreatureAbility``
     per entry with ``HAS_ABILITY``.
+
+    Args:
+        mapper: The mapper of the document, after the passes before this one
+            in ``build``.
 
     Raises:
         ValueError: A creature has no ``creature`` section of the same name.
+        TypeError: A property is not a Neo4j value.
     """
     for creature in mapper.document.get("creatures", []):
         name = creature["name"]
@@ -470,14 +511,14 @@ def add_creatures(mapper: "Mapper") -> None:
             raise ValueError(
                 f"creature {name!r} has no section node to attach to; the "
                 "stat blocks and the section tree have diverged")
-        mapper.section_row(section_id).update(_creature_properties(creature))
+        mapper.section_row(section_id).update(clean(_creature_properties(creature)))
 
         for category in ABILITY_LISTS:
             for entry in creature.get(category) or []:
                 _add_ability(mapper, name, section_id, category, entry)
 
 
-def _add_ability(mapper: "Mapper", creature: str, section_id: str,
+def _add_ability(mapper: Mapper, creature: str, section_id: str,
                  category: str, entry: dict) -> None:
     key = ability_key(creature, category, entry["name"])
     attack = entry.get("attack") or {}
@@ -508,7 +549,7 @@ def _add_ability(mapper: "Mapper", creature: str, section_id: str,
 
 
 def _creature_properties(creature: dict) -> dict:
-    """A stat block's fields as flat section properties, Nones dropped."""
+    """A stat block's fields as flat section properties."""
     hp = creature.get("hp") or {}
     initiative = creature.get("initiative") or {}
     row: dict[str, Any] = {
@@ -541,12 +582,11 @@ def _creature_properties(creature: dict) -> dict:
         row[f"{ability}_score"] = scores.get("score")
         row[f"{ability}_modifier"] = scores.get("modifier")
         row[f"{ability}_save"] = scores.get("save")
-    return {k: v for k, v in row.items() if v is not None and v != []}
+    return row
 
 
 def shared_glossary_sections(document: dict) -> set[str]:
-    """
-    Sections defining more than one glossary term.
+    """Sections defining more than one glossary term.
 
     Their terms cannot fold: the thirteen damage types share one table and
     the four poison types one paragraph.
@@ -564,14 +604,20 @@ def shared_glossary_sections(document: dict) -> set[str]:
     return {section_id for section_id, count in named.items() if count > 1}
 
 
-def add_glossary(mapper: "Mapper") -> None:
-    """
-    Each glossary entry, its term type as a label.
+def add_glossary(mapper: Mapper) -> None:
+    """Each glossary entry, its term type as a label.
 
     A term with a section to itself folds into it; a term sharing a passage
     is a ``:GlossaryTerm`` of its own, ``DEFINED_IN`` that passage.  Both
     carry ``:GlossaryTerm {name}``, so edges reach either the same way.
     Indexes each by name under ``"glossary"`` and under its term type.
+
+    Args:
+        mapper: The mapper of the document, after the passes before this one
+            in ``build``.
+
+    Raises:
+        ValueError: A term names a section that is not a glossary term.
     """
     shared = shared_glossary_sections(mapper.document)
     for term in mapper.document.get("glossary", []):
@@ -598,13 +644,19 @@ def add_glossary(mapper: "Mapper") -> None:
                         ("Section", "id"), term["section_id"])
 
 
-def add_equipment(mapper: "Mapper") -> None:
-    """
-    Weapons, armour, gear and poisons.
+def add_equipment(mapper: Mapper) -> None:
+    """Weapons, armour, gear and poisons.
 
     Items with a ``section_id`` (gear, poisons) fold into that section;
     weapons and armour, which are only table rows, become ``:Equipment``
     nodes ``DEFINED_IN`` their table's section.
+
+    Args:
+        mapper: The mapper of the document, after the passes before this one
+            in ``build``.
+
+    Raises:
+        ValueError: An item names a section that is not equipment.
     """
     for item in mapper.document.get("equipment", []):
         kind = item.get("kind") or "gear"
@@ -613,58 +665,46 @@ def add_equipment(mapper: "Mapper") -> None:
             mapper.warn(f"unknown equipment kind {kind!r}")
             label = "Gear"
         damage = item.get("damage") or {}
+        properties = {
+            "name": item["name"],
+            "category": item.get("category"),
+            "cost": item.get("cost"),
+            "cost_gp": item.get("cost_gp"),
+            "weight_lb": item.get("weight_lb"),
+            "properties": item.get("properties"),
+            "mastery": item.get("mastery"),
+            "damage_dice": damage.get("dice"),
+            "damage_type": damage.get("type"),
+            "armor_class": item.get("armor_class"),
+            "strength_requirement": item.get("strength_requirement"),
+            "stealth_disadvantage": item.get("stealth_disadvantage"),
+            "poison_type": item.get("poison_type"),
+        }
+        mapper.index("equipment", item["name"], item["name"])
         section_id = item.get("section_id")
         if section_id:
-            mapper.fold(
-                section_id, "equipment", "Equipment", label,
-                name=item["name"],
-                kind=item.get("kind"),
-                category=item.get("category"),
-                cost=item.get("cost"),
-                cost_gp=item.get("cost_gp"),
-                weight_lb=item.get("weight_lb"),
-                properties=item.get("properties"),
-                mastery=item.get("mastery"),
-                damage_dice=damage.get("dice"),
-                damage_type=damage.get("type"),
-                armor_class=item.get("armor_class"),
-                strength_requirement=item.get("strength_requirement"),
-                stealth_disadvantage=item.get("stealth_disadvantage"),
-                poison_type=item.get("poison_type"),
-            )
-            mapper.index("equipment", item["name"], item["name"])
+            # The section's content is the description.
+            mapper.fold(section_id, "equipment", "Equipment", label,
+                        kind=item.get("kind"), **properties)
             continue
         mapper.node_batch("Equipment", label, key="name").add(
-            name=item["name"],
-            kind=kind,
-            category=item.get("category"),
-            description=item.get("description"),
-            cost=item.get("cost"),
-            cost_gp=item.get("cost_gp"),
-            weight_lb=item.get("weight_lb"),
-            properties=item.get("properties"),
-            mastery=item.get("mastery"),
-            damage_dice=damage.get("dice"),
-            damage_type=damage.get("type"),
-            armor_class=item.get("armor_class"),
-            strength_requirement=item.get("strength_requirement"),
-            stealth_disadvantage=item.get("stealth_disadvantage"),
-            poison_type=item.get("poison_type"),
-            **_pages(item),
-        )
-        mapper.index("equipment", item["name"], item["name"])
+            kind=kind, description=item.get("description"), **properties,
+            **_pages(item))
         if item.get("table_id"):
             mapper.edge("DEFINED_IN", ("Equipment", "name"), item["name"],
                         ("Section", "id"), item["table_id"])
 
 
-def add_classes(mapper: "Mapper") -> None:
-    """
-    Classes and subclasses folded into their sections, and one
+def add_classes(mapper: Mapper) -> None:
+    """Classes and subclasses folded into their sections, and one
     ``:ClassLevel`` per progression row, with ``HAS_FEATURE``,
     ``HAS_SUBCLASS``, ``AT_LEVEL``, ``GRANTS_FEATURE``, and ``DEFINED_IN``
     the features table printing the row.  A level's resources become
     parallel ``resource_names``/``resource_values`` arrays.
+
+    Args:
+        mapper: The mapper of the document, after the passes before this one
+            in ``build``.
 
     Raises:
         ValueError: A class or subclass names no section of its type.
@@ -698,7 +738,7 @@ def add_classes(mapper: "Mapper") -> None:
                              klass.get("features_table_id"))
 
 
-def _add_subclass(mapper: "Mapper", class_name: str, subclass: dict) -> None:
+def _add_subclass(mapper: Mapper, class_name: str, subclass: dict) -> None:
     section_id = subclass.get("section_id")
     mapper.fold(section_id, "subclass", name=subclass["name"],
                 parent_class=class_name)
@@ -708,7 +748,7 @@ def _add_subclass(mapper: "Mapper", class_name: str, subclass: dict) -> None:
         _link_feature(mapper, ("Section", "id"), section_id, feature)
 
 
-def _link_feature(mapper: "Mapper", owner: tuple[str, str], owner_id: str,
+def _link_feature(mapper: Mapper, owner: tuple[str, str], owner_id: str,
                   feature: dict) -> None:
     """``HAS_FEATURE`` from the owner to the feature's section."""
     section_id = feature.get("section_id")
@@ -719,7 +759,7 @@ def _link_feature(mapper: "Mapper", owner: tuple[str, str], owner_id: str,
                 level=feature.get("level"))
 
 
-def _add_class_level(mapper: "Mapper", class_name: str, row: dict,
+def _add_class_level(mapper: Mapper, class_name: str, row: dict,
                      features: dict[str, dict], table_id: str | None) -> None:
     level = row["level"]
     key = f"{class_name}|{level}"
@@ -745,13 +785,16 @@ def _add_class_level(mapper: "Mapper", class_name: str, row: dict,
                     ("Section", "id"), feature["section_id"])
 
 
-def add_origins(mapper: "Mapper") -> None:
-    """
-    Species, backgrounds and feats, folded into their sections.
+def add_origins(mapper: Mapper) -> None:
+    """Species, backgrounds and feats, folded into their sections.
 
     A record's ``description`` is its section's ``content``, so it is not
     copied.  Traits are a list of names: their text is in the section, and
     nothing refers to one.
+
+    Args:
+        mapper: The mapper of the document, after the passes before this one
+            in ``build``.
 
     Raises:
         ValueError: A record names no section of its type.
@@ -786,12 +829,15 @@ def _pages(entry: dict) -> dict:
             "page_end": source.get("page_end")}
 
 
-def add_references(mapper: "Mapper") -> None:
-    """
-    One edge per stage 1 reference, relation uppercased.
+def add_references(mapper: Mapper) -> None:
+    """One edge per stage 1 reference, relation uppercased.
 
     Endpoints are resolved, never created; unresolved ones go to
     ``data.unresolved`` so drift between the stages is reported.
+
+    Args:
+        mapper: The mapper of the document, after the passes before this one
+            in ``build``.
     """
     for reference in mapper.document.get("references", []):
         source, target = reference["source"], reference["target"]
@@ -818,9 +864,8 @@ def add_references(mapper: "Mapper") -> None:
                     (end_label, end_key), end_id)
 
 
-def _resolve_source(mapper: "Mapper", source: dict) -> tuple[str, str, str] | None:
-    """
-    A reference source as ``(label, key_property, key_value)``.
+def _resolve_source(mapper: Mapper, source: dict) -> tuple[str, str, str] | None:
+    """A reference source as ``(label, key_property, key_value)``.
 
     Creature sources resolve to the ability named by ``part``; sections by
     id; equipment by name.  None if equipment does not resolve.
@@ -834,10 +879,13 @@ def _resolve_source(mapper: "Mapper", source: dict) -> tuple[str, str, str] | No
     return ("Equipment", "name", name) if name else None
 
 
-def add_derived(mapper: "Mapper") -> None:
-    """
-    Edges from list fields whose names resolve to nodes: creature
+def add_derived(mapper: Mapper) -> None:
+    """Edges from list fields whose names resolve to nodes: creature
     defences and gear, spell class lists, poison types, background feats.
+
+    Args:
+        mapper: The mapper of the document, after the passes before this one
+            in ``build``.
     """
     for creature in mapper.document.get("creatures", []):
         section_id = mapper.lookup("creature", creature["name"])
@@ -885,8 +933,7 @@ def _feat_name(printed: str | None) -> str | None:
 
 
 def build(document: dict) -> GraphData:
-    """
-    Map a stage 1 document to graph batches.
+    """Map a stage 1 document to graph batches.
 
     Args:
         document: What ``srd.load()`` returns.

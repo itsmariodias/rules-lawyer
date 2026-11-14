@@ -28,12 +28,26 @@ SCORE_FONTS = (("GillSans", 9.8), ("GillSans-Bold", 9.8),
 
 
 def is_title(line: Line) -> bool:
-    """Whether the line is a stat block's title."""
+    """Whether the line is a stat block's title.
+
+    Args:
+        line: A line of the book.
+
+    Returns:
+        True if every span is in ``TITLE_FONT``.
+    """
     return all(s.face == TITLE_FONT for s in line.spans)
 
 
 def is_stat_line(line: Line) -> bool:
-    """Whether the line is in a stat block's type."""
+    """Whether the line is in a stat block's type.
+
+    Args:
+        line: A line of the book.
+
+    Returns:
+        True if every span is Optima or a stat block GillSans face, outside a sidebar.
+    """
     return line.frame is None and all(
         s.font.startswith("Optima") or s.face in (SECTION_FONT, LABEL_FONT, *SCORE_FONTS)
         for s in line.spans)
@@ -86,7 +100,14 @@ def stat_block(lines: list[Line], hyphenated: set[str],
 
 
 def fields_of(runs: list[Run]) -> list[Field]:
-    """The fields in a field line's runs: each bold run is a label ("AC 17 Initiative +7")."""
+    """The fields in a field line's runs: each bold run is a label ("AC 17 Initiative +7").
+
+    Args:
+        runs: The runs of one or more field lines, a label first.
+
+    Returns:
+        The fields in printed order, values trimmed.
+    """
     fields: list[Field] = []
     for run in runs:
         if run.bold:
@@ -102,7 +123,19 @@ def fields_of(runs: list[Run]) -> list[Field]:
 
 def entries(lines: list[Line], hyphenated: set[str],
             read: Callable[[list[Line], set[str]], list[Block]]) -> list[Paragraph]:
-    """A section's entries, read as paragraphs."""
+    """A section's entries, read as paragraphs.
+
+    Args:
+        lines: The lines under a section header ("Actions").
+        hyphenated: Output of ``compounds``, for undoing hyphenation.
+        read: How lines become blocks (``read_blocks``).
+
+    Returns:
+        One paragraph per entry or continuation.
+
+    Raises:
+        ValueError: The lines read as something other than paragraphs.
+    """
     blocks = read(lines, hyphenated)
     for block in blocks:
         if not isinstance(block, Paragraph):

@@ -1,5 +1,4 @@
-"""
-A bounded neighbourhood of one node, for the graph view and ``explore_srd_graph``.
+"""A bounded neighbourhood of one node, for the graph view and ``explore_srd_graph``.
 
 Bounded by ``depth`` hops, ``fan`` neighbours per (node, type, direction)
 group, and ``limit`` nodes; ``truncated`` reports what the caps cut.  Nodes
@@ -46,8 +45,7 @@ _NOT_A_FACT = {
 FACT_CHARS = 120
 
 # Excluded from ``facts``; long prose arrives once, as ``summary``.
-BULKY = ["content", "description", "preamble", "entries_json",
-         "outcomes_json"]
+BULKY = ["content", "description", "outcomes_json"]
 
 _SEED_BY_SECTION = "MATCH (n:Section {id: $key})"
 _SEED_BY_NODE = "MATCH (n) WHERE elementId(n) = $key"
@@ -94,8 +92,7 @@ ORDER BY anchor, type, outgoing, name
 
 
 def _summarise(text: str | None) -> str | None:
-    """
-    Plain-text opening of a passage for the details card.
+    """Plain-text opening of a passage for the details card.
 
     Args:
         text: Markdown content.
@@ -130,8 +127,7 @@ def _prose(lines: list[str]) -> list[str]:
 
 
 def _facts(pairs: list[list] | None) -> list[dict]:
-    """
-    Up to six displayable properties, for nodes without prose (e.g. a Dagger).
+    """Up to six displayable properties, for nodes without prose (e.g. a Dagger).
 
     Args:
         pairs: ``[key, value]`` pairs from the query.
@@ -157,8 +153,7 @@ def _facts(pairs: list[list] | None) -> list[dict]:
 
 
 def _pair_resources(properties: dict) -> dict:
-    """
-    Rejoin ``resource_names``/``resource_values`` as ``resources``,
+    """Rejoin ``resource_names``/``resource_values`` as ``resources``,
     e.g. ``["Rages 3", "Rage Damage +2"]``.
     """
     names = properties.get("resource_names")
@@ -174,8 +169,7 @@ def _pair_resources(properties: dict) -> dict:
 
 
 def _owner(pairs: list[list] | None) -> str | None:
-    """
-    The ``creature`` property, if present.  Disambiguates abilities that
+    """The ``creature`` property, if present.  Disambiguates abilities that
     share a name (the book prints a dozen "Swallow"s).
     """
     for pair in pairs or []:
@@ -186,7 +180,8 @@ def _owner(pairs: list[list] | None) -> str | None:
 
 def _node(row: dict, depth: int) -> dict:
     """A query row as the node dict the UI draws."""
-    labels = [l for l in row["labels"] or [] if l not in _UNINFORMATIVE]
+    labels = [label for label in row["labels"] or []
+              if label not in _UNINFORMATIVE]
     summary = _summarise(row.get("summary"))
     return {
         "uid": row["uid"],
@@ -206,8 +201,7 @@ def _node(row: dict, depth: int) -> dict:
 
 
 def assemble(seed: dict, rounds: list[list[dict]], limit: int) -> dict:
-    """
-    Fold per-hop ``_NEIGHBOURS`` rows into a graph within a node budget.
+    """Fold per-hop ``_NEIGHBOURS`` rows into a graph within a node budget.
 
     Nodes are admitted in discovery order until ``limit``.  Edges to a node
     that was not admitted, and rows anchored at one, are dropped.  A node
@@ -267,8 +261,7 @@ def assemble(seed: dict, rounds: list[list[dict]], limit: int) -> dict:
 def neighbourhood(*, section_id: str | None = None, uid: str | None = None,
                   depth: int = 1, fan: int = FAN,
                   limit: int = LIMIT) -> dict | None:
-    """
-    The bounded graph around one node.
+    """The bounded graph around one node.
 
     Args:
         section_id: Seed by dotted section id.

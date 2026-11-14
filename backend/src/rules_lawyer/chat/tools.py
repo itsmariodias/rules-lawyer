@@ -1,5 +1,4 @@
-"""
-The agent's four tools.
+"""The agent's four tools.
 
 Each tool's docstring is its description to the model, parsed by LangChain,
 so it is prompt text.  Results are prose led by ``[section_id]`` so the
@@ -129,8 +128,7 @@ RETURN elementId(n) AS uid, printed.id AS section_id,
 
 
 def _printed_in(nodes: list[dict]) -> dict[str, dict]:
-    """
-    The citable section each non-section node was printed in.
+    """The citable section each non-section node was printed in.
 
     Without it the model searched for each such node by name, one call apiece.
 
@@ -149,8 +147,7 @@ def _printed_in(nodes: list[dict]) -> dict[str, dict]:
 
 
 def _describe(node: dict, printed: dict[str, dict] | None = None) -> str:
-    """
-    One node as a line, with the id to cite for it.
+    """One node as a line, with the id to cite for it.
 
     A section cites itself; a derived node cites where it was printed, or
     is marked "do not cite" if it was printed nowhere.
@@ -169,8 +166,7 @@ def _describe(node: dict, printed: dict[str, dict] | None = None) -> str:
 
 
 def _anchor_of(edge: dict, nodes: dict[str, dict]) -> tuple[str, bool]:
-    """
-    The end of an edge the walk reached first (the shallower; the source on a
+    """The end of an edge the walk reached first (the shallower; the source on a
     tie), and whether the edge points away from it.
     """
     source, target = nodes[edge["source"]], nodes[edge["target"]]
@@ -180,8 +176,7 @@ def _anchor_of(edge: dict, nodes: dict[str, dict]) -> tuple[str, bool]:
 
 
 def _render(data: dict) -> str:
-    """
-    A neighbourhood as indented prose, grouped by anchor, type and direction.
+    """A neighbourhood as indented prose, grouped by anchor, type and direction.
 
     Groups the fan cap cut read "121 in the graph, 8 shown".
     """

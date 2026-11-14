@@ -1,5 +1,4 @@
-"""
-Chat turns as typed event streams, and thread storage operations.
+"""Chat turns as typed event streams, and thread storage operations.
 
 ``stream_turn`` yields ``token``, ``tool_start``, ``tool_end``, ``usage``,
 ``citations``, ``error`` and ``done`` dicts; ``chat.routes`` encodes them as
@@ -22,8 +21,7 @@ from rules_lawyer.config import get_settings
 
 
 def _thread(thread_id: str, checkpoint_id: str | None = None) -> dict:
-    """
-    LangGraph run config for a thread, optionally branching from a
+    """LangGraph run config for a thread, optionally branching from a
     checkpoint (used by retry).
     """
     configurable = {"thread_id": thread_id}
@@ -33,8 +31,7 @@ def _thread(thread_id: str, checkpoint_id: str | None = None) -> dict:
 
 
 def resolve_citations(text: str) -> list[dict]:
-    """
-    Look up every section id cited in an answer.
+    """Look up every section id cited in an answer.
 
     Args:
         text: The model's answer.
@@ -59,8 +56,7 @@ def resolve_citations(text: str) -> list[dict]:
 async def stream_turn(message: str, thread_id: str,
                       checkpointer: BaseCheckpointSaver,
                       checkpoint_id: str | None = None) -> AsyncIterator[dict]:
-    """
-    Run one user message and yield events until the turn ends.
+    """Run one user message and yield events until the turn ends.
 
     Never raises: any failure becomes an ``error`` event, followed by
     ``usage`` (if any calls were made) and ``done``.
@@ -81,7 +77,8 @@ async def stream_turn(message: str, thread_id: str,
     spoken: list[AIMessage] = []
 
     try:
-        agent = build_agent(checkpointer)
+        # Building the agent reads the graph schema, a synchronous query.
+        agent = await asyncio.to_thread(build_agent, checkpointer)
         stream = agent.astream(
             {"messages": [HumanMessage(content=message)]},
             config=config,
@@ -107,13 +104,13 @@ async def stream_turn(message: str, thread_id: str,
 
     text = "".join(answer)
     if text.strip():
-        yield {"type": "citations", "citations": resolve_citations(text)}
+        yield {"type": "citations",
+               "citations": await asyncio.to_thread(resolve_citations, text)}
     yield {"type": "done", "thread_id": thread_id}
 
 
 async def _until_silent(stream: AsyncIterator, seconds: float) -> AsyncIterator:
-    """
-    Re-yield a stream, failing if any gap between items exceeds ``seconds``.
+    """Re-yield a stream, failing if any gap between items exceeds ``seconds``.
 
     A stalled model call neither yields nor raises.
 
@@ -137,8 +134,7 @@ ERROR_CHARS = 220
 
 
 def _explain(exc: Exception) -> str:
-    """
-    An exception as a short sentence for the reader.
+    """An exception as a short sentence for the reader.
 
     Missing key, rejected key, spent quota and silence get fixed messages;
     anything else is truncated to ``ERROR_CHARS``.
@@ -163,8 +159,7 @@ def _explain(exc: Exception) -> str:
 
 def _from_message_chunk(chunk: Any, answer: list[str],
                         announced: set[str]) -> list[dict]:
-    """
-    ``token`` events for text, and one ``tool_start`` per tool call.
+    """``token`` events for text, and one ``tool_start`` per tool call.
 
     A call is announced once it has both ``id`` and ``name``; ``announced``
     dedupes across chunks.  Text is also appended to ``answer``.
@@ -187,6 +182,17 @@ def _from_message_chunk(chunk: Any, answer: list[str],
     return events
 
 
+def _outcome(message: ToolMessage) -> dict:
+    """A tool result's ``status``, ``summary`` and ``subject``, live or stored."""
+    # A tool that raised has no artifact; LangChain sets status="error" on its
+    # message instead.
+    artifact = getattr(message, "artifact", None) or {}
+    failed = getattr(message, "status", None) == "error"
+    return {"status": "failed" if failed else artifact.get("status", "ok"),
+            "summary": artifact.get("summary"),
+            "subject": artifact.get("subject")}
+
+
 def _from_update(payload: dict) -> list[dict]:
     """``tool_end`` events for the tool results in a state update."""
     events = []
@@ -194,19 +200,12 @@ def _from_update(payload: dict) -> list[dict]:
                      if isinstance(step, dict)):
         for message in messages:
             if getattr(message, "type", None) == "tool":
-                # A tool that raised has no artifact; LangChain sets
-                # status="error" on its message instead.
-                artifact = getattr(message, "artifact", None) or {}
-                failed = getattr(message, "status", None) == "error"
                 events.append({
                     "type": "tool_end",
                     "id": message.tool_call_id,
                     "name": message.name,
                     "result_chars": len(str(message.content)),
-                    "status": ("failed" if failed
-                               else artifact.get("status", "ok")),
-                    "summary": artifact.get("summary"),
-                    "subject": artifact.get("subject"),
+                    **_outcome(message),
                 })
     return events
 
@@ -220,8 +219,7 @@ def _model_messages(payload: dict) -> list[AIMessage]:
 
 
 def usage_of(messages: list) -> dict | None:
-    """
-    Token usage summed over a turn's model calls.
+    """Token usage summed over a turn's model calls.
 
     Args:
         messages: Any messages; only ``AIMessage.usage_metadata`` is read.
@@ -243,8 +241,7 @@ def usage_of(messages: list) -> dict | None:
 
 
 def _text_of(chunk: Any) -> str:
-    """
-    The text of a chunk whose content is a string or a list of parts.
+    """The text of a chunk whose content is a string or a list of parts.
 
     Non-text parts (e.g. function calls) are skipped.
     """
@@ -264,18 +261,13 @@ def _call_row(call: dict) -> dict:
 
 
 def _close_row(row: dict, message: ToolMessage) -> None:
-    """The same reading ``tool_end`` takes, from the stored message."""
-    artifact = getattr(message, "artifact", None) or {}
+    """Mark a trace row done with its stored result's outcome."""
     row["done"] = True
-    row["status"] = ("failed" if getattr(message, "status", None) == "error"
-                     else artifact.get("status", "ok"))
-    row["summary"] = artifact.get("summary")
-    row["subject"] = artifact.get("subject")
+    row.update(_outcome(message))
 
 
 def turns_of(messages: list, when: dict[str, str] | None = None) -> list[dict]:
-    """
-    A stored conversation as UI turns.
+    """A stored conversation as UI turns.
 
     Tool calls attach to the assistant answer that follows them.  Calls from
     a turn that ended without an answer are discarded at the next question.
@@ -324,8 +316,7 @@ def turns_of(messages: list, when: dict[str, str] | None = None) -> list[dict]:
 
 
 def name_missing_subjects(turns: list[dict]) -> list[dict]:
-    """
-    Fill ``subject`` on stored tool calls that have only a ``section_id``.
+    """Fill ``subject`` on stored tool calls that have only a ``section_id``.
 
     Threads from before tools returned artifacts lack it.
 
@@ -353,8 +344,7 @@ RESULT_CHARS = 40_000
 
 
 def find_result(messages: list, call_id: str) -> dict | None:
-    """
-    One tool call's stored result.
+    """One tool call's stored result.
 
     Args:
         messages: The thread's messages.
@@ -374,36 +364,77 @@ def find_result(messages: list, call_id: str) -> dict | None:
     return None
 
 
+def _checkpointed(checkpoint: dict) -> list:
+    """The messages stored in one checkpoint."""
+    return (checkpoint.get("channel_values") or {}).get("messages", [])
+
+
+async def _messages(thread_id: str,
+                    checkpointer: BaseCheckpointSaver) -> list:
+    """A thread's messages, read from storage without building the agent.
+
+    Building it needs a model, and so an API key; reading a stored thread
+    needs neither.  Tool results already written by a step still running are
+    included, as ``aget_state`` includes them.
+
+    Args:
+        thread_id: The thread.
+        checkpointer: Conversation storage.
+
+    Returns:
+        The messages in order; empty for an unknown thread.
+    """
+    saved = await checkpointer.aget_tuple(_thread(thread_id))
+    if saved is None:
+        return []
+    messages = list(_checkpointed(saved.checkpoint))
+    stored = {message.id for message in messages if message.id}
+    for _, channel, value in saved.pending_writes or []:
+        if channel != "messages":
+            continue
+        for message in value if isinstance(value, list) else [value]:
+            if not message.id or message.id not in stored:
+                messages.append(message)
+    return messages
+
+
 async def lookup(thread_id: str, call_id: str,
                  checkpointer: BaseCheckpointSaver) -> dict | None:
-    """
-    One tool call's stored result, read from the thread's latest state.
+    """One tool call's stored result, read from the thread's latest state.
 
-    Results are checkpointed when their step completes, so this also works
-    while the turn is still streaming.
+    Each result is stored as its tool finishes, so this also works while the
+    turn is still streaming.
+
+    Args:
+        thread_id: The conversation the call was made in.
+        call_id: The tool call's id.
+        checkpointer: Conversation storage.
 
     Returns:
         See ``find_result``.
     """
-    agent = build_agent(checkpointer)
-    state = await agent.aget_state(_thread(thread_id))
-    return find_result((state.values or {}).get("messages", []), call_id)
+    return find_result(await _messages(thread_id, checkpointer), call_id)
 
 
 async def written_at(thread_id: str,
                      checkpointer: BaseCheckpointSaver) -> dict[str, str]:
-    """
-    Message id to the timestamp of the earliest checkpoint containing it.
+    """Message id to the timestamp of the earliest checkpoint containing it.
 
     ``alist`` yields newest first, so the last write per id is the earliest.
+
+    Args:
+        thread_id: The conversation.
+        checkpointer: Conversation storage.
+
+    Returns:
+        Message id to ISO timestamp, for every message with an id.
     """
     when: dict[str, str] = {}
     async for item in checkpointer.alist(_thread(thread_id)):
         stamp = item.checkpoint.get("ts")
         if not stamp:
             continue
-        for message in (item.checkpoint.get("channel_values")
-                        or {}).get("messages", []):
+        for message in _checkpointed(item.checkpoint):
             message_id = getattr(message, "id", None)
             if message_id:
                 when[message_id] = stamp
@@ -411,22 +442,27 @@ async def written_at(thread_id: str,
 
 
 async def history(thread_id: str, checkpointer: BaseCheckpointSaver) -> list[dict]:
-    """
-    One thread's turns, with tool traces, timestamps and usage.
+    """One thread's turns, with tool traces, timestamps and usage.
+
+    Args:
+        thread_id: The conversation.
+        checkpointer: Conversation storage.
 
     Returns:
         See ``turns_of``; empty for an unknown thread.
     """
-    agent = build_agent(checkpointer)
-    state = await agent.aget_state(_thread(thread_id))
-    return name_missing_subjects(
-        turns_of((state.values or {}).get("messages", []),
-                 await written_at(thread_id, checkpointer)))
+    messages = await _messages(thread_id, checkpointer)
+    when = await written_at(thread_id, checkpointer)
+    # Both resolve section ids with synchronous graph queries.
+    return await asyncio.to_thread(
+        lambda: name_missing_subjects(turns_of(messages, when)))
 
 
 def last_question(messages: list) -> tuple[str, str] | None:
-    """
-    The last human message.
+    """The last human message.
+
+    Args:
+        messages: A thread's messages, in order.
 
     Returns:
         ``(text, message_id)``, or None if there is none.
@@ -439,29 +475,31 @@ def last_question(messages: list) -> tuple[str, str] | None:
 
 async def rewind(thread_id: str,
                  checkpointer: BaseCheckpointSaver) -> tuple[str, str | None] | None:
-    """
-    Find where to re-ask the last question from.
+    """Find where to re-ask the last question from.
 
     The checkpointer cannot delete one checkpoint, so a retry branches from
     the newest checkpoint without the last question; later ones stay on disk,
     unreachable.  If no such checkpoint exists, the thread's checkpoints are
     deleted so it restarts under the same id.
 
+    Args:
+        thread_id: The conversation.
+        checkpointer: Conversation storage.
+
     Returns:
         ``(question, checkpoint_id)``, where a None checkpoint means start
         fresh; or None if the thread has no question.
     """
-    agent = build_agent(checkpointer)
-    state = await agent.aget_state(_thread(thread_id))
-    asked = last_question((state.values or {}).get("messages", []))
+    asked = last_question(await _messages(thread_id, checkpointer))
     if asked is None:
         return None
     text, message_id = asked
 
-    async for snapshot in agent.aget_state_history(_thread(thread_id)):
-        messages = (snapshot.values or {}).get("messages", [])
+    # Newest first.
+    async for item in checkpointer.alist(_thread(thread_id)):
+        messages = _checkpointed(item.checkpoint)
         if not any(getattr(m, "id", None) == message_id for m in messages):
-            return text, snapshot.config["configurable"]["checkpoint_id"]
+            return text, item.config["configurable"]["checkpoint_id"]
 
     await checkpointer.adelete_thread(thread_id)
     return text, None
@@ -471,7 +509,14 @@ PINS = ("threads", "pinned")
 
 
 async def pinned(store: BaseStore | None) -> set[str]:
-    """The pinned thread ids; empty without a store."""
+    """The pinned thread ids.
+
+    Args:
+        store: Pins and titles, or None.
+
+    Returns:
+        The ids; empty without a store.
+    """
     if store is None:
         return set()
     # ``asearch`` defaults to ten, which silently unpinned the eleventh.
@@ -479,23 +524,35 @@ async def pinned(store: BaseStore | None) -> set[str]:
 
 
 async def set_pinned(store: BaseStore, thread_id: str, pin: bool) -> None:
-    """Pin a thread, or unpin it by deleting its row."""
+    """Pin a thread, or unpin it by deleting its row.
+
+    Args:
+        store: Pins and titles.
+        thread_id: The conversation.
+        pin: True to pin, False to unpin.
+    """
     if pin:
         await store.aput(PINS, thread_id, {"pinned": True})
     else:
         await store.adelete(PINS, thread_id)
 
 
+# Checkpoints scanned per thread listed.  One turn writes one per step, and
+# a turn of 20 lookups writes over 40, so older threads fall outside the
+# scan; pinned threads are fetched by id instead.
+CHECKPOINTS_PER_THREAD = 40
+
+
 async def threads(checkpointer: BaseCheckpointSaver,
                   store: BaseStore | None = None,
                   limit: int = 50) -> list[dict]:
-    """
-    Stored threads, pinned first, then most recently updated.
+    """Stored threads, pinned first, then most recently updated.
 
     Args:
         checkpointer: Conversation storage.
         store: Pins and titles; optional.
-        limit: Maximum threads returned.
+        limit: Maximum unpinned threads returned.  Every pinned thread is
+            returned, however old.
 
     Returns:
         ``{"thread_id", "title", "updated_at", "messages", "pinned"}`` per
@@ -503,31 +560,43 @@ async def threads(checkpointer: BaseCheckpointSaver,
     """
     pins = await pinned(store)
     named = await titles.titled(store)
-    found: dict[str, dict] = {}
-    async for item in checkpointer.alist(None, limit=limit * 40):
-        thread_id = item.config["configurable"]["thread_id"]
-        if thread_id in found:
-            continue
-        messages = (item.checkpoint.get("channel_values") or {}).get("messages", [])
-        opening = next((m for m in messages if isinstance(m, HumanMessage)), None)
-        if opening is None:
+    # Thread id -> its newest checkpoint; ``alist`` yields newest first.
+    newest: dict[str, dict] = {}
+    async for item in checkpointer.alist(
+            None, limit=limit * CHECKPOINTS_PER_THREAD):
+        newest.setdefault(item.config["configurable"]["thread_id"],
+                          item.checkpoint)
+    for thread_id in pins - newest.keys():
+        saved = await checkpointer.aget_tuple(_thread(thread_id))
+        if saved is not None:
+            newest[thread_id] = saved.checkpoint
+
+    listed: list[dict] = []
+    for thread_id, checkpoint in newest.items():
+        messages = _checkpointed(checkpoint)
+        questions = [m for m in messages if isinstance(m, HumanMessage)]
+        if not questions:
             continue  # only the pre-input checkpoint so far
-        found[thread_id] = {
+        listed.append({
             "thread_id": thread_id,
-            "title": named.get(thread_id) or _title(opening.text),
-            "updated_at": item.checkpoint.get("ts"),
-            "messages": sum(1 for m in messages if isinstance(m, HumanMessage)),
+            "title": named.get(thread_id) or _title(questions[0].text),
+            "updated_at": checkpoint.get("ts"),
+            "messages": len(questions),
             "pinned": thread_id in pins,
-        }
-    return sorted(found.values(),
-                  key=lambda t: (t["pinned"], t["updated_at"] or ""),
-                  reverse=True)[:limit]
+        })
+    listed.sort(key=lambda t: t["updated_at"] or "", reverse=True)
+    pinned_first = [t for t in listed if t["pinned"]]
+    return pinned_first + [t for t in listed if not t["pinned"]][:limit]
 
 
 async def forget(thread_id: str, checkpointer: BaseCheckpointSaver,
                  store: BaseStore | None = None) -> bool:
-    """
-    Delete a thread's checkpoints, pin and title.
+    """Delete a thread's checkpoints, pin and title.
+
+    Args:
+        thread_id: The conversation.
+        checkpointer: Conversation storage.
+        store: Pins and titles, or None to delete the checkpoints alone.
 
     Returns:
         False if the thread had no checkpoints.

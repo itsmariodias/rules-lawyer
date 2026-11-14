@@ -16,7 +16,9 @@ from rules_lawyer.srd.sections import walk
 from rules_lawyer.srd.vocabulary import EntityType
 
 # "Level 2 Evocation (Wizard)", "Evocation Cantrip (Sorcerer, Wizard)": 339.
-SPELL_SUBTITLE = re.compile(r"^(?:Level \d \w+|\w+ Cantrip) \([^)]*\)$")
+# ``entities.spells`` reads a spell's level, school and classes from its groups.
+SPELL_SUBTITLE = re.compile(
+    r"^(?:Level (?P<level>\d) (?P<school>\w+)|(?P<cantrip>\w+) Cantrip) \((?P<classes>[^)]*)\)$")
 # "Wondrous Item, Rare (Requires Attunement)", "Weapon (Any Sword), Very Rare": 258.
 ITEM_SUBTITLE = re.compile(r"^(?:Armor|Potion|Ring|Rod|Scroll|Staff|Wand|Weapon|Wondrous Item)\b")
 # The chapters of monster entries; an entry there over stat blocks is a group (177).
@@ -47,7 +49,12 @@ def type_sections(sections: list[Section]) -> None:
 
 
 def type_children(parent: Section, in_monster_chapter: bool) -> None:
-    """Type ``parent``'s subsections, and theirs, from their blocks and the sets they are in."""
+    """Type ``parent``'s subsections, and theirs, from their blocks and the sets they are in.
+
+    Args:
+        parent: A section whose subtree is typed in place.
+        in_monster_chapter: Whether ``parent`` is in a chapter of monster entries.
+    """
     set_type = ENTRY_SETS.get(parent.heading)
     for position, section in enumerate(parent.subsections):
         if subtitle := italic_subtitle(section):
@@ -102,7 +109,14 @@ def type_from_records(sections: list[Section], classes: list[dict], origins: lis
 
 
 def italic_subtitle(section: Section) -> str | None:
-    """The text of the section's first block if it is an italic line, as under a spell's heading."""
+    """The text of the section's first block if it is an italic line, as under a spell's heading.
+
+    Args:
+        section: A section.
+
+    Returns:
+        The subtitle's text, or None.
+    """
     first = section.blocks[0] if section.blocks else None
     if isinstance(first, Paragraph) and all(run.italic for run in first.runs):
         return plain(first.runs)

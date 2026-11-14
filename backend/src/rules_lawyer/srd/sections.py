@@ -82,6 +82,9 @@ def place_floats(roots: list[Section]) -> None:
     lists it (``listed_place``): "Running a Monster", printed in Resistances
     and Vulnerabilities, is listed under Monsters after Parts of a Stat
     Block. Any other float stays where it is printed.
+
+    Args:
+        roots: The book's top-level sections, rearranged in place.
     """
     order = {id(section): position for position, (section, _) in enumerate(walk_paths(roots))}
     contents = next((block for section in walk(roots) if section.heading == CONTENTS
@@ -118,6 +121,14 @@ def naming_section(name: str, path: list[Section], order: dict[int, int]) -> Sec
     section above it), the first of equals. A mention in a list is not
     ownership: "Gain all the traits in the Core Barbarian Traits table" names
     it in "As a Level 1 Character", and it stays with the class.
+
+    Args:
+        name: The table's caption.
+        path: The ancestors of the table's section, root first.
+        order: Each section's position in reading order, by ``id()``.
+
+    Returns:
+        The owning section, or None if no paragraph names the table.
     """
     pattern = re.compile(rf"{re.escape(name)}\s+table", re.IGNORECASE)
     area = path[min(1, len(path) - 1)]
@@ -129,8 +140,17 @@ def naming_section(name: str, path: list[Section], order: dict[int, int]) -> Sec
 
 def listed_place(section: Section, contents: Contents,
                  roots: list[Section]) -> tuple[Section | None, Section | None]:
-    """Where the Contents lists ``section``: the section of the entry it is under, and of
-    the entry before it at its level (None if it is listed first); (None, None) if unlisted."""
+    """Where the Contents lists ``section``.
+
+    Args:
+        section: A sidebar's section.
+        contents: The book's Contents.
+        roots: The book's top-level sections.
+
+    Returns:
+        The section of the entry it is listed under, and of the entry before it
+        at its level (None if it is listed first); (None, None) if unlisted.
+    """
     def found(entry: Entry) -> Section | None:
         return next((s for s in walk(roots) if (s.heading, s.source.page_start) == (plain(entry.runs), entry.page)),
                     None)
@@ -148,38 +168,72 @@ def listed_place(section: Section, contents: Contents,
 
 
 def walk_paths(sections: list[Section], path: tuple[Section, ...] = ()) -> Iterator[tuple[Section, list[Section]]]:
-    """Every section with its ancestors, root first, depth first."""
+    """Every section with its ancestors, root first, depth first.
+
+    Args:
+        sections: Sections to walk.
+        path: Their ancestors; empty at the roots.
+
+    Yields:
+        ``(section, ancestors)``, the ancestors root first.
+    """
     for section in sections:
         yield section, list(path)
         yield from walk_paths(section.subsections, (*path, section))
 
 
 def depths(section: Section, depth: int) -> Iterator[tuple[Section, int]]:
-    """A section and everything under it, each with its depth (a root is 1)."""
+    """A section and everything under it, each with its depth.
+
+    Args:
+        section: Where to start.
+        depth: ``section``'s own depth (a root is 1).
+
+    Yields:
+        ``(section, depth)``, each before its subsections.
+    """
     yield section, depth
     for child in section.subsections:
         yield from depths(child, depth + 1)
 
 
-
-
-
 def walk(sections: list[Section]) -> Iterator[Section]:
-    """Every section in the tree, depth first, each before its subsections."""
+    """Every section in the tree, depth first, each before its subsections.
+
+    Args:
+        sections: Sections to walk.
+
+    Yields:
+        Each section.
+    """
     for section in sections:
         yield section
         yield from walk(section.subsections)
 
 
 def captioned_tables(sections: list[Section]) -> dict[str, Section]:
-    """Each captioned table's section under ``sections``, by caption; every caption names one table."""
+    """Each captioned table's section under ``sections``, by caption.
+
+    Args:
+        sections: Sections to search, subtrees included.
+
+    Returns:
+        Caption to the section holding that table; every caption names one table.
+    """
     return {section.heading: section for section in walk(sections)
             if len(section.blocks) == 1 and isinstance(section.blocks[0], Table) and section.blocks[0].caption}
 
 
 def float_heading(block: Block) -> str | None:
-    """The heading of the section a float makes: a stat block's name, a table's caption,
-    a sidebar's title; None if the block is not a float."""
+    """The heading of the section a float makes.
+
+    Args:
+        block: Any block.
+
+    Returns:
+        A stat block's name, a table's caption or a sidebar's title; None if
+        the block is not a float.
+    """
     if isinstance(block, StatBlock):
         return block.name
     if isinstance(block, Table) and block.caption:
@@ -190,14 +244,23 @@ def float_heading(block: Block) -> str | None:
 
 
 def number(sections: list[Section], prefix: str) -> None:
-    """Give each section its dotted id: its position under its parent, from 1."""
+    """Give each section its dotted id: its position under its parent, from 1.
+
+    Args:
+        sections: Siblings, numbered in place with their subtrees.
+        prefix: Their parent's id and a dot; empty at the roots.
+    """
     for position, section in enumerate(sections, start=1):
         section.id = f"{prefix}{position}"
         number(section.subsections, f"{section.id}.")
 
 
 def set_pages(section: Section) -> None:
-    """Widen a section's page range to its blocks and subsections."""
+    """Widen a section's page range to its blocks and subsections.
+
+    Args:
+        section: A section, its subtree's ranges widened in place.
+    """
     pages = [section.source.page_start] + [page for block in section.blocks for page in block.pages]
     for child in section.subsections:
         set_pages(child)

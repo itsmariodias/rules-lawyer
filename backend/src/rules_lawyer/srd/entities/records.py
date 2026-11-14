@@ -10,14 +10,31 @@ from rules_lawyer.srd.reading.text import merged
 
 
 def source(section: Section, pdf: str) -> dict:
-    """Where a record is printed: the PDF and the section's pages."""
+    """Where a record is printed: the PDF and the section's pages.
+
+    Args:
+        section: The section printing the record.
+        pdf: The PDF's file name.
+
+    Returns:
+        ``{"pdf", "page_start", "page_end"}``.
+    """
     return {"pdf": pdf, "page_start": section.source.page_start, "page_end": section.source.page_end}
 
 
 def named_entries(paragraphs: list[Paragraph]) -> list[tuple[str, list[Run]]]:
-    """Each entry's name and text: an entry opens with its name in bold italics ("**_Rage._**");
-    any other paragraph continues the entry before it, and one before the first entry is
-    skipped ("As a Dragonborn, you have these special traits.")."""
+    """Each entry's name and text.
+
+    An entry opens with its name in bold italics ("**_Rage._**"); any other
+    paragraph continues the entry before it, and one before the first entry is
+    skipped ("As a Dragonborn, you have these special traits.").
+
+    Args:
+        paragraphs: The paragraphs to read, in order.
+
+    Returns:
+        ``(name, runs)`` per entry, the runs copies of the book's.
+    """
     named: list[tuple[str, list[Run]]] = []
     for paragraph in paragraphs:
         lead, *rest = paragraph.runs
@@ -30,8 +47,16 @@ def named_entries(paragraphs: list[Paragraph]) -> list[tuple[str, list[Run]]]:
 
 
 def labelled_fields(paragraphs: list[Paragraph]) -> dict[str, str]:
-    """The fields printed as a bold label and its value ("**Creature Type:** Humanoid"), several
-    to a paragraph, keyed by the label in snake case; the first of a label wins."""
+    """The fields printed as a bold label and its value ("**Creature Type:** Humanoid").
+
+    There may be several to a paragraph; the first of a label wins.
+
+    Args:
+        paragraphs: The paragraphs to read.
+
+    Returns:
+        The label in snake case to its value, whitespace collapsed.
+    """
     fields: dict[str, str] = {}
     for paragraph in paragraphs:
         label = None    # the label whose value is being read; None after a repeated one
@@ -48,5 +73,12 @@ def labelled_fields(paragraphs: list[Paragraph]) -> dict[str, str]:
 
 
 def paragraphs_of(section: Section) -> list[Paragraph]:
-    """The section's own paragraphs, in order."""
+    """The section's own paragraphs, in order.
+
+    Args:
+        section: A section.
+
+    Returns:
+        Its paragraph blocks, not its subsections'.
+    """
     return [block for block in section.blocks if isinstance(block, Paragraph)]

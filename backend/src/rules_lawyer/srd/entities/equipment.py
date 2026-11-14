@@ -13,7 +13,7 @@ import re
 from rules_lawyer.srd.entities.records import source
 from rules_lawyer.srd.model import Paragraph, Section, Table, plain
 from rules_lawyer.srd.output.render import section_text
-from rules_lawyer.srd.sections import walk
+from rules_lawyer.srd.sections import captioned_tables, walk
 from rules_lawyer.srd.vocabulary import Coin, ItemKind, alternatives
 
 COST = re.compile(rf"([\d,]+)\s*({alternatives(Coin)})\b", re.IGNORECASE)
@@ -38,15 +38,25 @@ def equipment(sections: list[Section], pdf: str) -> list[dict]:
         One record per item; gear and poisons name the ``section_id`` they
         are described in, weapons and armour the ``table_id`` printing them.
     """
+    tables = captioned_tables(sections)
     # "Adventuring Gear" heads both the gear's section and its table's.
-    described = next(s for s in walk(sections) if s.heading == "Adventuring Gear" and not is_table(s, s.heading))
-    return (weapons(table_section(sections, "Weapons"), pdf) + armor(table_section(sections, "Armor"), pdf)
-            + gear(described, table_section(sections, "Adventuring Gear"), pdf)
+    described = next(s for s in walk(sections)
+                     if s.heading == "Adventuring Gear" and s is not tables["Adventuring Gear"])
+    return (weapons(tables["Weapons"], pdf) + armor(tables["Armor"], pdf)
+            + gear(described, tables["Adventuring Gear"], pdf)
             + poisons(next(s for s in walk(sections) if s.heading == "Sample Poisons"), pdf))
 
 
 def weapons(section: Section, pdf: str) -> list[dict]:
-    """The Weapons table's rows, each with the category it is printed under."""
+    """The Weapons table's rows, each with the category it is printed under.
+
+    Args:
+        section: The Weapons table's section.
+        pdf: The PDF's file name, recorded in each record's ``source``.
+
+    Returns:
+        One weapon record per row, naming the table's section as ``table_id``.
+    """
     table: Table = section.blocks[0]
     records = []
     for row, category in rows_by_category(table):
@@ -62,7 +72,15 @@ def weapons(section: Section, pdf: str) -> list[dict]:
 
 
 def armor(section: Section, pdf: str) -> list[dict]:
-    """The Armor table's rows, the Shield among them."""
+    """The Armor table's rows, the Shield among them.
+
+    Args:
+        section: The Armor table's section.
+        pdf: The PDF's file name, recorded in each record's ``source``.
+
+    Returns:
+        One armour record per row, naming the table's section as ``table_id``.
+    """
     table: Table = section.blocks[0]
     records = []
     for row, category in rows_by_category(table):
@@ -84,6 +102,14 @@ def gear(parent: Section, table_section: Section, pdf: str) -> list[dict]:
 
     An item with no row of its own takes the price in its heading: "Spell
     Scroll (Cantrip, 30 GP; Level 1, 50 GP)" prices two rows.
+
+    Args:
+        parent: The Adventuring Gear section describing the items.
+        table_section: The Adventuring Gear table's section.
+        pdf: The PDF's file name, recorded in each record's ``source``.
+
+    Returns:
+        One gear record per priced heading, naming its ``section_id``.
     """
     rows = {plain(row[0]).strip(): row for row in table_section.blocks[0].rows}
     records = []
@@ -102,7 +128,15 @@ def gear(parent: Section, table_section: Section, pdf: str) -> list[dict]:
 
 
 def poisons(parent: Section, pdf: str) -> list[dict]:
-    """Each Sample Poison: price from its heading, type from the italic line under it."""
+    """Each Sample Poison: price from its heading, type from the italic line under it.
+
+    Args:
+        parent: The Sample Poisons section.
+        pdf: The PDF's file name, recorded in each record's ``source``.
+
+    Returns:
+        One poison record per subsection, naming its ``section_id``.
+    """
     records = []
     for section in parent.subsections:
         priced = PRICED.match(section.heading)
@@ -118,24 +152,27 @@ def poisons(parent: Section, pdf: str) -> list[dict]:
 
 
 def rows_by_category(table: Table) -> list[tuple[list, str]]:
-    """The table's item rows, each with the text of the category row it is under."""
+    """The table's item rows, each with the text of the category row it is under.
+
+    Args:
+        table: A table with category rows (``under``).
+
+    Returns:
+        ``(row, category)`` per row under a category; category rows themselves are left out.
+    """
     return [(row, plain(table.rows[category][0]).strip()) for row, category in zip(table.rows, table.under)
             if category is not None]
 
 
-def table_section(sections: list[Section], caption: str) -> Section:
-    """The section holding the table captioned ``caption``."""
-    return next(s for s in walk(sections) if is_table(s, caption))
-
-
-def is_table(section: Section, caption: str) -> bool:
-    """Whether the section is the float of the table captioned ``caption``."""
-    return (len(section.blocks) == 1 and isinstance(section.blocks[0], Table)
-            and plain(section.blocks[0].caption) == caption)
-
-
 def price(text: str) -> dict:
-    """``cost`` as printed and ``cost_gp`` in gold pieces ("4 CP" is 0.04); None where not a price."""
+    """``cost`` as printed and ``cost_gp`` in gold pieces ("4 CP" is 0.04).
+
+    Args:
+        text: A price as printed, or empty.
+
+    Returns:
+        ``{"cost", "cost_gp"}``; ``cost_gp`` is None where the text is not a price.
+    """
     text = text.strip()
     found = COST.search(text)
     if not found:
@@ -145,7 +182,14 @@ def price(text: str) -> dict:
 
 
 def weight_lb(text: str) -> float | None:
-    """A weight cell in pounds ("1½ lb." is 1.5); None for "\u2014" or "Varies"."""
+    """A weight cell in pounds ("1½ lb." is 1.5).
+
+    Args:
+        text: The cell as printed.
+
+    Returns:
+        The weight, or None for "—" or "Varies".
+    """
     found = WEIGHT.search(text)
     if not found:
         return None

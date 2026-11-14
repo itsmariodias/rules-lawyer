@@ -83,7 +83,14 @@ def runs_of(lines: list[Line], hyphenated: set[str]) -> list[Run]:
 
 
 def merged(runs: list[Run]) -> list[Run]:
-    """Runs with each run of one style joined into one."""
+    """Runs with each run of one style joined into one.
+
+    Args:
+        runs: Runs in order.
+
+    Returns:
+        New list; adjacent runs of one style are joined into the first, in place.
+    """
     out: list[Run] = []
     for run in runs:
         append(out, run)
@@ -91,7 +98,17 @@ def merged(runs: list[Run]) -> list[Run]:
 
 
 def join_line(runs: list[Run], line: Line, hyphenated: set[str]) -> None:
-    """End the previous line in ``runs`` so ``line`` can follow it."""
+    """End the previous line in ``runs`` so ``line`` can follow it.
+
+    A line break is a space, except within a word (a syllable break's hyphen
+    is dropped, a compound's kept), beside a number's hyphen, in a URL, or at
+    a dash.
+
+    Args:
+        runs: The runs read so far, the last changed in place.
+        line: The line about to be appended.
+        hyphenated: Output of ``compounds``, for undoing hyphenation.
+    """
     last = runs[-1]
     last.text = last.text.rstrip()
     if last.text.endswith("-" + _ZERO_WIDTH):
@@ -124,7 +141,12 @@ def join_line(runs: list[Run], line: Line, hyphenated: set[str]) -> None:
 
 
 def append(runs: list[Run], run: Run) -> None:
-    """Add a run, merging it into the last one when the style matches."""
+    """Add a run, merging it into the last one when the style matches.
+
+    Args:
+        runs: Runs so far, changed in place.
+        run: The run to add.
+    """
     if runs and (runs[-1].bold, runs[-1].italic) == (run.bold, run.italic):
         runs[-1].text += run.text
     else:
@@ -132,11 +154,25 @@ def append(runs: list[Run], run: Run) -> None:
 
 
 def style(span: Span) -> tuple[bool, bool]:
-    """(bold, italic) from the font name: Cambria-BoldItalic, Optima-Bold, GillSans-SemiBold, ..."""
+    """A span's style from its font name: Cambria-BoldItalic, Optima-Bold, GillSans-SemiBold, ...
+
+    Args:
+        span: A span of the page.
+
+    Returns:
+        ``(bold, italic)``.
+    """
     name = span.font.split("-", 1)[-1] if "-" in span.font else ""
     return "Bold" in name, "Italic" in name
 
 
 def is_bold(span: Span) -> bool:
-    """Whether the span is set in a bold or semibold face."""
+    """Whether the span is set in a bold or semibold face.
+
+    Args:
+        span: A span of the page.
+
+    Returns:
+        True if its font name has "Bold" after the family.
+    """
     return style(span)[0]

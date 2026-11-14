@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Callable
 
 from rules_lawyer.config import get_settings
 from rules_lawyer.graph import embeddings, mapping
 from rules_lawyer.graph import verify as verification
 from rules_lawyer.graph.loader import load_graph, session
+from rules_lawyer.graph.model import Report
 from rules_lawyer.srd.artifact import load
-
-Report = Callable[[str], None]
 
 
 def build_graph(input_path: Path | None = None, *, reset: bool = True,
@@ -19,8 +17,7 @@ def build_graph(input_path: Path | None = None, *, reset: bool = True,
                 embeddings_path: Path | None = None,
                 refresh_embeddings: bool = False,
                 report: Report = lambda _: None) -> dict:
-    """
-    Load the artifact and its vectors into the configured Neo4j database.
+    """Load the artifact and its vectors into the configured Neo4j database.
 
     Args:
         input_path: Defaults to ``settings.output_path``.
@@ -74,8 +71,7 @@ def build_embeddings(input_path: Path | None = None, *,
                      embeddings_path: Path | None = None,
                      refresh: bool = False,
                      report: Report = lambda _: None) -> dict:
-    """
-    Generate or update the ``.idx`` file without touching the database.
+    """Generate or update the ``.idx`` file without touching the database.
 
     Args:
         input_path: Defaults to ``settings.output_path``.
@@ -108,8 +104,7 @@ def build_embeddings(input_path: Path | None = None, *,
 
 
 def counts() -> dict:
-    """
-    Node counts per label and relationship counts per type.
+    """Node counts per label and relationship counts per type.
 
     Returns:
         ``uri``, ``database``, ``nodes`` and ``relationships``.

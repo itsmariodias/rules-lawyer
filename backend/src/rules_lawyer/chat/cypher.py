@@ -1,5 +1,4 @@
-"""
-Agent-written Cypher: the guard, the read-only transaction, the derived
+"""Agent-written Cypher: the guard, the read-only transaction, the derived
 schema, and the rendered rows.
 
 Writes are refused by Neo4j itself (``READ_ACCESS`` session, explicit
@@ -45,8 +44,7 @@ ALLOWED_PROCEDURES = frozenset({
 
 
 def guard(cypher: str) -> None:
-    """
-    Reject ``LOAD CSV`` and any procedure outside ``ALLOWED_PROCEDURES``.
+    """Reject ``LOAD CSV`` and any procedure outside ``ALLOWED_PROCEDURES``.
 
     Writes are not checked here; the read-only transaction refuses them.
 
@@ -73,8 +71,7 @@ def guard(cypher: str) -> None:
 
 def read(cypher: str, *, timeout: float,
          max_rows: int) -> tuple[list[dict], bool]:
-    """
-    Run a query in a read-only transaction with a timeout.
+    """Run a query in a read-only transaction with a timeout.
 
     Args:
         cypher: An already guarded query.
@@ -134,8 +131,7 @@ def _sides(counts: dict[str, int], cap: int = 4) -> str:
 
 @lru_cache(maxsize=1)
 def shapes() -> str:
-    """
-    Which label sets each relationship type joins, read from the data.
+    """Which label sets each relationship type joins, read from the data.
 
     Not ``db.schema.visualization``: on a multi-label graph it reports label
     combinations no node has.  About 0.14s; cached for the process.
@@ -159,8 +155,10 @@ def shapes() -> str:
 
 
 def schema() -> str:
-    """
-    The graph section of the system prompt: orientation plus ``shapes``.
+    """The graph section of the system prompt: orientation plus ``shapes``.
+
+    Returns:
+        The section's text.
 
     Raises:
         neo4j.exceptions.ServiceUnavailable: The database is unreachable.
@@ -196,8 +194,7 @@ def _cell(value: Any) -> str:
 
 
 def render(rows: list[dict], truncated: bool) -> str:
-    """
-    Rows as a pipe-separated table for the model.
+    """Rows as a pipe-separated table for the model.
 
     Args:
         rows: Query results; columns are taken from the first row.

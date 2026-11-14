@@ -187,6 +187,8 @@ BLOCKS = TypeAdapter(list[Block])
 
 # A field left out of the JSON while it has no value.
 UNSET_OMITTED = pydantic.Field(exclude_if=lambda value: value is None)
+
+
 @dataclass
 class Source:
     """Where a section is: the printed pages its subtree covers, and its span of the markdown.
@@ -231,12 +233,24 @@ SECTIONS = TypeAdapter(list[Section])
 
 
 def add_page(pages: list[int], page: int) -> None:
-    """Record that a block reaches ``page``, keeping the list ascending and unique."""
+    """Record that a block reaches ``page``, keeping the list ascending and unique.
+
+    Args:
+        pages: A block's pages, changed in place.
+        page: The page it reaches.
+    """
     if page not in pages:
         pages.append(page)
         pages.sort()
 
 
 def plain(runs: list[Run]) -> str:
-    """The text of runs, styles dropped."""
+    """The text of runs, styles dropped.
+
+    Args:
+        runs: Runs in order.
+
+    Returns:
+        Their texts joined.
+    """
     return "".join(r.text for r in runs)

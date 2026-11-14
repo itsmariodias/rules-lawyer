@@ -58,17 +58,38 @@ SPELL_ATTACK = re.compile(r"\b(melee|ranged)\s+spell attack\b", re.IGNORECASE)
 
 
 def to_int(text: str) -> int:
-    """A printed signed number ("+9", "−1") as an int."""
+    """A printed signed number ("+9", "−1") as an int.
+
+    Args:
+        text: The number as printed, with a plus, a hyphen or a minus sign.
+
+    Returns:
+        Its value.
+    """
     return int(text.replace("−", "-").replace("+", "").strip())
 
 
 def clean(text: str) -> str:
-    """Whitespace collapsed, and edge punctuation (" .,;") stripped."""
+    """Whitespace collapsed, and edge punctuation (" .,;") stripped.
+
+    Args:
+        text: Text read from an entry.
+
+    Returns:
+        The cleaned text.
+    """
     return " ".join(text.split()).strip(" .,;")
 
 
 def average(dice: str) -> int | None:
-    """The floored average of a dice expression ("20d10 + 40"); None if it is not dice."""
+    """The floored average of a dice expression ("20d10 + 40").
+
+    Args:
+        dice: The expression as printed.
+
+    Returns:
+        The average, or None if it is not dice.
+    """
     expression = dice.replace("−", "-").replace(" ", "")
     if not re.fullmatch(r"(\d+d\d+)([+-]\d+)*", expression):
         return None
@@ -78,7 +99,15 @@ def average(dice: str) -> int | None:
 
 
 def uses(name: str) -> dict | None:
-    """An entry's usage limit, from its name: recharge, times per day, or other; None if unlimited."""
+    """An entry's usage limit, from its name: recharge, times per day, or other.
+
+    Args:
+        name: The entry's name as printed ("Fire Breath (Recharge 5–6)").
+
+    Returns:
+        ``{"type", "printed", ...}`` with ``recharge_on`` or ``times`` where
+        they apply; None if the use is unlimited.
+    """
     found = USES.search(name)
     if not found:
         return None
@@ -97,6 +126,13 @@ def damage(text: str, with_average: bool = True) -> list[dict]:
 
     The stat block form ("12 (2d6 + 5) Fire damage") is tried first; the
     dice-only form ("8d6 Fire damage", average None) only if it finds none.
+
+    Args:
+        text: An entry's or spell's text.
+        with_average: Whether to try the stat block form; spells print dice only.
+
+    Returns:
+        The instances, empty if there are none.
     """
     found = [{"average": int(m.group(1)), "dice": clean(m.group(2)).replace("−", "-"), "type": m.group(3)}
              for m in STAT_BLOCK_DAMAGE.finditer(text)] if with_average else []
@@ -105,7 +141,14 @@ def damage(text: str, with_average: bool = True) -> list[dict]:
 
 
 def conditions_imposed(text: str) -> list[str]:
-    """The conditions the text inflicts, as opposed to mentions, in order of first appearance."""
+    """The conditions the text inflicts, as opposed to mentions, in order of first appearance.
+
+    Args:
+        text: An entry's or spell's text.
+
+    Returns:
+        Each condition's name once.
+    """
     found: list[str] = []
     for match in CONDITION.finditer(text):
         clause = CLAUSE_BOUNDARY.split(text[:match.start()])[-1]
@@ -118,8 +161,15 @@ def conditions_imposed(text: str) -> list[str]:
 
 
 def labelled_parts(runs: list[Run]) -> list[tuple[str | None, str]]:
-    """The runs split at their labels (italic runs ending in a colon), each label with the
-    plain text after it; the text before the first label has none."""
+    """The runs split at their labels (italic runs ending in a colon).
+
+    Args:
+        runs: An entry's runs.
+
+    Returns:
+        ``(label, text)`` per part, the label without its colon; the text
+        before the first label comes first, its label None.
+    """
     runs = list(runs)
     for i in range(len(runs) - 1):
         # The book sets a label's colon roman twice (the Cultist Fanatic's "Hit",
@@ -188,8 +238,15 @@ def entry_mechanics(name: str, runs: list[Run]) -> dict:
 
 
 def spell_mechanics(text: str) -> dict:
-    """What a spell does, from its prose: ``saving_throw``, ``attack``, ``damage`` and
-    ``conditions_imposed``, whichever it states."""
+    """What a spell does, from its prose.
+
+    Args:
+        text: The spell's text, every block of it.
+
+    Returns:
+        Whichever of ``saving_throw``, ``attack``, ``damage`` and
+        ``conditions_imposed`` it states.
+    """
     result: dict = {}
     if save := SPELL_SAVE.search(text):
         result["saving_throw"] = Ability(save.group(1).capitalize())

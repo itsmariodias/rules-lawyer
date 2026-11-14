@@ -34,7 +34,11 @@ class ParseRequest(BaseModel):
 
 @router.get("/health", response_model=Health)
 def health() -> Health:
-    """Configured input and output paths, and whether each exists."""
+    """Configured input and output paths, and whether each exists.
+
+    Returns:
+        The paths and whether each file is present.
+    """
     settings = get_settings()
     return Health(status="ok", pdf=str(settings.pdf_path), pdf_present=settings.pdf_path.exists(),
                   output=str(settings.output_path), output_present=settings.output_path.exists())
@@ -69,6 +73,9 @@ async def parse(request: ParseRequest | None = None) -> dict:
 @router.get("/pdf")
 async def pdf() -> FileResponse:
     """The source PDF; ``FileResponse`` honours pdf.js's range requests.
+
+    Returns:
+        The file, cacheable for a day.
 
     Raises:
         HTTPException: 404 if the PDF does not exist.

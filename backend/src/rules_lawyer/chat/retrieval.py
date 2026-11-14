@@ -1,5 +1,4 @@
-"""
-Graph reads for retrieval: lexical (BM25 via Lucene), dense (``srd_vector``),
+"""Graph reads for retrieval: lexical (BM25 via Lucene), dense (``srd_vector``),
 their rank fusion, and one section by id.
 """
 
@@ -21,7 +20,14 @@ _LUCENE_SPECIAL = re.compile(r'([+\-&|!(){}\[\]^"~*?:\\/])')
 
 
 def escape_lucene(query: str) -> str:
-    """A question with every Lucene syntax character escaped, then stripped."""
+    """A question with every Lucene syntax character escaped, then stripped.
+
+    Args:
+        query: The question as asked.
+
+    Returns:
+        Text the full-text index reads as words only.
+    """
     return _LUCENE_SPECIAL.sub(r"\\\1", query).strip()
 
 
@@ -33,14 +39,17 @@ CITATION = re.compile(r"\[(\d+(?:\.\d+)+)\]")
 
 @lru_cache(maxsize=1)
 def driver() -> Driver:
-    """The process-wide driver, so the connection pool is reused across turns."""
+    """The process-wide driver, so the connection pool is reused across turns.
+
+    Returns:
+        A driver for the configured database.
+    """
     neo4j = get_settings().neo4j
     return GraphDatabase.driver(neo4j.uri, auth=neo4j.auth)
 
 
 def query(cypher: str, parameters: dict[str, Any]) -> list[dict]:
-    """
-    Run a read and return its rows.
+    """Run a read and return its rows.
 
     Parameters go as a dict, never as kwargs: one is named ``query``, which
     collides with ``Session.run``'s first parameter.
@@ -59,8 +68,7 @@ def query(cypher: str, parameters: dict[str, Any]) -> list[dict]:
 
 @dataclass(slots=True)
 class Passage:
-    """
-    A section returned by a search or lookup.
+    """A section returned by a search or lookup.
 
     Attributes:
         section_id: The dotted id the model cites.
@@ -82,8 +90,15 @@ class Passage:
     found_by: list[str] = field(default_factory=list)
 
     @classmethod
-    def from_row(cls, row: dict) -> "Passage":
-        """Build from a search row, dropping the ``Section`` label."""
+    def from_row(cls, row: dict) -> Passage:
+        """Build from a search row, dropping the ``Section`` label.
+
+        Args:
+            row: A row of ``_SEARCH``, ``_VECTOR`` or ``_SECTION``.
+
+        Returns:
+            The passage; ``found_by`` is left for ``fuse`` to fill.
+        """
         return cls(
             section_id=row["id"],
             heading=row.get("heading"),
@@ -92,12 +107,17 @@ class Passage:
             page_start=row.get("page_start"),
             char_start=row.get("char_start"),
             char_end=row.get("char_end"),
-            labels=[l for l in row.get("labels") or [] if l != "Section"],
+            labels=[label for label in row.get("labels") or []
+                    if label != "Section"],
             score=row.get("score"),
         )
 
     def as_citation(self) -> dict:
-        """The fields the UI's citation list reads."""
+        """The fields the UI's citation list reads.
+
+        Returns:
+            ``{"section_id", "heading", "entity_type", "page", "labels"}``.
+        """
         return {
             "section_id": self.section_id,
             "heading": self.heading,
@@ -107,8 +127,7 @@ class Passage:
         }
 
     def for_model(self, max_chars: int = 1200) -> str:
-        """
-        The passage as the model reads it, led by ``[id]`` for citing.
+        """The passage as the model reads it, led by ``[id]`` for citing.
 
         Args:
             max_chars: Content is cut at a word boundary past this.
@@ -140,8 +159,7 @@ _SEARCH_TYPED = _SEARCH.replace(
 
 
 def search(text: str, limit: int = 8, types: list[str] | None = None) -> list[Passage]:
-    """
-    Full-text (BM25) search over section headings and content.
+    """Full-text (BM25) search over section headings and content.
 
     With ``types``, the index is asked for ``5 * limit`` and filtered, since
     the index cannot filter before ranking.
@@ -177,8 +195,7 @@ QUERY_TASK_TYPE = "RETRIEVAL_QUERY"
 
 @lru_cache(maxsize=256)
 def embed_query(text: str) -> tuple[float, ...] | None:
-    """
-    Embed a question in the same space as the book.  Cached on the text.
+    """Embed a question in the same space as the book.  Cached on the text.
 
     Args:
         text: The question.
@@ -213,8 +230,7 @@ _VECTOR_TYPED = _VECTOR.replace(
 
 def vector_search(text: str, limit: int = 8,
                   types: list[str] | None = None) -> list[Passage]:
-    """
-    Nearest sections to the question in ``srd_vector``.
+    """Nearest sections to the question in ``srd_vector``.
 
     Args:
         text: The question.
@@ -252,8 +268,7 @@ RRF_K = 60
 
 
 def fuse(rankings: dict[str, list[Passage]], limit: int) -> list[Passage]:
-    """
-    Reciprocal rank fusion of several rankings.
+    """Reciprocal rank fusion of several rankings.
 
     Ranks, not scores: BM25 is unbounded and cosine is in [-1, 1].
 
@@ -289,8 +304,7 @@ def fuse(rankings: dict[str, list[Passage]], limit: int) -> list[Passage]:
 
 def hybrid_search(text: str, limit: int = 3, types: list[str] | None = None,
                   candidates: int = 8) -> list[Passage]:
-    """
-    Lexical and dense search, fused.
+    """Lexical and dense search, fused.
 
     Args:
         text: The question.
@@ -329,8 +343,7 @@ RETURN n.id AS id, n.heading AS heading, n.entity_type AS entity_type,
 
 
 def get_section(section_id: str) -> tuple[Passage, dict] | None:
-    """
-    One section by dotted id, with its place in the tree.
+    """One section by dotted id, with its place in the tree.
 
     Args:
         section_id: e.g. ``"11.2.114"``.

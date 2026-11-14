@@ -2,23 +2,20 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Callable, Iterator
 
 from neo4j import Driver, GraphDatabase, Session
 
 from rules_lawyer.config import Neo4jSettings, get_settings
 from rules_lawyer.graph import schema
 from rules_lawyer.graph.embeddings import Vectors
-from rules_lawyer.graph.model import EdgeBatch, GraphData, NodeBatch
-
-Report = Callable[[str], None]
+from rules_lawyer.graph.model import EdgeBatch, GraphData, NodeBatch, Report
 
 
 @contextmanager
 def session(settings: Neo4jSettings | None = None) -> Iterator[Session]:
-    """
-    A session on a driver opened for this call and closed with it.
+    """A session on a driver opened for this call and closed with it.
 
     Args:
         settings: Defaults to ``get_settings().neo4j``.
@@ -36,10 +33,15 @@ def session(settings: Neo4jSettings | None = None) -> Iterator[Session]:
 
 
 def node_query(batch: NodeBatch) -> str:
-    """
-    Cypher that MERGEs each row on its key and sets labels and properties.
+    """Cypher that MERGEs each row on its key and sets labels and properties.
 
     ``+=`` so properties from an earlier batch on the same node survive.
+
+    Args:
+        batch: The batch whose rows the query writes.
+
+    Returns:
+        An ``UNWIND $rows`` statement.
     """
     labels = "".join(f":{label}" for label in batch.labels)
     return (
@@ -51,11 +53,16 @@ def node_query(batch: NodeBatch) -> str:
 
 
 def edge_query(batch: EdgeBatch) -> str:
-    """
-    Cypher that MATCHes both endpoints and MERGEs the relationship.
+    """Cypher that MATCHes both endpoints and MERGEs the relationship.
 
     A row with a missing endpoint is skipped silently; ``mapping`` already
     reported it as unresolved.
+
+    Args:
+        batch: The batch whose rows the query writes.
+
+    Returns:
+        An ``UNWIND $rows`` statement.
     """
     return (
         "UNWIND $rows AS row "
@@ -89,8 +96,7 @@ def _write(open_session: Session, query: str, rows: list[dict],
 def write_embeddings(vectors: Vectors, open_session: Session, *,
                      batch_size: int = 200,
                      report: Report = lambda _: None) -> int:
-    """
-    Set ``embedding`` on each section in ``vectors``.
+    """Set ``embedding`` on each section in ``vectors``.
 
     Args:
         vectors: Vectors keyed by section id.
@@ -112,8 +118,7 @@ def load_graph(data: GraphData, open_session: Session, *,
                vectors: Vectors, reset: bool = True, batch_size: int = 1000,
                embedding_batch_size: int = 200,
                report: Report = lambda _: None) -> dict:
-    """
-    Apply the schema, optionally reset, then write nodes, edges and vectors.
+    """Apply the schema, optionally reset, then write nodes, edges and vectors.
 
     Args:
         data: Output of ``mapping.build``.
