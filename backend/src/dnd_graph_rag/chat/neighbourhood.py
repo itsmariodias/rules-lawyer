@@ -31,7 +31,7 @@ MAX_DEPTH = 3
 
 _UNINFORMATIVE = {"Section"}
 
-# Full content for 60 nodes would be about a megabyte.
+# Full content for `LIMIT` nodes would be about a megabyte.
 SUMMARY_CHARS = 260
 
 # Keys, ids and fields the card already shows elsewhere.

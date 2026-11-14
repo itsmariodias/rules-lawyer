@@ -320,9 +320,9 @@ class TestExploreSrdGraph:
     def test_given_a_wider_fan_when_walked_then_the_other_groups_survive_it(
             self, graph, section_id, depth):
         """
-        Measured 2026-11-09: two hops out from a condition, a hub of 69
-        edges, a fan of 30 spends the budget before some second-hop groups;
-        the walk is bounded, and query_srd_graph is for complete lists.
+        Two hops out from a hub, a wide fan spends the node budget before some
+        second-hop groups; the walk is bounded, and query_srd_graph is for
+        complete lists.
         """
         # Given a loaded graph and a walk at the default fan
         default = tools.explore_srd_graph.invoke({"section_id": section_id,

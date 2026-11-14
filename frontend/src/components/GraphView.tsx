@@ -402,7 +402,7 @@ function place(graph: Neighbourhood, bodies: Map<string, Body>,
 
 /**
  * Pairwise repulsion, edge springs, centring and friction, until `alpha`
- * drops below `COLD`.  O(n²) is fine: the server caps the graph at 60 nodes.
+ * drops below `COLD`.  O(n²) is fine: the server caps the graph's size.
  */
 function useSimulation(graph: Neighbourhood | null, bodies: Map<string, Body>,
                        size: { width: number; height: number },

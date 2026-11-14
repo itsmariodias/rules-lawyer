@@ -591,9 +591,9 @@ class TestBuildAgainstTheRealArtifact:
     def test_given_the_artifact_when_mapped_then_only_redundant_nodes_are_left_out(
             self, document):
         """
-        Measured 2026-11-09: 139 entries wrapped only their namesake stat
-        block, and 17 glossary terms (13 damage types, 4 poison types) share
-        a passage; every other term has a section to itself.
+        Monster entries wrapping only their namesake stat block are left out,
+        and the damage and poison types share a passage; every other glossary
+        term has a section to itself.
         """
         # Given the artifact
         # When it is mapped
