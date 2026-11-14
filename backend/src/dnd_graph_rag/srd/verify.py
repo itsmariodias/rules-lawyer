@@ -13,8 +13,7 @@ from __future__ import annotations
 import re
 from itertools import pairwise
 
-from .model import Block, Contents, Heading, Paragraph, Sidebar, StatBlock, Table
-from .text import plain
+from .model import Block, Contents, Heading, Paragraph, Sidebar, StatBlock, Table, plain
 
 CONTENTS = "Contents"
 INDEX = "Index of Stat Blocks"

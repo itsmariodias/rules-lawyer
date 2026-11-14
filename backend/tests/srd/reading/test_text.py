@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dnd_graph_rag.srd.model import Run
-from dnd_graph_rag.srd.pages import Line, Span
-from dnd_graph_rag.srd.text import compounds, plain, runs_of, style
+from dnd_graph_rag.srd.model import Run, plain
+from dnd_graph_rag.srd.reading.pages import Line, Span
+from dnd_graph_rag.srd.reading.text import compounds, runs_of, style
 
 from .helpers import line
 

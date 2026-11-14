@@ -1,8 +1,19 @@
 from __future__ import annotations
 
-from dnd_graph_rag.srd.model import (Contents, Entry, Field, Heading, ListBlock, Paragraph, Run,
-                                     Section, Sidebar, StatBlock, Table)
-from dnd_graph_rag.srd.render import render, render_book, render_run
+from dnd_graph_rag.srd.model import (
+    Contents,
+    Entry,
+    Field,
+    Heading,
+    ListBlock,
+    Paragraph,
+    Run,
+    Section,
+    Sidebar,
+    StatBlock,
+    Table,
+)
+from dnd_graph_rag.srd.output.render import render, render_book, render_run
 
 
 class TestRender:

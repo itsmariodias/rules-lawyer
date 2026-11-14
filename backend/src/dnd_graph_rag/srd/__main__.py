@@ -12,11 +12,11 @@ import json
 import sys
 
 from ..config import get_settings, markdown_path_for
-from .blocks import read_blocks
-from .document import from_json, to_json
-from .pages import read_pages
-from .render import render_book
-from .text import compounds
+from .output.document import from_json, to_json
+from .output.render import render_book
+from .reading.blocks import read_blocks
+from .reading.pages import read_pages
+from .reading.text import compounds
 from .verify import KNOWN, problems
 
 

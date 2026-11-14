@@ -4,9 +4,20 @@ import json
 
 import pytest
 
-from dnd_graph_rag.srd.model import (Contents, Entry, Field, Heading, ListBlock, Paragraph, Run,
-                                     Section, Sidebar, StatBlock, Table)
-from dnd_graph_rag.srd.document import from_json, run_json, to_json
+from dnd_graph_rag.srd.model import (
+    Contents,
+    Entry,
+    Field,
+    Heading,
+    ListBlock,
+    Paragraph,
+    Run,
+    Section,
+    Sidebar,
+    StatBlock,
+    Table,
+)
+from dnd_graph_rag.srd.output.document import from_json, run_json, to_json
 
 BLOCKS = [Heading(1, "Legal Information", 1),
           Paragraph([Run("Cast "), Run("Fireball", italic=True)], [1, 2]),

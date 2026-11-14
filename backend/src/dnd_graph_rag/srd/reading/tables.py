@@ -6,9 +6,18 @@ import re
 from dataclasses import replace
 from itertools import takewhile
 
-from .model import Run, Table, add_page
-from .pages import CELL_FONT, HEADER_FONT, TABLE_FONTS, TABLE_TYPE, Line, Span
-from .text import plain, runs_of
+from ..model import Run, Table, add_page, plain
+from .pages import (
+    CELL_FONT,
+    HEADER_FONT,
+    TABLE_FONTS,
+    TABLE_TYPE,
+    Line,
+    Span,
+    column_key,
+    pages_of,
+)
+from .text import runs_of
 
 # Cells start up to 0.4pt left of their header label (1,596 cells, "Strength"
 # at 317.1 under "Ability" at 317.5, page 5); a dash centred under a digit
@@ -39,7 +48,7 @@ def header_count(lines: list[Line]) -> int:
     page 28).
     """
     count = len(list(takewhile(is_header_line, lines)))
-    labelled = [any((s.font, s.size) == HEADER_FONT for s in l.spans) for l in lines[:2]]
+    labelled = [any(s.face == HEADER_FONT for s in line.spans) for line in lines[:2]]
     return 1 if not count and labelled == [True, False] else count
 
 
@@ -51,8 +60,7 @@ def is_table_line(line: Line) -> bool:
     label leading a spell's or tool's line ("Casting Time:", "Ability:").
     """
     return line.frame is None and (is_header_line(line) or (
-        (line.spans[0].font, line.spans[0].size) in TABLE_FONTS
-        and all((s.font, s.size) in TABLE_TYPE for s in line.spans[1:])))
+        line.spans[0].face in TABLE_FONTS and all(s.face in TABLE_TYPE for s in line.spans[1:])))
 
 
 def wraps_field(lines: list[Line], index: int) -> bool:
@@ -66,13 +74,12 @@ def wraps_field(lines: list[Line], index: int) -> bool:
         prev, line = lines[index - 1], lines[index]
         # Atop the next column a wrap hangs indented ("cimer (25 GP, 10 lb.)",
         # page 94); within one it follows a row step or less below.
-        if ((prev.page, prev.column) == (line.page, line.column)
-                and line.baseline - prev.baseline >= ROW_STEP
-                or (prev.page, prev.column) != (line.page, line.column)
-                and line.x0 - line.left < HANG):
+        if column_key(prev) == column_key(line):
+            if line.baseline - prev.baseline >= ROW_STEP:
+                return False
+        elif line.x0 - line.left < HANG:
             return False
-        first = prev.spans[0]
-        if (first.font, first.size) == (HEADER_FONT[0], CELL_FONT[1]):
+        if prev.spans[0].face == (HEADER_FONT[0], CELL_FONT[1]):
             return not is_table_line(prev)
         if not is_table_line(prev):
             return False
@@ -90,11 +97,12 @@ def table_run(lines: list[Line], start: int) -> list[Line]:
     """
     first = lines[start]
     end = start
-    while end < len(lines) and (lines[end].page, lines[end].column) == (first.page, first.column):
+    while end < len(lines) and column_key(lines[end]) == column_key(first):
         line = lines[end]
-        if not (is_table_line(line) or end > start and line.frame is None
-                and lines[end].baseline - lines[end - 1].baseline < ROW_STEP
-                and all((s.font, s.size) in TABLE_TYPE for s in line.spans)):
+        wraps_cell = (end > start and line.frame is None
+                      and line.baseline - lines[end - 1].baseline < ROW_STEP
+                      and all(s.face in TABLE_TYPE for s in line.spans))
+        if not (is_table_line(line) or wraps_cell):
             break
         end += 1
     return lines[start:end]
@@ -132,19 +140,21 @@ def table(caption: list[Run], lines: list[Line], hyphenated: set[str]) -> Table:
     """
     header = lines[:header_count(lines)]
     body = lines[len(header):]
-    labels = max(header, key=lambda l: len(l.spans)) if header else body[0]
+    labels = max(header, key=lambda line: len(line.spans)) if header else body[0]
     columns = labels.spans
-    header_cells = [cells_of(l, columns) if l is labels else centred_cells(l, labels)
-                    for l in header]
-    width = repeat_width([plain(runs_of(c, hyphenated)) for c in cells_of(labels, columns)]) \
-        if header else len(columns)
-    body_cells = [cells_of(l, columns) for l in body]
+    header_cells = [cells_of(line, columns) if line is labels else centred_cells(line, labels)
+                    for line in header]
+    if header:
+        width = repeat_width([plain(runs_of(cell, hyphenated)) for cell in cells_of(labels, columns)])
+    else:
+        width = len(columns)
+    body_cells = [cells_of(line, columns) for line in body]
     halves = [wrapped_rows([cells[start:start + width] for cells in body_cells])
               for start in range(0, len(columns), width)]
     return Table(caption,
                  [[runs_of(c, hyphenated) for c in cells[:width]] for cells in header_cells],
                  [[runs_of(c, hyphenated) for c in row] for half in halves for row in half],
-                 sorted({l.page for l in lines}), [len(half) for half in halves])
+                 pages_of(lines), [len(half) for half in halves])
 
 
 def extend_table(table: Table, rest: Table) -> None:
@@ -222,10 +232,11 @@ def centred_cells(line: Line, labels: Line) -> list[list[Line]]:
     cells: list[list[Line]] = [[] for _ in centres]
     for span in line.spans:
         covered = [i for i, c in enumerate(centres) if span.x0 <= c <= span.x1]
-        middle = (span.x0 + span.x1) / 2
-        index = next(i for i, s in enumerate(labels.spans) if s.x1 > span.x0) \
-            if len(covered) > 1 else \
-            min(range(len(centres)), key=lambda i: abs(centres[i] - middle))
+        if len(covered) > 1:
+            index = next(i for i, label in enumerate(labels.spans) if label.x1 > span.x0)
+        else:
+            middle = (span.x0 + span.x1) / 2
+            index = min(range(len(centres)), key=lambda i: abs(centres[i] - middle))
         if cells[index]:
             cells[index][0].spans.append(span)
         else:
@@ -243,11 +254,13 @@ def cells_of(line: Line, columns: list[Span]) -> list[list[Line]]:
     cells: list[list[Line]] = [[] for _ in columns]
     for span in line.spans:
         over = [i for i, label in enumerate(columns) if span.x0 < label.x1 and span.x1 > label.x0]
-        index = over[0] if len(over) == 1 else \
-            max((i for i, label in enumerate(columns) if label.x0 <= span.x0 + CELL_SLACK), default=0)
+        if len(over) == 1:
+            index = over[0]
+        else:
+            index = max((i for i, label in enumerate(columns) if label.x0 <= span.x0 + CELL_SLACK),
+                        default=0)
         if cells[index]:
             cells[index][0].spans.append(span)
         else:
-            cells[index].append(Line(line.page, line.baseline, [span], line.column, line.left,
-                                     line.right, line.frame))
+            cells[index].append(replace(line, spans=[span]))
     return cells

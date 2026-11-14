@@ -2,8 +2,20 @@
 
 from __future__ import annotations
 
-from .model import (Block, Contents, Entry, Field, Heading, ListBlock, Paragraph, Run, Section,
-                    Sidebar, StatBlock, Table)
+from ..model import (
+    Block,
+    Contents,
+    Entry,
+    Field,
+    Heading,
+    ListBlock,
+    Paragraph,
+    Run,
+    Section,
+    Sidebar,
+    StatBlock,
+    Table,
+)
 
 
 def to_json(title: str, blocks: list[Block]) -> dict:

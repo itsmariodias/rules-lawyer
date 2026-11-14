@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import re
+from itertools import pairwise
 
-from .model import Run
-from .pages import WORD_GAP, Line, Span
+from ..model import Run
+from .pages import Line, Span, word_gap
 
 _WORD = re.compile(r"[A-Za-z]+")
 _COMPOUND = re.compile(r"[A-Za-z]+-[A-Za-z]+")
@@ -53,7 +54,7 @@ def runs_of(lines: list[Line], hyphenated: set[str]) -> list[Run]:
         if runs:
             join_line(runs, line, hyphenated)
         for before, span in zip([None] + line.spans, line.spans):
-            if before and span.x0 - before.x1 > WORD_GAP:
+            if before and word_gap(before, span):
                 append(runs, Run(" ", *style(span)))
             append(runs, Run(_CONTROL.sub("", span.text), *style(span)))
     for run in runs:
@@ -63,11 +64,11 @@ def runs_of(lines: list[Line], hyphenated: set[str]) -> list[Run]:
         if not re.search(r"\w", run.text):
             run.bold = run.italic = False
     runs = merged(runs)
-    for run, after in zip(runs, runs[1:]):
+    for run, after in pairwise(runs):
         # A style ends with its word: the book sets one "s" upright after
         # italic "Cure Wound" (page 40), and markdown cannot close emphasis
         # inside a word.
-        tail = re.match(r"[A-Za-z]+", after.text) if re.search(r"[A-Za-z]$", run.text) else None
+        tail = _WORD.match(after.text) if re.search(r"[A-Za-z]$", run.text) else None
         if tail:
             run.text, after.text = run.text + tail.group(0), after.text[tail.end():]
         # A space at a styled run's edge belongs to its plain neighbour.
@@ -87,11 +88,6 @@ def merged(runs: list[Run]) -> list[Run]:
     for run in runs:
         append(out, run)
     return out
-
-
-def plain(runs: list[Run]) -> str:
-    """The text of runs, styles dropped."""
-    return "".join(r.text for r in runs)
 
 
 def join_line(runs: list[Run], line: Line, hyphenated: set[str]) -> None:
@@ -115,8 +111,8 @@ def join_line(runs: list[Run], line: Line, hyphenated: set[str]) -> None:
         return
     # Beside a number the hyphen is the compound's ("15-" / "foot", page 98;
     # "10-by-" / "10-foot", page 173).
-    if re.search(r"\w-$", last.text) and re.match(r"\d", line.text.lstrip()) \
-            or re.search(r"\d-$", last.text):
+    if ((re.search(r"\w-$", last.text) and re.match(r"\d", line.text.lstrip()))
+            or re.search(r"\d-$", last.text)):
         return
     # The book's two URLs are on page 1; one breaks after a slash.
     if _URL_OPEN.search(last.text):
@@ -136,6 +132,11 @@ def append(runs: list[Run], run: Run) -> None:
 
 
 def style(span: Span) -> tuple[bool, bool]:
-    """(bold, italic) from the font name: Cambria-BoldItalic, Optima-Bold, ..."""
+    """(bold, italic) from the font name: Cambria-BoldItalic, Optima-Bold, GillSans-SemiBold, ..."""
     name = span.font.split("-", 1)[-1] if "-" in span.font else ""
     return "Bold" in name, "Italic" in name
+
+
+def is_bold(span: Span) -> bool:
+    """Whether the span is set in a bold or semibold face."""
+    return style(span)[0]

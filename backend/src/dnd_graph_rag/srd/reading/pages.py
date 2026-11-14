@@ -71,7 +71,13 @@ class Span:
     size: float
     x0: float
     x1: float
+    baseline: float = 0.0  # where on the page it is printed; spans of a line share it within 3pt
     shaded: bool = False  # printed on a shaded table row
+
+    @property
+    def face(self) -> tuple[str, float]:
+        """The span's font and size, as the book's type is told apart."""
+        return self.font, self.size
 
 
 @dataclass
@@ -104,7 +110,7 @@ class Line:
     @property
     def text(self) -> str:
         """The line's text, unstyled, a space wherever a word gap separates spans."""
-        return "".join((" " if before and span.x0 - before.x1 > WORD_GAP else "") + span.text
+        return "".join((" " if before and word_gap(before, span) else "") + span.text
                        for before, span in zip([None, *self.spans], self.spans))
 
 
@@ -114,6 +120,21 @@ class Book:
 
     title: str
     pages: list[list[Line]]
+
+
+def word_gap(before: Span, span: Span) -> bool:
+    """Whether a word space separates two spans of a line that print none between them."""
+    return span.x0 - before.x1 > WORD_GAP
+
+
+def column_key(line: Line) -> tuple[int, int]:
+    """Where a line is printed: its page and column."""
+    return line.page, line.column
+
+
+def pages_of(lines: list[Line]) -> list[int]:
+    """The pages the lines are printed on, in order, each once."""
+    return sorted({line.page for line in lines})
 
 
 def read_pages(pdf_path: Path) -> Book:
@@ -162,53 +183,49 @@ def page_lines(page: pymupdf.Page, number: int) -> list[Line]:
         The page's lines in reading order: the first column top to bottom,
         then the next. Each line's spans are left to right.
     """
-    spans: list[tuple[float, Span]] = []
+    spans: list[Span] = []
     starts: Counter[float] = Counter()
     prose: Counter[float] = Counter()
     for block in page.get_text("dict")["blocks"]:
         for line in block.get("lines", []):
-            kept = [s for s in line["spans"] if s["text"].strip()]
-            for s in kept:
-                spans.append((s["origin"][1], Span(s["text"], s["font"], round(s["size"], 1),
-                                                   s["bbox"][0], s["bbox"][2])))
-            if kept and kept[0]["origin"][1] < FOOTER_BASELINE:
+            kept = [Span(s["text"], s["font"], round(s["size"], 1), s["bbox"][0], s["bbox"][2],
+                         s["origin"][1]) for s in line["spans"] if s["text"].strip()]
+            spans += kept
+            if kept and kept[0].baseline < FOOTER_BASELINE:
                 # Whole points: lines of one column start up to 0.1pt apart.
-                x = float(round(kept[0]["bbox"][0]))
+                x = float(round(kept[0].x0))
                 starts[x] += 1
-                if (kept[0]["font"], round(kept[0]["size"], 1)) not in TABLE_TYPE:
+                if kept[0].face not in TABLE_TYPE:
                     prose[x] += 1
     spans = attach_superscripts(spans)
     drawings = page.get_drawings()
     frames = sidebar_frames(drawings)
     shading = [d["rect"] for d in drawings if filled(d, SIDEBAR_FILL) and d["rect"] not in frames]
-    edges = shaded_halves(column_edges(starts, prose, [span for baseline, span in spans
-                                                       if baseline < FOOTER_BASELINE
-                                                       and not is_table_type(span)]), shading)
+    edges = shaded_halves(column_edges(starts, prose, [span for span in spans
+                                                       if span.baseline < FOOTER_BASELINE
+                                                       and not is_table_or_note(span)]), shading)
     rows = row_shading(drawings, frames)
-    for baseline, span in spans:
-        span.shaded = any(r.contains(pymupdf.Point(span.x0 + 1, baseline - 1)) for r in rows)
+    for span in spans:
+        span.shaded = any(r.contains(inside(span)) for r in rows)
     wide = spanning_cells(spans, shaded_across(shading, edges))
-
-    def column_for(pair: tuple[float, Span]) -> int:
-        return 0 if id(pair[1]) in wide else column_of(pair[1].x0, edges)
+    placed = [(0 if id(span) in wide else column_of(span.x0, edges), span) for span in spans]
 
     lines: list[Line] = []
-    for baseline, span in sorted(spans, key=lambda pair: (column_for(pair), pair[0])):
-        column = column_for((baseline, span))
-        frame = frame_of(span, baseline, frames)
+    for column, span in sorted(placed, key=lambda pair: (pair[0], pair[1].baseline)):
+        frame = frame_of(span, frames)
         last = lines[-1] if lines else None
         if (last and (last.column, last.frame) == (column, frame)
-                and baseline - last.baseline <= BASELINE_TOLERANCE):
+                and span.baseline - last.baseline <= BASELINE_TOLERANCE):
             last.spans.append(span)
         else:
-            lines.append(Line(number, baseline, [span], column, edges[column], frame=frame))
+            lines.append(Line(number, span.baseline, [span], column, edges[column], frame=frame))
     for line in lines:
         line.spans.sort(key=lambda s: s.x0)
     set_edges(lines)
     return lines
 
 
-def attach_superscripts(spans: list[tuple[float, Span]]) -> list[tuple[float, Span]]:
+def attach_superscripts(spans: list[Span]) -> list[Span]:
     """Spans with each superscript joined to the span it is raised after.
 
     A superscript is smaller, touches the span's end, and sits above its
@@ -216,22 +233,21 @@ def attach_superscripts(spans: list[tuple[float, Span]]) -> list[tuple[float, Sp
     far for ``BASELINE_TOLERANCE``.
     """
     kept = []
-    for baseline, span in spans:
-        base = next((s for b, s in spans if abs(span.x0 - s.x1) < 0.6
-                     and span.size < 0.8 * s.size and 0 < b - baseline <= SUPERSCRIPT_RISE), None)
+    for span in spans:
+        base = next((s for s in spans if abs(span.x0 - s.x1) < 0.6 and span.size < 0.8 * s.size
+                     and 0 < s.baseline - span.baseline <= SUPERSCRIPT_RISE), None)
         if base:
             base.text += span.text
             base.x1 = span.x1
         else:
-            kept.append((baseline, span))
+            kept.append(span)
     return kept
 
 
-def is_table_type(span: Span) -> bool:
+def is_table_or_note(span: Span) -> bool:
     """Whether a span is a table's: a header or cell, or a note under it, which may run
     the page's width (GillSans 8pt and its daggers, Travel Terrain, page 192)."""
-    return (span.font, span.size) in TABLE_FONTS or (span.font.startswith("GillSans")
-                                                     and span.size <= TABLE_NOTE)
+    return span.face in TABLE_FONTS or (span.font.startswith("GillSans") and span.size <= TABLE_NOTE)
 
 
 def set_edges(lines: list[Line]) -> None:
@@ -240,14 +256,18 @@ def set_edges(lines: list[Line]) -> None:
     The right edge is the column's text, not its tables: a table across both
     columns would put it at the far margin.
     """
-    body = [l for l in lines if l.baseline < FOOTER_BASELINE]
-    for line in body:
-        group = [l for l in body if (l.column, l.frame) == (line.column, line.frame)]
-        text = [l for l in group if not all((s.font, s.size) in TABLE_FONTS
-                                            for s in l.spans)]
-        line.right = max(l.x1 for l in text or group)
-        if line.frame is not None:
-            line.left = min(l.x0 for l in group)
+    groups: dict[tuple[int, int | None], list[Line]] = {}
+    for line in lines:
+        if line.baseline < FOOTER_BASELINE:
+            groups.setdefault((line.column, line.frame), []).append(line)
+    for group in groups.values():
+        text = [line for line in group if not all(s.face in TABLE_FONTS for s in line.spans)]
+        right = max(line.x1 for line in text or group)
+        left = min(line.x0 for line in group)
+        for line in group:
+            line.right = right
+            if line.frame is not None:
+                line.left = left
 
 
 def filled(drawing: dict, shade: float) -> bool:
@@ -311,32 +331,35 @@ def shaded_halves(edges: list[float], shading: list[pymupdf.Rect]) -> list[float
     return edges
 
 
-def spanning_cells(spans: list[tuple[float, Span]], shading: list[pymupdf.Rect]) -> set[int]:
+def spanning_cells(spans: list[Span], shading: list[pymupdf.Rect]) -> set[int]:
     """The ids of table spans in a table across both columns.
 
     Each shaded band takes the table spans on its baselines, then grows a row
     at a time to the unshaded rows and header above and below it.
     """
-    cells = [(baseline, span) for baseline, span in spans
-             if (span.font, span.size) in TABLE_TYPE]
+    cells = [span for span in spans if span.face in TABLE_TYPE]
     wide: set[int] = set()
     for rect in shading:
         top, bottom = rect.y0, rect.y1
         grown = True
         while grown:
             grown = False
-            for baseline, span in cells:
-                if id(span) not in wide and top - ROW_REACH <= baseline <= bottom + ROW_REACH:
+            for span in cells:
+                if id(span) not in wide and top - ROW_REACH <= span.baseline <= bottom + ROW_REACH:
                     wide.add(id(span))
-                    top, bottom = min(top, baseline), max(bottom, baseline)
+                    top, bottom = min(top, span.baseline), max(bottom, span.baseline)
                     grown = True
     return wide
 
 
-def frame_of(span: Span, baseline: float, frames: list[pymupdf.Rect]) -> int | None:
+def frame_of(span: Span, frames: list[pymupdf.Rect]) -> int | None:
     """The index of the frame a span is printed in, or None."""
-    point = pymupdf.Point(span.x0 + 1, baseline - 1)
-    return next((i for i, rect in enumerate(frames) if rect.contains(point)), None)
+    return next((i for i, rect in enumerate(frames) if rect.contains(inside(span))), None)
+
+
+def inside(span: Span) -> pymupdf.Point:
+    """A point just inside the span's start, for testing which box it is printed in."""
+    return pymupdf.Point(span.x0 + 1, span.baseline - 1)
 
 
 def column_edges(starts: Counter[float], prose: Counter[float], spans: list[Span]) -> list[float]:

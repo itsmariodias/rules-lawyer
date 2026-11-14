@@ -1,10 +1,16 @@
 from __future__ import annotations
 
-from dnd_graph_rag.srd.model import Run, Table
-from dnd_graph_rag.srd.pages import Line, Span
-from dnd_graph_rag.srd.tables import (extend_table, is_table_line, repeat_width, table,
-                                      table_end, table_run, wraps_field)
-from dnd_graph_rag.srd.text import plain
+from dnd_graph_rag.srd.model import Run, Table, plain
+from dnd_graph_rag.srd.reading.pages import Line, Span
+from dnd_graph_rag.srd.reading.tables import (
+    extend_table,
+    is_table_line,
+    repeat_width,
+    table,
+    table_end,
+    table_run,
+    wraps_field,
+)
 
 HEADER = ("GillSans-SemiBold", 9.2)
 CELL = ("GillSans", 9.5)

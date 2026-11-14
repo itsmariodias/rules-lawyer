@@ -7,10 +7,10 @@ pages 109-364), small GillSans for the ability scores, and plain GillSans
 
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
-from .model import Block, Field, Paragraph, Run, Section, StatBlock
-from .pages import Line
+from ..model import Block, Field, Paragraph, Run, Section, StatBlock
+from .pages import Line, pages_of
 from .text import runs_of
 
 TITLE_FONT = ("GillSans-SemiBold", 14.8)
@@ -29,13 +29,13 @@ SCORE_FONTS = (("GillSans", 9.8), ("GillSans-Bold", 9.8),
 
 def is_title(line: Line) -> bool:
     """Whether the line is a stat block's title."""
-    return all((s.font, s.size) == TITLE_FONT for s in line.spans)
+    return all(s.face == TITLE_FONT for s in line.spans)
 
 
 def is_stat_line(line: Line) -> bool:
     """Whether the line is in a stat block's type."""
     return line.frame is None and all(
-        s.font.startswith("Optima") or (s.font, s.size) in (SECTION_FONT, LABEL_FONT, *SCORE_FONTS)
+        s.font.startswith("Optima") or s.face in (SECTION_FONT, LABEL_FONT, *SCORE_FONTS)
         for s in line.spans)
 
 
@@ -61,8 +61,8 @@ def stat_block(lines: list[Line], hyphenated: set[str],
     above = 0          # field lines before the scores
     sections: list[tuple[str, list[Line]]] = []
     for line in lines[1:]:
-        font = (line.spans[0].font, line.spans[0].size)
-        if all((s.font, s.size) == SECTION_FONT for s in line.spans):
+        font = line.spans[0].face
+        if all(s.face == SECTION_FONT for s in line.spans):
             sections.append((line.text.strip(), []))
         elif sections:
             sections[-1][1].append(line)
@@ -82,7 +82,7 @@ def stat_block(lines: list[Line], hyphenated: set[str],
     return StatBlock(lines[0].text.strip(), runs_of(subtitle, hyphenated), top + rest,
                      ability_rows(scores), [Section(title, entries(body, hyphenated, read))
                                             for title, body in sections],
-                     sorted({l.page for l in lines}))
+                     pages_of(lines))
 
 
 def fields_of(runs: list[Run]) -> list[Field]:
@@ -126,7 +126,7 @@ def ability_rows(lines: list[Line]) -> list[list[str]]:
     rows: list[list[str]] = []
     in_name = False
     for line in lines:
-        if all((s.font, s.size) == LABEL_FONT for s in line.spans):
+        if all(s.face == LABEL_FONT for s in line.spans):
             continue
         for span in line.spans:
             text = span.text.strip()

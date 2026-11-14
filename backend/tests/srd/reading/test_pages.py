@@ -1,13 +1,22 @@
 from __future__ import annotations
 
+from collections import Counter
+
 import pymupdf
 import pytest
 
 from dnd_graph_rag.config import get_settings
-from collections import Counter
-
-from dnd_graph_rag.srd.pages import (Line, Span, attach_superscripts, column_edges, column_of,
-                                     page_lines, read_pages, shaded_halves, split_footer)
+from dnd_graph_rag.srd.reading.pages import (
+    Line,
+    Span,
+    attach_superscripts,
+    column_edges,
+    column_of,
+    page_lines,
+    read_pages,
+    shaded_halves,
+    split_footer,
+)
 
 
 @pytest.fixture(scope="module")
@@ -238,11 +247,11 @@ class TestLine:
 class TestAttachSuperscripts:
     def test_given_a_raised_dagger_after_a_word_when_attached_then_it_joins_the_word(self):
         # Given page 192's "Special" and a 5.5pt dagger 3.2pt above its baseline
-        word = Span("Special", "GillSans", 9.5, 135.4, 162.3)
-        dagger = Span("\u2020", "GillSans", 5.5, 162.3, 165.0)
+        word = Span("Special", "GillSans", 9.5, 135.4, 162.3, 683.2)
+        dagger = Span("\u2020", "GillSans", 5.5, 162.3, 165.0, 680.0)
 
         # When superscripts are attached
-        spans = attach_superscripts([(683.2, word), (680.0, dagger)])
+        spans = attach_superscripts([word, dagger])
 
         # Then one span remains, the dagger at its end
-        assert [(b, s.text) for b, s in spans] == [(683.2, "Special\u2020")]
+        assert [(s.baseline, s.text) for s in spans] == [(683.2, "Special\u2020")]

@@ -3,15 +3,32 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable, Hashable
 from dataclasses import replace
-from typing import Callable
 
-from .model import (Block, Contents, Entry, Heading, ListBlock, Paragraph, Run, Sidebar, Table,
-                    add_page)
-from .pages import TABLE_NOTE, Line
+from ..model import (
+    Block,
+    Contents,
+    Entry,
+    Heading,
+    ListBlock,
+    Paragraph,
+    Run,
+    Sidebar,
+    Table,
+    add_page,
+)
+from .pages import TABLE_NOTE, Line, column_key, pages_of
 from .statblock import is_stat_line, is_title, stat_block
-from .tables import extend_table, is_table_line, table, table_end, table_run, wraps_field
-from .text import runs_of
+from .tables import (
+    extend_table,
+    is_table_line,
+    table,
+    table_end,
+    table_run,
+    wraps_field,
+)
+from .text import is_bold, runs_of
 
 # One heading is set in the face's small caps, capitals 12pt and the rest
 # 8.4pt ("Acid Splash", page 107); its text extracts in mixed case.
@@ -86,30 +103,28 @@ def read_blocks(lines: list[Line], hyphenated: set[str]) -> list[Block]:
     while i < len(lines):
         line = lines[i]
         level = heading_level(line)
+        caption = caption_lines(lines, i)
         if line.frame is not None:
-            group = take(lines, i, lambda l: (l.page, l.frame) == (line.page, line.frame))
+            group = take(lines, i, lambda other: other.frame is not None, same=frame_key)
             place(sidebar(group, hyphenated))
             i += len(group)
         elif is_title(line):
             group = [line] + take(lines, i + 1, is_stat_line)
             place(stat_block(group, hyphenated, read_blocks))
             i += len(group)
-        elif is_table_line(line) and not wraps_field(lines, i) or caption_lines(lines, i):
-            caption = caption_lines(lines, i)
+        elif caption or (is_table_line(line) and not wraps_field(lines, i)):
             group = table_run(lines, i + len(caption))
             group = group[:table_end(group)]
             place(table(runs_of(caption, hyphenated), group, hyphenated))
             i += len(caption) + len(group)
         elif is_term_line(line):
             end_paragraph()
-            group = take(lines, i, lambda l: is_term_line(l)
-                         and (l.page, l.column) == (line.page, line.column))
+            group = take(lines, i, is_term_line, same=column_key)
             blocks.append(term_list(group))
             i += len(group)
-        elif is_key_line(line) and sum((s.font, s.size) == KEY_FONT for s in line.spans) > 1:
+        elif is_key_line(line) and sum(s.face == KEY_FONT for s in line.spans) > 1:
             end_paragraph()
-            group = take(lines, i, lambda l: is_key_line(l)
-                         and (l.page, l.column) == (line.page, line.column))
+            group = take(lines, i, is_key_line, same=column_key)
             blocks.append(key_list(group))
             i += len(group)
         elif level is not None:
@@ -156,16 +171,29 @@ def caption_lines(lines: list[Line], start: int) -> list[Line]:
            and (end == start or continues(lines[end - 1], lines[end]))):
         end += 1
     follows = (end > start and end < len(lines) and is_table_line(lines[end])
-               and (lines[end].page, lines[end].column) == (lines[start].page, lines[start].column))
+               and column_key(lines[end]) == column_key(lines[start]))
     return lines[start:end] if follows else []
 
 
-def take(lines: list[Line], start: int, keep: Callable[[Line], bool]) -> list[Line]:
-    """The run of lines from ``start`` for which ``keep`` holds."""
+def take(lines: list[Line], start: int, keep: Callable[[Line], bool],
+         same: Callable[[Line], Hashable] | None = None) -> list[Line]:
+    """The run of lines from ``start`` for which ``keep`` holds and, if given, ``same`` is
+    what it is for the first."""
     end = start
-    while end < len(lines) and keep(lines[end]):
+    while (end < len(lines) and keep(lines[end])
+           and (same is None or same(lines[end]) == same(lines[start]))):
         end += 1
     return lines[start:end]
+
+
+def frame_key(line: Line) -> tuple[int, int | None]:
+    """Which sidebar frame a line is printed in: its page and frame."""
+    return line.page, line.frame
+
+
+def ends_sentence(line: Line) -> bool:
+    """Whether the line's text ends a sentence (or a clause before a colon)."""
+    return bool(_SENTENCE_END.search(line.text.rstrip()))
 
 
 def heading_level(line: Line) -> int | None:
@@ -191,10 +219,11 @@ def continues_across(prev: Line, line: Line, hanging: bool) -> bool:
     """
     next_column = (prev.page, prev.column + 1)
     next_page = (prev.page + 1, 0)
-    if (line.page, line.column) not in (next_column, next_page) or line.frame != prev.frame \
-            or is_indented(line) != hanging:
+    if column_key(line) not in (next_column, next_page):
         return False
-    if not _SENTENCE_END.search(prev.text.rstrip()):
+    if line.frame != prev.frame or is_indented(line) != hanging:
+        return False
+    if not ends_sentence(prev):
         return True
     span = line.spans[0]
     char = (span.x1 - span.x0) / max(len(span.text), 1)
@@ -217,7 +246,7 @@ def starts_paragraph(para: list[Line], line: Line) -> bool:
     # A lead wrapped onto a second line ("...after a Long / Rest).", page 131)
     # leaves the line before ending in bold. After a break too: "**Range:**
     # Touch" ends a column, "**Components:**" heads the next (page 151).
-    if (has_lead(line) or is_formula(line)) and "Bold" not in prev.spans[-1].font:
+    if (has_lead(line) or is_formula(line)) and not is_bold(prev.spans[-1]):
         return True
     if continues(prev, line):
         if len(para) == 1 and has_lead(prev) and not is_indented(prev):
@@ -226,13 +255,11 @@ def starts_paragraph(para: list[Line], line: Line) -> bool:
             return not is_indented(line)
         # A sentence ends a paragraph: after "**Aberrations** are ... abo-" the
         # indented "leths and cloakers." hangs (page 254).
-        return (is_indented(line) and not is_indented(prev)
-                and bool(_SENTENCE_END.search(prev.text.rstrip())))
+        return is_indented(line) and not is_indented(prev) and ends_sentence(prev)
     # One line into a hanging paragraph, a break may come before the indent shows
     # ("**Variants:** ... dul-" / "cimer", page 94).
-    hanging = is_hanging(para) or (len(para) == 1 and "Bold" in prev.spans[0].font
-                                   and not is_indented(prev)
-                                   and not _SENTENCE_END.search(prev.text.rstrip()))
+    hanging = is_hanging(para) or (len(para) == 1 and is_bold(prev.spans[0])
+                                   and not is_indented(prev) and not ends_sentence(prev))
     return not continues_across(prev, line, hanging)
 
 
@@ -251,22 +278,22 @@ def has_lead(line: Line) -> bool:
     first = line.spans[0]
     # The stop may be set plain after the bold ("**Touch**.", page 105).
     lead = first.text.rstrip() + (line.spans[1].text[:1] if len(line.spans) > 1 else "")
-    return (len(line.spans) > 1 and "Bold" in first.font
+    return (len(line.spans) > 1 and is_bold(first)
             and bool(_SENTENCE_END.search(first.text.rstrip()) or _SENTENCE_END.search(lead))
-            and not all("Bold" in s.font for s in line.spans))
+            and not all(is_bold(s) for s in line.spans))
 
 
 def is_formula(line: Line) -> bool:
     """Whether the line sets out a formula: a bold label, then "=" ("**Spell save DC** =
     8 + ...", page 23; "**Miles per day** (Normal pace) = ...", page 192)."""
-    return (len(line.spans) > 1 and "Bold" in line.spans[0].font
+    return (len(line.spans) > 1 and is_bold(line.spans[0])
             and "=" in "".join(s.text for s in line.spans[1:]).split(".")[0])
 
 
 def is_hanging(para: list[Line]) -> bool:
     """Whether the paragraph has a bold lead at the edge and indents its later lines."""
     # The bold need not end a sentence: "**Aberrations** are ..." (page 254).
-    return (len(para) > 1 and len(para[0].spans) > 1 and "Bold" in para[0].spans[0].font
+    return (len(para) > 1 and len(para[0].spans) > 1 and is_bold(para[0].spans[0])
             and not is_indented(para[0]) and is_indented(para[1]))
 
 
@@ -278,7 +305,7 @@ def is_indented(line: Line) -> bool:
 def is_term_line(line: Line) -> bool:
     """Whether the line is a row of a grid of names: term type, at its column's edge."""
     return (line.frame is None and not is_indented(line)
-            and all((s.font, s.size) == TERM_FONT for s in line.spans))
+            and all(s.face == TERM_FONT for s in line.spans))
 
 
 def term_list(lines: list[Line]) -> ListBlock:
@@ -287,13 +314,12 @@ def term_list(lines: list[Line]) -> ListBlock:
     spans = sorted((s for line in lines for s in line.spans),
                    key=lambda s: edges.index(round(s.x0)))
     return ListBlock(False, [[Paragraph([Run(s.text.strip())], [lines[0].page])] for s in spans],
-                     sorted({l.page for l in lines}))
+                     pages_of(lines))
 
 
 def is_key_line(line: Line) -> bool:
     """Whether the line is in a grid of labels and meanings: label and term type only."""
-    return line.frame is None and all((s.font, s.size) in (KEY_FONT, TERM_FONT)
-                                      for s in line.spans)
+    return line.frame is None and all(s.face in (KEY_FONT, TERM_FONT) for s in line.spans)
 
 
 def key_list(lines: list[Line]) -> ListBlock:
@@ -303,18 +329,19 @@ def key_list(lines: list[Line]) -> ListBlock:
     component", page 176). The halves set their lines apart, and a meaning
     wraps onto a line of its own ("Nonplayer / character").
     """
-    halves = [s.x0 for s in lines[0].spans if (s.font, s.size) == KEY_FONT]
+    halves = [s.x0 for s in lines[0].spans if s.face == KEY_FONT]
     entries: list[list[list[str]]] = [[] for _ in halves]
     for line in lines:
         for span in line.spans:
             half = entries[max(i for i, x in enumerate(halves) if x <= span.x0 + 0.5)]
-            if (span.font, span.size) == KEY_FONT:
+            if span.face == KEY_FONT:
                 half.append([span.text.strip()])
             else:
                 half[-1].append(span.text.strip())
-    pages = sorted({l.page for l in lines})
-    return ListBlock(False, [[Paragraph([Run(label, bold=True), Run(" " + " ".join(meaning))], pages)]
-                             for half in entries for label, *meaning in half], pages)
+    pages = pages_of(lines)
+    items = [[Paragraph([Run(label, bold=True), Run(" " + " ".join(meaning))], pages)]
+             for half in entries for label, *meaning in half]
+    return ListBlock(False, items, pages)
 
 
 def item_lines(lines: list[Line], start: int) -> list[Line]:
@@ -333,8 +360,7 @@ def paragraph(lines: list[Line], hyphenated: set[str]) -> Paragraph:
     # A formula is centred, so indented, but displayed rather than quoted.
     quote = (len(lines) > 1 and all(is_indented(line) for line in lines)
              and not is_formula(lines[0]))
-    return Paragraph(runs_of(lines, hyphenated), sorted({l.page for l in lines}),
-                     "quote" if quote else None)
+    return Paragraph(runs_of(lines, hyphenated), pages_of(lines), "quote" if quote else None)
 
 
 def continues_list(blocks: list[Block], line: Line) -> bool:
@@ -349,22 +375,21 @@ def add_item(blocks: list[Block], lines: list[Line], hyphenated: set[str]) -> No
     number = _MARKER.match(lines[0].text).group("number")
     runs = runs_of(lines, hyphenated)
     runs[0].text = _MARKER_TEXT.sub("", runs[0].text)
-    item: list[Block] = [Paragraph([r for r in runs if r.text], sorted({l.page for l in lines}))]
+    item: list[Block] = [Paragraph([r for r in runs if r.text], pages_of(lines))]
     if continues_list(blocks, lines[0]):
         last = blocks[-1]
         last.items.append(item)
         add_page(last.pages, lines[0].page)
     else:
-        blocks.append(ListBlock(number is not None, [item], sorted({l.page for l in lines}),
-                                int(number) if number else 1))
+        blocks.append(ListBlock(number is not None, [item], pages_of(lines), int(number) if number else 1))
 
 
 def sidebar(lines: list[Line], hyphenated: set[str]) -> Sidebar:
     """A sidebar: its small-caps title, then its other lines read as blocks."""
     has_title = all(SMALL_CAPS in s.font for s in lines[0].spans)
     title = runs_of(lines[:1], hyphenated) if has_title else []
-    body = [replace(l, frame=None) for l in lines[1 if has_title else 0:]]
-    return Sidebar(title, read_blocks(body, hyphenated), sorted({l.page for l in lines}))
+    body = [replace(line, frame=None) for line in lines[1 if has_title else 0:]]
+    return Sidebar(title, read_blocks(body, hyphenated), pages_of(lines))
 
 
 def add_entry(blocks: list[Block], entry: Entry, page: int) -> None:
@@ -381,5 +406,10 @@ def contents_entry(lines: list[Line], hyphenated: set[str]) -> Entry:
     runs = runs_of(lines, hyphenated)
     found = _ENTRY.match(runs[-1].text)
     runs[-1].text = found.group("text")
-    level = 1 if runs[0].bold else 3 if is_indented(lines[0]) else 2
+    if runs[0].bold:
+        level = 1
+    elif is_indented(lines[0]):
+        level = 3
+    else:
+        level = 2
     return Entry([r for r in runs if r.text], int(found.group("page")), level)

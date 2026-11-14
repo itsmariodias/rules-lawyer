@@ -123,3 +123,7 @@ def add_page(pages: list[int], page: int) -> None:
         pages.append(page)
         pages.sort()
 
+
+def plain(runs: list[Run]) -> str:
+    """The text of runs, styles dropped."""
+    return "".join(r.text for r in runs)

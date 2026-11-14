@@ -4,13 +4,26 @@ from __future__ import annotations
 
 import re
 
-from .model import (Block, Contents, Field, Heading, ListBlock, Paragraph, Run, Sidebar,
-                    StatBlock, Table)
-from .text import plain
+from ..model import (
+    Block,
+    Contents,
+    Field,
+    Heading,
+    ListBlock,
+    Paragraph,
+    Run,
+    Sidebar,
+    StatBlock,
+    Table,
+    plain,
+)
 
 _SPECIAL = re.compile(r"([\\*_`])")
 _BLOCK_MARK = re.compile(r"^([#>+-])")
 _ORDERED_MARK = re.compile(r"^(\d+)\.")
+# The deepest heading, so a creature printed inside a spell or item nests under it.
+STAT_BLOCK_LEVEL = 6
+ABILITY_HEADER = ["Ability", "Score", "MOD", "SAVE"]
 
 
 def render(blocks: list[Block]) -> str:
@@ -84,11 +97,6 @@ def render_sidebar(block: Sidebar) -> str:
     """A blockquote: the title in bold, then the sidebar's blocks."""
     parts = ([f"**{plain(block.title)}**"] if block.title else []) + [render_block(b) for b in block.blocks]
     return "\n".join("> " + line if line else ">" for line in "\n\n".join(parts).split("\n"))
-
-
-# The deepest heading, so a creature printed inside a spell or item nests under it.
-STAT_BLOCK_LEVEL = 6
-ABILITY_HEADER = ["Ability", "Score", "MOD", "SAVE"]
 
 
 def render_stat_block(block: StatBlock) -> str:

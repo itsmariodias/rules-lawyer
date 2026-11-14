@@ -1,9 +1,18 @@
 from __future__ import annotations
 
-from dnd_graph_rag.srd.blocks import read_blocks
-from dnd_graph_rag.srd.model import (Contents, Entry, Heading, ListBlock, Paragraph, Run,
-                                     Sidebar, StatBlock, Table)
-from dnd_graph_rag.srd.pages import Line, Span
+from dnd_graph_rag.srd.model import (
+    Contents,
+    Entry,
+    Heading,
+    ListBlock,
+    Paragraph,
+    Run,
+    Sidebar,
+    StatBlock,
+    Table,
+)
+from dnd_graph_rag.srd.reading.blocks import read_blocks
+from dnd_graph_rag.srd.reading.pages import Line, Span
 
 from .helpers import MARGIN, line
 
