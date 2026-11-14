@@ -1,52 +1,49 @@
 # The graph
 
-What `srd-graph-load` builds in Neo4j from `data/output/srd_hierarchy.json`:
+What `dnd-graph-rag load` builds in Neo4j from `data/output/srd_hierarchy.json`:
 every node label and every relationship type, what it means, what identifies
 it, and what it carries.
 
 ## How to read this
 
-**A label is a tag, not a type.** A node can carry several, so
-`MATCH (n:Section)` and `MATCH (n:Spell)` can return the *same* node. Nodes
-merge on the **first** label and its key; any second label is set alongside.
+**The basics.** Neo4j stores a graph: **nodes** (things, such as a spell or
+a creature) joined by **relationships** (arrows with a type, such as
+`IMMUNE_TO`). Both carry **properties**, plain key/value fields like
+`name` or `level`. A node's **labels** say what kind of thing it is
+(`:Spell`, `:Creature`); a node can have several.
 
-**There are two kinds of node.**
+**Cypher** is the query language, and a query is a drawing of the pattern
+you want: nodes in round brackets, relationships as arrows.
 
-- **`:Section` nodes:** the SRD's heading tree, joined by `HAS_SUBSECTION`.
-  Each carries exactly one entity label saying what kind of section it is, so
-  those labels partition the tree. An entity printed under its own heading
-  *is* that section: a creature, gear item, poison, class, subclass,
-  species, background, feat or glossary term folds into it, adding its
-  record's label and properties, rather than becoming a second node beside
-  it. Such a node cites itself.
-- **Everything else:** what has no heading of its own. Stat block entries,
-  class levels, weapon and armour rows, and the damage and poison types,
-  which share one passage per kind.
+```cypher
+// What damage does Fireball deal?
+MATCH (:Spell {name: 'Fireball'})-[:REFERENCES_DAMAGE_TYPE]->(d)
+RETURN d.name                                  // "Fire"
 
-**The graph leaves out one kind of heading.** The book heads a stat block
-with its monster entry even when the entry holds only that stat block and no
-prose ("Aboleth" above the Aboleth stat block). Those 139 entries are in the
-artifact but not the graph; the stat block hangs from the entry's parent and
-keeps its own id. An entry whose one stat block has another name ("Crawling
-Claw" above "Swarm of Crawling Claws") stays, since its heading is the only
-place that name is printed.
+// How many creatures are immune to Fire damage?
+MATCH (c:Creature)-[:IMMUNE_TO]->(:DamageType {name: 'Fire'})
+RETURN count(c)                                // 36
+```
 
-**A `:Section` is one heading**, at any of the SRD's five levels. Its
-subsections are separate nodes, not part of it. Most nodes are leaves, which
-is where most entities live — a spell or a creature is normally a leaf.
+To try queries, start Neo4j (`docker compose up -d neo4j`), load the graph,
+and open <http://localhost:7474>: user `neo4j`, password `NEO4J_PASSWORD`
+from `.env`.
 
-**Two fields describe a section's text, over different spans.** `content` is
-the node's own prose, between its heading and its first child heading — so a
-chapter heading has none. `char_start` / `char_end` span the node's whole
-subtree in `srd_hierarchy.md`. They agree on a leaf and diverge on a branch:
-use `content` for what a section itself says, the char range to pull
-everything beneath it.
+**Two kinds of node.**
 
-**Properties are sparse.** The loader drops nulls rather than storing them,
-so a property listed as *optional* below is simply absent where the book
-prints nothing.
+- **Sections** (`:Section`) are the book's headings, joined into a tree by
+  `HAS_SUBSECTION`. Each has one more label saying what it is: a spell *is*
+  its section (`:Section:Spell`), as is a creature, class or rule. A
+  section can always be cited by its `id` (`10.3.123`).
+- **Derived nodes** are things with no heading of their own: a stat block's
+  actions and traits, a class's levels, weapon and armour table rows, and
+  the damage and poison types.
 
----
+**The rest of this file** lists every label (what identifies it and the
+properties it adds) under **Nodes**, every relationship type (which labels
+it joins, with an example) under **Relationships**, and the indexes last.
+A property marked *optional* is simply missing where the book prints
+nothing.
 
 # Nodes
 
@@ -55,17 +52,19 @@ prints nothing.
 All merge on `:Section`, key `id` — the dotted path (`10.3.123`), the
 artifact's only globally unique stable identifier.
 
-**Every section carries** `id`, `name`, `heading`, `content`, `entity_type`,
-`depth`, `page_start`, `page_end`, `char_start`, `char_end`. Where the parser
-split a node into named entries it also carries `preamble` and
-`entries_json`. The entries below list only what each second label *adds*.
+**Every section carries** `id`, `name`, `heading`, `content` (its own text,
+up to its first subheading), `entity_type`, `depth`, `page_start`,
+`page_end`, and `char_start` / `char_end` (its whole subtree in
+`srd_hierarchy.md`). The entries below list only what each second label
+*adds*.
 
 **A section with prose also carries `embedding`**, a 1536-float unit vector
-of its ancestor headings and its content, indexed by `srd_vector`. 2172 of
-the 2394 have one; the remaining 222 are headings whose children hold all the
-text, so there was nothing to embed. The vectors come from
+of its ancestor headings and its content, indexed by `srd_vector`. 2173 of
+the 2256 have one; the rest are headings whose children hold all the text,
+so there was nothing to embed. The vectors come from
 `data/output/srd_embeddings.idx`, which is either generated once with a
-Gemini key (`srd-embed`) or downloaded — see **Constraints and indexes**.
+Gemini key (`dnd-graph-rag embed`) or downloaded; see **Constraints and
+indexes**.
 
 ### `:Section:ClassFeature`
 
@@ -471,8 +470,6 @@ can ask what a level grants without unpacking anything.
   resource_values: ["2",     "+2",          "2"] })
 ```
 
----
-
 # Relationships
 
 Only three carry properties: `HAS_ABILITY` has `category`, `HAS_FEATURE` and
@@ -750,8 +747,6 @@ From the background's printed feat, with the parenthetical stripped:
 `Magic Initiate (Cleric) (see "Feats")` resolves to "Magic Initiate".
 
 - **Example** — `(Acolyte)-->(Magic Initiate)`
-
----
 
 # Constraints and indexes
 
