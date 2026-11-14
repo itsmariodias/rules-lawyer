@@ -52,17 +52,15 @@ export default async function globalSetup() {
 }
 
 /**
- * Warn if the development Neo4j is also running.  Two JVMs exhaust a laptop's
- * memory and macOS suspends the browser's network service, killing streamed
- * turns: 4 to 6 of 33 tests failed with it up, none without, in half the time.
+ * Note if the development Neo4j is also running.  Short of memory, macOS
+ * suspends the browser's network service, killing streamed turns.
  */
 async function warnAboutCompany() {
   if (!(await listening(7687))) return
-  console.warn('\ne2e: something is already serving Neo4j on 7687 — probably'
-               + '\n     the development database, which this suite does not'
-               + '\n     use and does not have the memory to sit beside.'
-               + '\n     Expect suspended turns and a retry or two;'
-               + '\n     `docker compose stop neo4j` makes them go away.\n')
+  console.warn('\ne2e: something is already serving Neo4j on 7687, probably the'
+               + '\n     development database, which this suite does not use.'
+               + '\n     If turns fail with net::ERR_NETWORK_IO_SUSPENDED,'
+               + '\n     `docker compose stop neo4j` frees its memory.\n')
 }
 
 function listening(port: number): Promise<boolean> {

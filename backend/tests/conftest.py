@@ -70,7 +70,11 @@ def neo4j():
     from testcontainers.community.neo4j import Neo4jContainer
 
     try:
-        container = Neo4jContainer(NEO4J_IMAGE, password="test-password")
+        container = (Neo4jContainer(NEO4J_IMAGE, password="test-password")
+                     # Neo4j sizes its memory from the host's; this graph needs far less.
+                     .with_env("NEO4J_server_memory_heap_initial__size", "512m")
+                     .with_env("NEO4J_server_memory_heap_max__size", "512m")
+                     .with_env("NEO4J_server_memory_pagecache_size", "256m"))
         container.start()
     except Exception as exc:  # Docker absent, not running, or the pull failed
         pytest.skip(f"no Neo4j container (is Docker running?): {exc}")

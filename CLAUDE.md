@@ -806,7 +806,8 @@ browser stays on one origin and the SSE stream shares it.
 
 - `uv run pytest`: backend, 667 tests. Tests needing Neo4j share one
   Testcontainers `neo4j:5.26-community` container per run (the `neo4j`
-  fixture), loaded once from the artifact and its vectors (`graph`).
+  fixture), loaded once from the artifact and its vectors (`graph`), its
+  memory capped as e2e's is (512 MB heap, 256 MB page cache).
   `pytest_configure` points `NEO4J_URI` at a closed port first, so a test
   that forgets the fixture fails rather than writing to the `.env`
   database. Those tests carry `@pytest.mark.neo4j` (on the class when every
@@ -823,7 +824,8 @@ browser stays on one origin and the SSE stream shares it.
   `chat/` emptied each run. `CHAT_STUB=1` and a blank `GOOGLE_API_KEY`, so no
   quota is spent and search is lexical only. Needs Docker, the artifact and
   `srd_embeddings.idx`; skips without them. Specs import `test` from
-  `fixtures.ts` and use its `app` fixture, which is what skips them. Running
-  the development Neo4j at the same time can starve the browser of memory
-  (macOS suspends its network service), so global setup warns; one retry
-  covers it.
+  `fixtures.ts` and use its `app` fixture, which is what skips them. The
+  development Neo4j can stay up: `docker-compose.yml` caps its memory as the
+  test containers are capped. Short of memory, macOS suspends the browser's
+  network service and streamed turns fail, so global setup notes a database
+  on 7687; one retry covers it.

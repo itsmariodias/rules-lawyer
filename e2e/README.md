@@ -28,11 +28,6 @@ Nothing needs to be running first. You do need:
 
 Without any of them the run prints why and skips, rather than failing.
 
-**Stop the development Neo4j first** (`docker compose stop neo4j` from the
-repository root). Two Neo4j instances use enough memory that macOS suspends
-the browser's network, which kills streamed answers mid-test. Setup warns if
-it finds one running.
-
 ## What it runs against
 
 Everything is separate from a development session, so the two never
