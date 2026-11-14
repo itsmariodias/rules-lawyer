@@ -18,7 +18,7 @@ from dnd_graph_rag.srd.entities.records import (
 )
 from dnd_graph_rag.srd.model import Section, Table, plain
 from dnd_graph_rag.srd.output.render import render_runs, section_text
-from dnd_graph_rag.srd.sections import walk
+from dnd_graph_rag.srd.sections import captioned_tables, walk
 
 # A Core Traits table's labels and the class record fields they fill.
 CORE_TRAITS = {"Primary Ability": "primary_ability", "Hit Point Die": "hit_point_die",
@@ -53,7 +53,9 @@ def class_record(section: Section, pdf: str) -> dict:
         label = plain(row[0]).strip()
         if label in CORE_TRAITS:
             record[CORE_TRAITS[label]] = " ".join(" ".join(plain(cell) for cell in row[1:]).split())
-    record["progression"] = progression(table(section, f"{name} Features"))
+    features_table = captioned_tables(section.subsections)[f"{name} Features"]
+    record["progression"] = progression(features_table.blocks[0])
+    record["features_table_id"] = features_table.id
     features: list[dict] = []
     subclasses: list[dict] = []
     for child in section.subsections:
@@ -72,8 +74,7 @@ def class_record(section: Section, pdf: str) -> dict:
 
 def table(section: Section, caption: str) -> Table:
     """The table captioned ``caption`` in the section's subtree."""
-    return next(s.blocks[0] for s in walk(section.subsections)
-                if len(s.blocks) == 1 and isinstance(s.blocks[0], Table) and plain(s.blocks[0].caption) == caption)
+    return captioned_tables(section.subsections)[caption].blocks[0]
 
 
 def progression(features_table: Table) -> list[dict]:

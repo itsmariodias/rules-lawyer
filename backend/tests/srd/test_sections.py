@@ -14,7 +14,7 @@ from dnd_graph_rag.srd.model import (
     StatBlock,
     Table,
 )
-from dnd_graph_rag.srd.sections import build_sections, walk
+from dnd_graph_rag.srd.sections import build_sections, captioned_tables, walk
 
 
 def paragraph(text: str, page: int) -> Paragraph:
@@ -125,3 +125,17 @@ class TestPlaceFloats:
         assert outline(build_sections(blocks))[1:] == [
             ("2", 1, "Monsters"), ("2.1", 2, "Parts of a Stat Block"),
             ("2.1.1", 3, "Resistances and Vulnerabilities"), ("2.2", 2, "Running a Monster")]
+
+
+class TestCaptionedTables:
+    def test_given_floats_and_prose_when_listed_then_only_captioned_tables_count(self):
+        # Given a section holding a captioned table, a captionless table under a heading, and a sidebar
+        blocks = [Heading(2, "Equipment", 90), paragraph("See the Weapons table.", 90), table("Weapons", 91),
+                  Heading(3, "Coins", 92), Table([], [[[Run("Coin", bold=True)]]], [[[Run("GP")]]], [92]),
+                  Sidebar([Run("Selling Treasure")], [paragraph("Half price.", 92)], [92])]
+
+        # When the sections are built and their captioned tables listed
+        found = captioned_tables(build_sections(blocks))
+
+        # Then the captioned table is found by its caption, as a section of its own
+        assert {caption: section.blocks[0].type for caption, section in found.items()} == {"Weapons": "table"}

@@ -264,7 +264,7 @@ offsets), plus optional typed fields (`spell`, `item`, `term`/`term_type`,
 | classes | 12 | core traits, 20-level progression, features, subclasses |
 | species / backgrounds / feats | 9 / 4 / 17 | |
 | glossary | 172 | 155 terms (15 conditions, 12 actions, ...), 13 damage types, 4 poison types |
-| references | 5497 | typed edges between all of the above |
+| references | 5659 | typed edges between all of the above |
 
 | `entity_type` | Count |
 | --- | --- |
@@ -279,8 +279,8 @@ offsets), plus optional typed fields (`spell`, `item`, `term`/`term_type`,
 
 References by relation: `references_spell` 2172, `references_damage_type`
 1655, `references_condition` 538, `references_area_of_effect` 354,
-`references_action` 306, `imposes_condition` 303, `references_creature` 101,
-`references_magic_item` 68.
+`references_action` 306, `imposes_condition` 303, `references_table` 162,
+`references_creature` 101, `references_magic_item` 68.
 
 ### How the book is read
 
@@ -353,7 +353,9 @@ the block, never by post-processing text.
   against the `Condition` vocabulary, not by the semicolon: a line of
   conditions alone has none. A qualified entry keeps its note ("Charmed
   (with _Mind Blank_)") and so links to nothing. Gear and poisons record
-  `section_id` so stage 2 folds them into their section.
+  `section_id` so stage 2 folds them into their section; weapons and armour
+  record `table_id`, and a class `features_table_id`, the table each is
+  read from.
 - **Cross-reference edges come from runs** (`entities/references.py`):
   italic runs resolve to spells, then magic items; bold runs to creatures,
   plurals included; a run becomes an edge only if it names an extracted
@@ -361,9 +363,10 @@ the block, never by post-processing text.
   damage types and areas match fixed phrasing built from the vocabulary
   (`Prone condition`, `a 20-foot Cone`) so `Cover`, `Attack` and `Force`
   never fire as bare nouns; name lists ("the Deafened and Frightened
-  conditions") count every name. Sources are each section's own blocks
-  (table cells included) and each creature entry, with `part`
-  (`actions/Bite`).
+  conditions") count every name. A captioned table is named by its caption,
+  capitalised, before "table" ("the Barbarian Features table"); a table
+  never references itself. Sources are each section's own blocks (table
+  cells included) and each creature entry, with `part` (`actions/Bite`).
 - **`imposes_condition` vs `references_condition`.** Only
   `mechanics.conditions_imposed` decides "imposes": "has the X condition" (X
   may be an *and* list), skipped when a negating word appears in the same
@@ -423,8 +426,8 @@ used and the printed one kept in `printed_score`.
 
 ## Stage 2: the graph
 
-`dnd-graph-rag load` writes **3900 nodes and 11572 relationships**, then runs
-**77 verification checks**. Loads MERGE on stable keys, but a full reset is
+`dnd-graph-rag load` writes **3900 nodes and 12025 relationships**, then runs
+**79 verification checks**. Loads MERGE on stable keys, but a full reset is
 the default: the artifact is the whole truth, and merging alone would keep
 nodes a re-parse has dropped.
 
@@ -443,7 +446,7 @@ nodes a re-parse has dropped.
 | `:ClassLevel` | `key` | 240 |
 
 Relationships: the artifact's reference relations uppercased
-(`IMPOSES_CONDITION`, `REFERENCES_SPELL`, ...); structure (`HAS_SUBSECTION`,
+(`IMPOSES_CONDITION`, `REFERENCES_SPELL`, `REFERENCES_TABLE`, ...); structure (`HAS_SUBSECTION`,
 `HAS_ABILITY`, `HAS_FEATURE`, `HAS_SUBCLASS`, `AT_LEVEL`, `GRANTS_FEATURE`,
 `DEFINED_IN`); and edges derived from list fields
 (`IMMUNE_TO`, `RESISTANT_TO`, `VULNERABLE_TO`, `IMMUNE_TO_CONDITION`,
@@ -463,9 +466,16 @@ documents each one.
   `add_creatures` and `Mapper.fold` raise if a record names no section of
   its type. The section label is the record's (`:Section:Class`), and edges
   still match `(:Class {name})`, so name constraints stay. Weapons and
-  armour are only table rows, so they stay `:Equipment` nodes; the 13 damage
-  types share `11.2.46.1` and the 4 poison types `12.6`, so those 17 terms
-  stay nodes `DEFINED_IN` it.
+  armour are only table rows, so they stay `:Equipment` nodes `DEFINED_IN`
+  their table; the 13 damage types share `11.2.46.1` and the 4 poison types
+  `12.6`, so those 17 terms stay nodes `DEFINED_IN` it.
+- **Floats are sections, reached three ways.** A captioned table, sidebar or
+  stat block hangs from its owner by `HAS_SUBSECTION`. A table is also
+  reached by `REFERENCES_TABLE` from every section naming it (97 of the 193
+  are named), and by `DEFINED_IN` from the rows that are nodes: each class's
+  20 `:ClassLevel`s and the 51 weapons and armour, so a row cites the table
+  printing it. Before these, most tables were leaves reachable only through
+  their parent, and 20 weapons and armour were orphans.
 - **Species and feat traits are a `traits` name list,** not nodes: nothing
   refers to any of the 61, and their text is in the section.
 - **A monster entry wrapping its namesake is left out** (`is_wrapper`: no
@@ -479,7 +489,7 @@ documents each one.
   ability key, so 1619 edges land on the ability rather than the whole stat
   block.
 - **Targets are matched, never merged.** An unresolved target is reported in
-  `unresolved`, not created as an empty node. All 5497 currently resolve.
+  `unresolved`, not created as an empty node. All 5659 currently resolve.
 - **Poison types are nodes** because nothing refers to them; without
   `HAS_POISON_TYPE` the paragraph defining "Injury" is unreachable.
 - **`mapping.py` is pure.** No driver; `loader.py` only batches and writes.
@@ -522,14 +532,14 @@ from the loader's tally; the one rule shared with the mapper is
 Checks: a count per exact label set and per `entity_type`; collections;
 records folded (none of `:Class` ... `:Feat` outside a section); 17 terms
 `DEFINED_IN` a shared passage; no wrapper left and `members` on every
-group; 336 creatures with stats; 16 roots and one parent per section; all
-5497 reference edges and zero unresolved; 1336 abilities, each attached;
+group; 240 class levels and 51 weapon and armour rows `DEFINED_IN` their
+table; 336 creatures
+with stats; 16 roots and one parent per section; all 5659 reference edges
+and zero unresolved; 1336 abilities, each attached;
 abilities with damage; sections with prose each having a vector of the right
-width; `srd_vector` online and of that width; no orphans beyond two
-exemptions. Non-zero failures exit non-zero.
-
-Exempt orphans, both facts about the book: the 3 front-matter roots, and 20
-weapon and armour rows printed only in a table.
+width; `srd_vector` online and of that width; no orphans but the 3
+front-matter roots, which nothing in the book refers to. Non-zero failures
+exit non-zero.
 
 ## Stage 3: the chat
 
@@ -609,9 +619,9 @@ A LangGraph tool-calling agent (`langchain.agents.create_agent`) on Gemini
   fit is dropped. The tool raises the budget with `fan`, otherwise a wider
   fan starves the other groups.
 - Every neighbour carries something to cite: a section cites itself; an
-  ability cites the stat block printing it (`HAS_ABILITY`), a damage or
-  poison type its `DEFINED_IN` passage; anything printed nowhere says "do
-  not cite". Without this the model searched for each node by name.
+  ability cites the stat block printing it (`HAS_ABILITY`); a damage type,
+  poison type, class level, weapon or armour its `DEFINED_IN` section;
+  anything printed nowhere says "do not cite". Without this the model searched for each node by name.
 - A condition is its section, so one hop from it reaches what imposes it.
   A damage type is one hop past its shared passage, so the docstring tells
   the model to walk depth 2 when depth 1 shows only `DEFINED_IN`.

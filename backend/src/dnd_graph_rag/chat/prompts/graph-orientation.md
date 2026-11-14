@@ -8,9 +8,12 @@
   a `:Creature`, `:Gear`, `:Poison`, `:Class`, `:Subclass`, `:Species`,
   `:Background`, `:Feat`, and every glossary term except the damage and
   poison types. What has no heading of its own has no `id`: reach a
-  `:CreatureAbility`'s section through `HAS_ABILITY`, a `:DamageType` or
-  `:PoisonType`'s through `DEFINED_IN`, and a `:Weapon` or `:Armor` is only
-  a table row.
+  `:CreatureAbility`'s section through `HAS_ABILITY`, and a `:DamageType`,
+  `:PoisonType`, `:ClassLevel`, `:Weapon` or `:Armor`'s through
+  `DEFINED_IN` (a class level or weapon is defined in the table printing its
+  row).
+- A captioned table is a `:Section:Rule` of its own, and a section that
+  names it ("the Barbarian Features table") has `REFERENCES_TABLE` to it.
 - `:CreatureAbility` is keyed `key` (`Goblin|actions/Bite`) and carries
   `name`, `creature`, `category`, `description`, `save_ability`, `save_dc`,
   `attack_bonus`, `damage_dice`, `damage_types`.

@@ -5,6 +5,7 @@ from dnd_graph_rag.srd.entities.references import (
     mentions,
     references,
     run_lists,
+    table_phrase,
     unresolved,
 )
 from dnd_graph_rag.srd.model import (
@@ -21,6 +22,7 @@ from dnd_graph_rag.srd.model import (
 SPELLS = Names(["Fireball", "Cure Wounds"])
 ITEMS = Names(["Spell Scroll"])
 CREATURES = Names(["Ghast", "Riding Horse"])
+TABLES = table_phrase(["Weapons", "Martial Weapons"])
 
 
 def section(id: str, heading: str, entity_type: str, *blocks, spell: dict | None = None) -> Section:
@@ -44,7 +46,7 @@ class TestMentions:
 
         # When scanned
         # Then each styled name is its kind, and emphasis names nothing
-        assert mentions(runs, SPELLS, ITEMS, CREATURES) == [
+        assert mentions(runs, SPELLS, ITEMS, CREATURES, TABLES) == [
             ("spell", "Fireball"), ("magic_item", "Spell Scroll"), ("creature", "Riding Horse")]
 
     def test_given_fixed_phrases_when_scanned_then_lists_sized_areas_and_damage_are_found(self):
@@ -53,11 +55,30 @@ class TestMentions:
                     "take Fire damage, and can take the Dash action.")]
 
         # When scanned
-        found = mentions(runs, SPELLS, ITEMS, CREATURES)
+        found = mentions(runs, SPELLS, ITEMS, CREATURES, TABLES)
 
         # Then every listed name counts and the bare word does not
         assert sorted(found) == [("action", "Dash"), ("area_of_effect", "Cone"), ("condition", "Deafened"),
                                  ("condition", "Frightened"), ("damage_type", "Fire")]
+
+
+    def test_given_a_table_named_as_printed_when_scanned_then_the_longest_caption_is_found(self):
+        # Given two captions, one inside the other, and a lowercase "weapons table"
+        runs = [Run("Use the Martial Weapons table, not the weapons table or the Weapons table.")]
+
+        # When scanned
+        found = mentions(runs, SPELLS, ITEMS, CREATURES, TABLES)
+
+        # Then each capitalised caption counts once, the longer first, and the lowercase one not at all
+        assert found == [("table", "Martial Weapons"), ("table", "Weapons")]
+
+
+class TestTablePhrase:
+    def test_given_no_captions_when_built_then_the_bare_word_matches_nothing(self):
+        # Given a book with no captioned tables
+        # When the phrase is built
+        # Then "the table" alone is not a mention
+        assert table_phrase([]).findall("roll on the table") == []
 
 
 class TestRunLists:
@@ -100,6 +121,21 @@ class TestReferences:
                                 "relation": "imposes_condition"}]
 
 
+    def test_given_a_section_naming_a_table_when_referenced_then_it_references_the_table(self):
+        # Given a class section naming its features table, and the table's own section
+        features = Table([Run("Bard Features")], [], [], [31])
+        text = Paragraph([Run("See the Bard Features table.")], [30])
+        sections = [section("6.2", "Bard", "class", text), section("6.2.1", "Bard Features", "rule", features)]
+
+        # When referenced
+        found = references(sections)
+
+        # Then the section references the table, and the table does not reference itself
+        assert found == [{"source": {"type": "class", "id": "6.2", "name": "Bard"},
+                          "target": {"type": "table", "name": "Bard Features"},
+                          "relation": "references_table"}]
+
+
 class TestUnresolved:
     def test_given_an_edge_to_nothing_extracted_when_checked_then_it_is_reported(self):
         # Given a spell section, and edges to it and to a spell that does not exist
@@ -111,3 +147,13 @@ class TestUnresolved:
         # When checked against the sections and a glossary of one condition
         # Then only the missing spell is reported
         assert unresolved(edges, sections, [{"name": "Prone", "term_type": "condition"}]) == ["spell Wish"]
+
+    def test_given_an_edge_to_a_captioned_table_when_checked_then_it_resolves(self):
+        # Given a captioned table's section, and edges to it and to a caption printed nowhere
+        sections = [section("6.2.1", "Bard Features", "rule", Table([Run("Bard Features")], [], [], [31]))]
+        edges = [{"target": {"type": "table", "name": "Bard Features"}},
+                 {"target": {"type": "table", "name": "Lute Features"}}]
+
+        # When checked
+        # Then only the missing table is reported
+        assert unresolved(edges, sections, []) == ["table Lute Features"]

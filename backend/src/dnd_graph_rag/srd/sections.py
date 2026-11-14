@@ -171,6 +171,12 @@ def walk(sections: list[Section]) -> Iterator[Section]:
         yield from walk(section.subsections)
 
 
+def captioned_tables(sections: list[Section]) -> dict[str, Section]:
+    """Each captioned table's section under ``sections``, by caption; every caption names one table."""
+    return {section.heading: section for section in walk(sections)
+            if len(section.blocks) == 1 and isinstance(section.blocks[0], Table) and section.blocks[0].caption}
+
+
 def float_heading(block: Block) -> str | None:
     """The heading of the section a float makes: a stat block's name, a table's caption,
     a sidebar's title; None if the block is not a float."""

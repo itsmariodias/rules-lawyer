@@ -104,18 +104,14 @@ class TestVerify:
         # Then it is there and serving
         assert indexes.get(VECTOR_NAME) == "ONLINE"
 
-    def test_given_a_loaded_graph_when_verified_then_the_two_orphan_groups_are_exempt(
+    def test_given_a_loaded_graph_when_verified_then_only_the_front_matter_is_an_orphan(
             self, verified):
-        """
-        Front matter and the 20 table-only weapon and armour rows are orphans
-        in the book itself.
-        """
+        """The 3 front-matter roots are orphans in the book itself; nothing else is."""
         # Given the verification report
         orphans = verified["orphans_by_label"]
 
         # When the orphans are read
-        # Then they exist, and they are the two groups the book itself creates
-        assert set(orphans) <= {"Section", "FrontMatter", "Equipment",
-                                "Weapon", "Armor"}
+        # Then they are the front matter alone
+        assert orphans == {"Section": 3, "FrontMatter": 3}
         assert not [c for c in verified["failures"]
                     if c["check"] == "unexpected orphan nodes"]

@@ -128,6 +128,17 @@ def verify(document: dict, data: GraphData, session: "Session",
                             "AND (n)-[:DEFINED_IN]->(:Section) "
                             "RETURN count(n)"))
 
+    printed_levels = sum(len(klass.get("progression", [])) for klass in document["classes"]
+                         if klass.get("features_table_id"))
+    _check(checks, "class levels defined in their features table", printed_levels,
+           _scalar(session, "MATCH (n:ClassLevel)-[:DEFINED_IN]->(:Section:Rule) "
+                            "RETURN count(n)"))
+
+    table_rows = sum(1 for item in document["equipment"] if item.get("table_id"))
+    _check(checks, "weapon and armour rows defined in their table", table_rows,
+           _scalar(session, "MATCH (n:Equipment)-[:DEFINED_IN]->(:Section:Rule) "
+                            "RETURN count(n)"))
+
     _check(checks, "creatures with stat blocks", counts["creatures"],
            _scalar(session,
                    "MATCH (n:Creature) WHERE n.ac IS NOT NULL RETURN count(n)"))
@@ -184,18 +195,17 @@ def verify(document: dict, data: GraphData, session: "Session",
     _check(checks, f"{VECTOR_NAME} index width", vectors.dimensions,
            vector_index_width(session))
 
-    # Front matter and table-only weapon/armour rows are orphans in the book
-    # itself, so they are reported, not failed.
+    # The front matter is an orphan in the book itself, so it is reported,
+    # not failed.
     orphans = session.run(
         "MATCH (n) WHERE NOT (n)--() UNWIND labels(n) AS label "
         "RETURN label, count(*) AS total ORDER BY label").data()
     unexpected = _scalar(
         session,
-        "MATCH (n) WHERE NOT (n)--() AND NOT n:Equipment AND NOT n:FrontMatter "
-        "RETURN count(n)")
+        "MATCH (n) WHERE NOT (n)--() AND NOT n:FrontMatter RETURN count(n)")
     _check(checks, "unexpected orphan nodes", 0, unexpected,
            detail=session.run(
-               "MATCH (n) WHERE NOT (n)--() AND NOT n:Equipment "
+               "MATCH (n) WHERE NOT (n)--() "
                "AND NOT n:FrontMatter RETURN labels(n) AS labels, "
                "coalesce(n.name, n.id, n.key) AS name LIMIT 20").data()
            if unexpected else None)

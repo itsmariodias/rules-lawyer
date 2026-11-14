@@ -116,7 +116,7 @@ def get_srd_section(section_id: str) -> Result:
 
 
 # The section a derived node was printed in: the stat block owning an
-# ability, or the section a glossary term is DEFINED_IN.
+# ability, or the section a glossary term or table row is DEFINED_IN.
 _PRINTED_IN = """
 MATCH (n) WHERE elementId(n) IN $uids
 OPTIONAL MATCH (owner:Section)-[:HAS_ABILITY]->(n)

@@ -36,7 +36,7 @@ def equipment(sections: list[Section], pdf: str) -> list[dict]:
 
     Returns:
         One record per item; gear and poisons name the ``section_id`` they
-        are described in.
+        are described in, weapons and armour the ``table_id`` printing them.
     """
     # "Adventuring Gear" heads both the gear's section and its table's.
     described = next(s for s in walk(sections) if s.heading == "Adventuring Gear" and not is_table(s, s.heading))
@@ -57,7 +57,7 @@ def weapons(section: Section, pdf: str) -> list[dict]:
                         "properties": [] if properties in ("", "\u2014") else
                         [p.strip() for p in PROPERTY.findall(properties) if p.strip()],
                         "mastery": mastery or None, "weight_lb": weight_lb(weight), **price(cost),
-                        "source": source(section, pdf)})
+                        "table_id": section.id, "source": source(section, pdf)})
     return records
 
 
@@ -74,7 +74,8 @@ def armor(section: Section, pdf: str) -> list[dict]:
                         "armor_class": armor_class or None,
                         "strength_requirement": int(required.group()) if required else None,
                         "stealth_disadvantage": "disadvantage" in stealth.lower(),
-                        "weight_lb": weight_lb(weight), **price(cost), "source": source(section, pdf)})
+                        "weight_lb": weight_lb(weight), **price(cost), "table_id": section.id,
+                        "source": source(section, pdf)})
     return records
 
 

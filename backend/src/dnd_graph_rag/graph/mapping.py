@@ -7,7 +7,8 @@ that section: creatures, gear, poisons, classes, subclasses, species,
 backgrounds, feats and glossary terms.  What has no heading of its own stays
 a separate node: stat block entries, class levels, weapon and armour rows,
 and the glossary terms that share a passage (all thirteen damage types are
-``11.2.46.1``), which keep ``DEFINED_IN``.
+``11.2.46.1``).  All but stat block entries are ``DEFINED_IN`` the section
+printing them.
 
 A monster entry wrapping one stat block of the same name is left out, and
 the stat block hangs from the entry's parent (``wrapper_groups``).
@@ -366,6 +367,9 @@ def add_sections(mapper: "Mapper") -> None:
 
         if entity_type in ("spell", "creature"):
             mapper.index(entity_type, node["heading"], node["id"])
+        blocks = node.get("blocks") or []
+        if len(blocks) == 1 and blocks[0]["type"] == "table" and blocks[0].get("caption"):
+            mapper.index("table", node["heading"], node["id"])
 
         for child in node.get("subsections", []):
             if is_wrapper(child):
@@ -600,7 +604,7 @@ def add_equipment(mapper: "Mapper") -> None:
 
     Items with a ``section_id`` (gear, poisons) fold into that section;
     weapons and armour, which are only table rows, become ``:Equipment``
-    nodes.
+    nodes ``DEFINED_IN`` their table's section.
     """
     for item in mapper.document.get("equipment", []):
         kind = item.get("kind") or "gear"
@@ -649,14 +653,18 @@ def add_equipment(mapper: "Mapper") -> None:
             **_pages(item),
         )
         mapper.index("equipment", item["name"], item["name"])
+        if item.get("table_id"):
+            mapper.edge("DEFINED_IN", ("Equipment", "name"), item["name"],
+                        ("Section", "id"), item["table_id"])
 
 
 def add_classes(mapper: "Mapper") -> None:
     """
     Classes and subclasses folded into their sections, and one
     ``:ClassLevel`` per progression row, with ``HAS_FEATURE``,
-    ``HAS_SUBCLASS``, ``AT_LEVEL`` and ``GRANTS_FEATURE``.  A level's
-    resources become parallel ``resource_names``/``resource_values`` arrays.
+    ``HAS_SUBCLASS``, ``AT_LEVEL``, ``GRANTS_FEATURE``, and ``DEFINED_IN``
+    the features table printing the row.  A level's resources become
+    parallel ``resource_names``/``resource_values`` arrays.
 
     Raises:
         ValueError: A class or subclass names no section of its type.
@@ -686,7 +694,8 @@ def add_classes(mapper: "Mapper") -> None:
             features |= {f["name"]: f for f in subclass.get("features", [])}
 
         for row in klass.get("progression", []):
-            _add_class_level(mapper, name, row, features)
+            _add_class_level(mapper, name, row, features,
+                             klass.get("features_table_id"))
 
 
 def _add_subclass(mapper: "Mapper", class_name: str, subclass: dict) -> None:
@@ -711,7 +720,7 @@ def _link_feature(mapper: "Mapper", owner: tuple[str, str], owner_id: str,
 
 
 def _add_class_level(mapper: "Mapper", class_name: str, row: dict,
-                     features: dict[str, dict]) -> None:
+                     features: dict[str, dict], table_id: str | None) -> None:
     level = row["level"]
     key = f"{class_name}|{level}"
     resources = row.get("resources") or {}
@@ -725,6 +734,9 @@ def _add_class_level(mapper: "Mapper", class_name: str, row: dict,
     )
     mapper.edge("AT_LEVEL", ("Class", "name"), class_name,
                 ("ClassLevel", "key"), key, level=level)
+    if table_id:
+        mapper.edge("DEFINED_IN", ("ClassLevel", "key"), key,
+                    ("Section", "id"), table_id)
     for feature_name in row.get("features", []):
         feature = features.get(feature_name)
         if feature is None or not feature.get("section_id"):

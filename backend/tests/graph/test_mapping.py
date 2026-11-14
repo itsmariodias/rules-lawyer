@@ -32,6 +32,15 @@ def edges_of(data, type_: str) -> list[dict]:
             for row in batch.rows]
 
 
+def add_features_table(document: dict) -> None:
+    """Give the tiny document's Wizard a captioned "Wizard Features" table section, 6.2."""
+    document["sections"].append(
+        {"id": "6.2", "heading": "Wizard Features", "content": "", "entity_type": "rule",
+         "blocks": [{"type": "table", "caption": ["Wizard Features"], "header": [], "rows": [],
+                     "pages": [70]}],
+         "subsections": []})
+
+
 class TestWalk:
     def test_given_a_nested_tree_when_walked_then_parents_come_first(self):
         # Given a tree two levels deep
@@ -292,6 +301,17 @@ class TestBuildEquipment:
         # Then it has nothing to fold into and stays a node of its own
         assert one(data, "Equipment", "Weapon", name="Dagger")
 
+    def test_given_a_table_row_naming_its_table_when_built_then_it_is_defined_in_it(
+            self, tiny_document):
+        # Given a weapon that names the table printing it
+        tiny_document["equipment"][1]["table_id"] = "6.2"
+
+        # When the document is built
+        edges = edges_of(mapping.build(tiny_document), "DEFINED_IN")
+
+        # Then the row is defined in that table, which is what it cites
+        assert ("Dagger", "6.2") in [(e["start"], e["end"]) for e in edges]
+
 
 class TestBuildClasses:
     def test_given_a_class_when_built_then_it_is_its_section(self, tiny_document):
@@ -348,6 +368,19 @@ class TestBuildClasses:
         assert level["resource_names"] == ["Cantrips", "Prepared Spells"]
         assert level["resource_values"] == ["3", "4"]
         assert level["proficiency_bonus"] == 2
+
+    def test_given_a_features_table_when_built_then_each_level_is_defined_in_it(
+            self, tiny_document):
+        # Given a class whose progression is printed in its features table
+        add_features_table(tiny_document)
+        tiny_document["classes"][0]["features_table_id"] = "6.2"
+
+        # When the document is built
+        edges = edges_of(mapping.build(tiny_document), "DEFINED_IN")
+
+        # Then the level is defined in that table, which is what it cites
+        assert {"start": "Wizard|1", "end": "6.2"}.items() <= next(
+            e for e in edges if e["start"] == "Wizard|1").items()
 
 
 class TestBuildOrigins:
@@ -469,6 +502,21 @@ class TestBuildReferences:
         # Then it resolves to the glossary term of that name
         assert {"start": "2", "end": "Fire"}.items() <= edges[0].items()
 
+    def test_given_a_table_target_when_built_then_it_lands_on_the_tables_section(
+            self, tiny_document):
+        # Given the Wizard section naming its features table
+        add_features_table(tiny_document)
+        tiny_document["references"].append(
+            {"source": {"type": "class", "id": "6", "name": "Wizard"},
+             "target": {"type": "table", "name": "Wizard Features"},
+             "relation": "references_table"})
+
+        # When the document is built
+        edges = edges_of(mapping.build(tiny_document), "REFERENCES_TABLE")
+
+        # Then the edge reaches the table's section by its id
+        assert [(e["start"], e["end"]) for e in edges] == [("6", "6.2")]
+
     def test_given_a_target_that_resolves_to_nothing_when_built_then_it_is_reported(
             self, tiny_document):
         # Given a reference to a condition nothing defines
@@ -551,13 +599,17 @@ class TestBuildAgainstTheRealArtifact:
         # When it is mapped
         data = mapping.build(document)
 
-        # Then the wrappers are gone and only shared-passage terms stand alone
+        # Then the wrappers are gone, only shared-passage terms stand alone, and
+        # those terms, the class levels and the table rows are DEFINED_IN where printed
         assert len(mapping.wrapper_groups(document)) == 139
         assert count_with(data, "GlossaryTerm") - count_with(
             data, "Section", "GlossaryTerm") == 17
-        assert {e["start"] for e in edges_of(data, "DEFINED_IN")} == {
-            t["name"] for t in document["glossary"]
-            if t["term_type"] in ("damage type", "poison type")}
+        terms = {t["name"] for t in document["glossary"]
+                 if t["term_type"] in ("damage type", "poison type")}
+        levels = {f"{c['name']}|{row['level']}" for c in document["classes"]
+                  for row in c["progression"]}
+        rows = {item["name"] for item in document["equipment"] if item.get("table_id")}
+        assert {e["start"] for e in edges_of(data, "DEFINED_IN")} == terms | levels | rows
 
     def test_given_the_artifact_when_mapped_then_every_reference_resolves(
             self, document):

@@ -115,6 +115,12 @@ sub-headings. Also every section nothing else types: a chapter heading, a
 table, a sidebar, a class's spell list, "Parts of a Background". A section
 is never typed by the chapter it sits in.
 
+A captioned table or a sidebar is a section of its own, holding only
+itself, under the section it belongs to (where the book prints it, or the
+section naming the table). A table is also reached by `REFERENCES_TABLE`
+from every section naming it, and by `DEFINED_IN` from the rows that are
+nodes: a class's levels, and the weapons and armour.
+
 - **Example** — `4.8.4` "Cover"
 
 ### `:Section:Spell`
@@ -388,9 +394,8 @@ The book prints equipment two ways, and the graph follows it.
 
 - **Weapons and armour** are bare table rows. They have no prose and no
   section, so they are nodes of their own, merging on `:Equipment`, key
-  `name`. Many have no relationships at all — a Dagger has a price and a
-  damage die and nothing more. That is a fact about the book, not a load
-  failure.
+  `name`, each `DEFINED_IN` the Weapons or Armor table that prints it, which
+  is what it cites.
 - **Gear and poisons** are printed as a heading with a paragraph under it, so
   each one **is** a section. It folds into that section exactly as a creature
   does, giving one node that carries the price, the prose *and* the
@@ -546,13 +551,19 @@ name a feature the chapter never details separately.
 
 ```cypher
 (:GlossaryTerm:DamageType|PoisonType)-[:DEFINED_IN]->(:Section)
+(:ClassLevel)-[:DEFINED_IN]->(:Section:Rule)
+(:Equipment:Weapon|Armor)-[:DEFINED_IN]->(:Section:Rule)
 ```
 
-A glossary term back to the passage defining it, for the 17 terms that share
-one and so cannot be it. Every other entity printed under its own heading
-**is** that section and needs no such edge.
+A node with no heading of its own back to the section printing it, which is
+what it cites: the 17 glossary terms that share a passage and so cannot be
+it, each class level (a row of its class's features table), and each weapon
+and armour (a row of the Weapons or Armor table). Every other entity printed
+under its own heading **is** that section and needs no such edge.
 
-- **Example:** `(Fire)-->(11.2.46.1 "Damage Types")`
+- **Example:** `(Fire)-->(11.2.46.1 "Damage Types")`,
+  `(Barbarian|1)-->(6.1.3.1 "Barbarian Features")`,
+  `(Dagger)-->(9.2.5 "Weapons")`
 
 ## Cross-references
 
@@ -560,7 +571,8 @@ The edges the parser found in the book's own markup. Spells and magic items
 are italicised in the SRD and creatures bolded; conditions, actions and
 damage types are not marked up at all, so they match on required phrasing
 ("Prone condition", "Utilize action", "Fire damage") — which keeps "Cover",
-"Attack" and "Force" from firing as bare nouns.
+"Attack" and "Force" from firing as bare nouns. A table is named by its
+caption before the word "table" ("the Barbarian Features table").
 
 A **source** is whatever the prose belonged to: a `:Section` of any kind
 (including a folded gear item or poison), or a `:CreatureAbility` when the
@@ -611,6 +623,19 @@ as well as bare mention. See `IMPOSES_CONDITION` for the stronger claim.
 ```
 
 - **Example** — `(Acid Splash)-->(Sphere)`
+
+### `REFERENCES_TABLE`
+
+```cypher
+(source)-[:REFERENCES_TABLE]->(:Section:Rule)
+```
+
+A section naming a captioned table, which is a section of its own. The
+mention that decides where a table is placed is one of these, and so is
+every other: a class's features describe their columns in it ("as shown in
+the Rage Damage column of the Barbarian Features table").
+
+- **Example** — `("Level 1: Rage")-->("Barbarian Features")`
 
 ### `REFERENCES_ACTION`
 

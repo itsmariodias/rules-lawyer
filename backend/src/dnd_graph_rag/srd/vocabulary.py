@@ -198,6 +198,7 @@ class Target(StrEnum):
     ACTION = "action"
     DAMAGE_TYPE = "damage_type"
     AREA_OF_EFFECT = "area_of_effect"
+    TABLE = "table"
 
     @property
     def relation(self) -> str:
