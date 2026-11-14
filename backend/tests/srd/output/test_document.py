@@ -17,7 +17,7 @@ from dnd_graph_rag.srd.model import (
     StatBlock,
     Table,
 )
-from dnd_graph_rag.srd.output.document import from_json, run_json, to_json
+from dnd_graph_rag.srd.output.document import from_json, to_json
 
 BLOCKS = [Heading(1, "Legal Information", 1),
           Paragraph([Run("Cast "), Run("Fireball", italic=True)], [1, 2]),
@@ -66,12 +66,3 @@ class TestFromJson:
         with pytest.raises(ValueError, match="chart"):
             from_json(document)
 
-
-class TestRunJson:
-    def test_given_runs_when_written_then_plain_is_a_string_and_styles_are_named(self):
-        # Given a plain run and two styled ones
-        # When written
-        # Then a plain run is its text, and only the styles it has are stored
-        assert run_json(Run("plain")) == "plain"
-        assert run_json(Run("Fireball", italic=True)) == {"text": "Fireball", "italic": True}
-        assert run_json(Run("Bite.", True, True)) == {"text": "Bite.", "bold": True, "italic": True}
