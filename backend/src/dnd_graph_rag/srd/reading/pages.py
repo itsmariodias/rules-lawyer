@@ -37,7 +37,7 @@ MIN_COLUMN_WIDTH = 100.0
 # header at 317.5, 34 rows at 325).
 INSET = 15.0
 # A sidebar is a light grey box with a dark shadow box behind it, offset 4pt
-# left and below (23 boxes on 17 pages). Table rows share the light grey but
+# left and below (18 boxes on 17 pages). Table rows share the light grey but
 # never have the shadow.
 SIDEBAR_FILL = 0.903
 SHADOW_FILL = 0.137
