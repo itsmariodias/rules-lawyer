@@ -7,11 +7,11 @@ paragraphs in "Poison". Each names the section that defines it.
 
 from __future__ import annotations
 
-from ..model import Paragraph, Section, Table, plain
-from ..output.render import render_runs
-from ..sections import walk
-from ..vocabulary import DamageType, EntityType, TermType
-from .records import description, source
+from dnd_graph_rag.srd.entities.records import description, source
+from dnd_graph_rag.srd.model import Paragraph, Section, Table, plain
+from dnd_graph_rag.srd.output.render import render_runs
+from dnd_graph_rag.srd.sections import walk
+from dnd_graph_rag.srd.vocabulary import DamageType, EntityType, TermType
 
 
 def glossary(sections: list[Section], pdf: str) -> list[dict]:

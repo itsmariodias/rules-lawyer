@@ -14,7 +14,7 @@ import pydantic
 from pydantic import TypeAdapter, model_serializer, model_validator
 from pydantic.dataclasses import dataclass, rebuild_dataclass
 
-from .vocabulary import EntityType
+from dnd_graph_rag.srd.vocabulary import EntityType
 
 
 @dataclass

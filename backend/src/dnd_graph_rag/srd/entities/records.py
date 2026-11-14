@@ -5,9 +5,9 @@ from __future__ import annotations
 
 import re
 
-from ..model import Paragraph, Run, Section
-from ..output.render import render_block
-from ..reading.text import merged
+from dnd_graph_rag.srd.model import Paragraph, Run, Section
+from dnd_graph_rag.srd.output.render import render_block
+from dnd_graph_rag.srd.reading.text import merged
 
 
 def description(section: Section) -> str:

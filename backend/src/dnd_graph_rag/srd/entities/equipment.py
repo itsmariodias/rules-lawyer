@@ -10,10 +10,10 @@ from __future__ import annotations
 
 import re
 
-from ..model import Paragraph, Section, Table, plain
-from ..sections import walk
-from ..vocabulary import Coin, ItemKind, alternatives
-from .records import description, source
+from dnd_graph_rag.srd.entities.records import description, source
+from dnd_graph_rag.srd.model import Paragraph, Section, Table, plain
+from dnd_graph_rag.srd.sections import walk
+from dnd_graph_rag.srd.vocabulary import Coin, ItemKind, alternatives
 
 COST = re.compile(rf"([\d,]+)\s*({alternatives(Coin)})\b", re.IGNORECASE)
 # The book's weights use vulgar fractions ("1½ lb.").

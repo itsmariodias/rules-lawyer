@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import re
 
-from .model import Paragraph, Section, StatBlock, plain
-from .sections import walk
-from .vocabulary import EntityType
+from dnd_graph_rag.srd.model import Paragraph, Section, StatBlock, plain
+from dnd_graph_rag.srd.sections import walk
+from dnd_graph_rag.srd.vocabulary import EntityType
 
 # "Level 2 Evocation (Wizard)", "Evocation Cantrip (Sorcerer, Wizard)": 339.
 SPELL_SUBTITLE = re.compile(r"^(?:Level \d \w+|\w+ Cantrip) \([^)]*\)$")

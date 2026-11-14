@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import re
 
-from ..model import Paragraph, Run, Section, StatBlock, plain
-from ..output.render import render_runs
-from ..sections import walk
-from ..vocabulary import Condition, EntityType, StatPart
-from .mechanics import SIGN, average, entry_mechanics, to_int
-from .records import named_entries
+from dnd_graph_rag.srd.entities.mechanics import SIGN, average, entry_mechanics, to_int
+from dnd_graph_rag.srd.entities.records import named_entries
+from dnd_graph_rag.srd.model import Paragraph, Run, Section, StatBlock, plain
+from dnd_graph_rag.srd.output.render import render_runs
+from dnd_graph_rag.srd.sections import walk
+from dnd_graph_rag.srd.vocabulary import Condition, EntityType, StatPart
 
 # A passive score moves by 5 with Advantage or Disadvantage (Rules Glossary,
 # "Initiative" and "Passive Perception").

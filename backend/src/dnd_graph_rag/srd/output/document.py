@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..model import SECTIONS, Section
+from dnd_graph_rag.srd.model import SECTIONS, Section
 
 
 def to_json(meta: dict, sections: list[Section], records: dict[str, list[dict]], validation: dict) -> dict:

@@ -7,9 +7,9 @@ import json
 import sys
 from pathlib import Path
 
-from ..config import get_settings
-from .embeddings import BadEmbeddingsFile, MissingEmbeddings
-from .pipeline import build_embeddings, build_graph
+from dnd_graph_rag.config import get_settings
+from dnd_graph_rag.graph.embeddings import BadEmbeddingsFile, MissingEmbeddings
+from dnd_graph_rag.graph.pipeline import build_embeddings, build_graph
 
 # Reported as a message, without a traceback.
 _EMBEDDING_FAILURES = (MissingEmbeddings, BadEmbeddingsFile)

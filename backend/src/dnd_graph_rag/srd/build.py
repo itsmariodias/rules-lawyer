@@ -7,20 +7,20 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-from .entities.annotate import annotate
-from .entities.characters import classes, feats, origins
-from .entities.creatures import check_mechanics, creatures
-from .entities.equipment import equipment
-from .entities.glossary import glossary
-from .entity_types import type_from_records, type_sections
-from .output.anchors import anchors, misplaced
-from .output.document import to_json
-from .output.render import render_book
-from .reading.blocks import read_blocks
-from .reading.pages import read_pages
-from .reading.text import compounds
-from .sections import build_sections, walk
-from .verify import KNOWN, problems
+from dnd_graph_rag.srd.entities.annotate import annotate
+from dnd_graph_rag.srd.entities.characters import classes, feats, origins
+from dnd_graph_rag.srd.entities.creatures import check_mechanics, creatures
+from dnd_graph_rag.srd.entities.equipment import equipment
+from dnd_graph_rag.srd.entities.glossary import glossary
+from dnd_graph_rag.srd.entity_types import type_from_records, type_sections
+from dnd_graph_rag.srd.output.anchors import anchors, misplaced
+from dnd_graph_rag.srd.output.document import to_json
+from dnd_graph_rag.srd.output.render import render_book
+from dnd_graph_rag.srd.reading.blocks import read_blocks
+from dnd_graph_rag.srd.reading.pages import read_pages
+from dnd_graph_rag.srd.reading.text import compounds
+from dnd_graph_rag.srd.sections import build_sections, walk
+from dnd_graph_rag.srd.verify import KNOWN, problems
 
 
 @dataclass

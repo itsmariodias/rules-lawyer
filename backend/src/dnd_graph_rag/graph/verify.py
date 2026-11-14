@@ -9,10 +9,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from . import mapping
-from .embeddings import Vectors
-from .model import GraphData
-from .schema import VECTOR_NAME, vector_index_width
+from dnd_graph_rag.graph import mapping
+from dnd_graph_rag.graph.embeddings import Vectors
+from dnd_graph_rag.graph.model import GraphData
+from dnd_graph_rag.graph.schema import VECTOR_NAME, vector_index_width
 
 if TYPE_CHECKING:  # pragma: no cover
     from neo4j import Session

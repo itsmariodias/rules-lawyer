@@ -19,10 +19,10 @@ from langgraph.store.base import BaseStore
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from . import agent as chat_agent
-from . import neighbourhood as graph_view
-from . import service, titles
-from .source import excerpt
+from dnd_graph_rag.chat import agent as chat_agent
+from dnd_graph_rag.chat import neighbourhood as graph_view
+from dnd_graph_rag.chat import service, titles
+from dnd_graph_rag.chat.source import excerpt
 
 router = APIRouter(tags=["chat"])
 

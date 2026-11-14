@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import re
 
-from ..model import ListBlock, Paragraph, Section, plain
-from ..vocabulary import Rarity, alternatives
-from .mechanics import spell_mechanics
+from dnd_graph_rag.srd.entities.mechanics import spell_mechanics
+from dnd_graph_rag.srd.model import ListBlock, Paragraph, Section, plain
+from dnd_graph_rag.srd.vocabulary import Rarity, alternatives
 
 # "Level 2 Evocation (Wizard)", "Evocation Cantrip (Sorcerer, Wizard)".
 SPELL_SUBTITLE = re.compile(r"^(?:Level (\d+) (\w+)|(\w+) Cantrip)(?: \(([^)]+)\))?")

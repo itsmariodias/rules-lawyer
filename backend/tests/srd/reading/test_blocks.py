@@ -13,8 +13,7 @@ from dnd_graph_rag.srd.model import (
 )
 from dnd_graph_rag.srd.reading.blocks import read_blocks
 from dnd_graph_rag.srd.reading.pages import Line, Span
-
-from .helpers import MARGIN, line
+from tests.srd.reading.helpers import MARGIN, line
 
 HEADING = "GillSans-SemiBold"
 

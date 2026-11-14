@@ -3,8 +3,7 @@ from __future__ import annotations
 from dnd_graph_rag.srd.model import Run, plain
 from dnd_graph_rag.srd.reading.pages import Line, Span
 from dnd_graph_rag.srd.reading.text import compounds, runs_of, style
-
-from .helpers import line
+from tests.srd.reading.helpers import line
 
 
 class TestRunsOf:

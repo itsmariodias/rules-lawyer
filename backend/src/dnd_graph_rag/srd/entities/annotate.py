@@ -5,10 +5,10 @@ from __future__ import annotations
 
 import re
 
-from ..model import Section
-from ..sections import walk
-from ..vocabulary import EntityType, TermType
-from .spells import magic_item, spell
+from dnd_graph_rag.srd.entities.spells import magic_item, spell
+from dnd_graph_rag.srd.model import Section
+from dnd_graph_rag.srd.sections import walk
+from dnd_graph_rag.srd.vocabulary import EntityType, TermType
 
 # A glossary heading's tag: "Prone [Condition]", "Attack [Action]" (41 of 155).
 TAGGED = re.compile(r"^(?P<term>.*?)\s*\[(?P<tag>[^\]]+)\]$")

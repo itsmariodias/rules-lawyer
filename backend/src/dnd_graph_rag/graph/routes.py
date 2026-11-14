@@ -12,8 +12,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import pipeline
-from .embeddings import BadEmbeddingsFile, MissingEmbeddings
+from dnd_graph_rag.graph import pipeline
+from dnd_graph_rag.graph.embeddings import BadEmbeddingsFile, MissingEmbeddings
 
 router = APIRouter(prefix="/graph", tags=["graph"])
 

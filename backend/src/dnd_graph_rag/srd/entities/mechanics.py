@@ -11,8 +11,8 @@ from __future__ import annotations
 import math
 import re
 
-from ..model import Run, plain
-from ..vocabulary import (
+from dnd_graph_rag.srd.model import Run, plain
+from dnd_graph_rag.srd.vocabulary import (
     Ability,
     AttackKind,
     DamageType,

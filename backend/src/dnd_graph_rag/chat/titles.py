@@ -13,9 +13,9 @@ import re
 
 from langgraph.store.base import BaseStore
 
-from ..config import get_settings
-from . import agent
-from .prompts import prompt
+from dnd_graph_rag.chat import agent
+from dnd_graph_rag.chat.prompts import prompt
+from dnd_graph_rag.config import get_settings
 
 log = logging.getLogger(__name__)
 

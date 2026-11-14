@@ -22,7 +22,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Callable, Iterable, Iterator
 
-from ..config import EmbeddingSettings
+from dnd_graph_rag.config import EmbeddingSettings
 
 Report = Callable[[str], None]
 

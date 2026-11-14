@@ -12,9 +12,9 @@ from typing import Any
 
 from neo4j import Driver, GraphDatabase
 
-from ..config import get_settings
-from ..graph import embeddings
-from ..graph.schema import FULLTEXT_NAME, VECTOR_NAME
+from dnd_graph_rag.config import get_settings
+from dnd_graph_rag.graph import embeddings
+from dnd_graph_rag.graph.schema import FULLTEXT_NAME, VECTOR_NAME
 
 # Lucene syntax characters, which questions like "AC (+2)" contain.
 _LUCENE_SPECIAL = re.compile(r'([+\-&|!(){}\[\]^"~*?:\\/])')

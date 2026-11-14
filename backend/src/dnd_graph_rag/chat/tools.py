@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from langchain_core.tools import tool
 
-from ..config import get_settings
-from . import cypher, neighbourhood, retrieval
+from dnd_graph_rag.chat import cypher, neighbourhood, retrieval
+from dnd_graph_rag.config import get_settings
 
 # ``(content, artifact)``.  The artifact rides on the ToolMessage, hidden from
 # the model, and drives the UI's trace row.

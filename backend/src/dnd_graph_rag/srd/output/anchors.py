@@ -11,8 +11,8 @@ from __future__ import annotations
 import bisect
 from dataclasses import asdict
 
-from ..model import Printed, Section
-from ..sections import walk
+from dnd_graph_rag.srd.model import Printed, Section
+from dnd_graph_rag.srd.sections import walk
 
 
 def anchors(parts: list[tuple[int, int, Printed]]) -> list[dict]:

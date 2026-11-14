@@ -14,10 +14,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.store.sqlite.aio import AsyncSqliteStore
 
-from .chat import routes as chat_routes
-from .config import get_settings
-from .graph import routes as graph_routes
-from .srd import routes as srd_routes
+from dnd_graph_rag.chat import routes as chat_routes
+from dnd_graph_rag.config import get_settings
+from dnd_graph_rag.graph import routes as graph_routes
+from dnd_graph_rag.srd import routes as srd_routes
 
 
 @asynccontextmanager

@@ -9,9 +9,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from ..model import Block, Field, Paragraph, Run, StatBlock, StatSection
-from .pages import Line, boxes_of, pages_of
-from .text import runs_of
+from dnd_graph_rag.srd.model import Block, Field, Paragraph, Run, StatBlock, StatSection
+from dnd_graph_rag.srd.reading.pages import Line, boxes_of, pages_of
+from dnd_graph_rag.srd.reading.text import runs_of
 
 TITLE_FONT = ("GillSans-SemiBold", 14.8)
 # Each field starts a line with its label: AC, HP, Speed, Skills, Senses,

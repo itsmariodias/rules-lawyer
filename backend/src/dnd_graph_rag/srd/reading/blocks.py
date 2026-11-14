@@ -6,7 +6,7 @@ import re
 from collections.abc import Callable, Hashable
 from dataclasses import replace
 
-from ..model import (
+from dnd_graph_rag.srd.model import (
     Block,
     Contents,
     Entry,
@@ -18,9 +18,15 @@ from ..model import (
     Table,
     add_page,
 )
-from .pages import TABLE_NOTE, Line, boxes_of, column_key, pages_of
-from .statblock import is_stat_line, is_title, stat_block
-from .tables import (
+from dnd_graph_rag.srd.reading.pages import (
+    TABLE_NOTE,
+    Line,
+    boxes_of,
+    column_key,
+    pages_of,
+)
+from dnd_graph_rag.srd.reading.statblock import is_stat_line, is_title, stat_block
+from dnd_graph_rag.srd.reading.tables import (
     extend_table,
     is_table_line,
     table,
@@ -28,7 +34,7 @@ from .tables import (
     table_run,
     wraps_field,
 )
-from .text import is_bold, runs_of
+from dnd_graph_rag.srd.reading.text import is_bold, runs_of
 
 # One heading is set in the face's small caps, capitals 12pt and the rest
 # 8.4pt ("Acid Splash", page 107); its text extracts in mixed case.

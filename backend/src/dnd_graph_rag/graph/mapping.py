@@ -19,7 +19,7 @@ import re
 from collections import defaultdict
 from typing import Any, Iterator
 
-from .model import EdgeBatch, GraphData, NodeBatch, as_json, clean
+from dnd_graph_rag.graph.model import EdgeBatch, GraphData, NodeBatch, as_json, clean
 
 # --------------------------------------------------------------------------
 # Vocabulary

@@ -9,11 +9,11 @@ from langchain_core.language_models import BaseChatModel
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
-from ..config import get_settings
-from . import cypher
-from .prompts import prompt
-from .stub import ScriptedModel
-from .tools import TOOLS
+from dnd_graph_rag.chat import cypher
+from dnd_graph_rag.chat.prompts import prompt
+from dnd_graph_rag.chat.stub import ScriptedModel
+from dnd_graph_rag.chat.tools import TOOLS
+from dnd_graph_rag.config import get_settings
 
 SYSTEM_PROMPT = prompt("system")
 

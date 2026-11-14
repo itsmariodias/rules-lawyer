@@ -6,8 +6,8 @@ import re
 from dataclasses import replace
 from itertools import takewhile
 
-from ..model import Run, Table, add_page, plain
-from .pages import (
+from dnd_graph_rag.srd.model import Run, Table, add_page, plain
+from dnd_graph_rag.srd.reading.pages import (
     CELL_FONT,
     HEADER_FONT,
     TABLE_FONTS,
@@ -18,7 +18,7 @@ from .pages import (
     column_key,
     pages_of,
 )
-from .text import runs_of
+from dnd_graph_rag.srd.reading.text import runs_of
 
 # Cells start up to 0.4pt left of their header label (1,596 cells, "Strength"
 # at 317.1 under "Ability" at 317.5, page 5); a dash centred under a digit

@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .retrieval import query
+from dnd_graph_rag.chat.retrieval import query
 
 _MARKUP = re.compile(r"[*_`]{1,3}|^#+\s*", re.M)
 

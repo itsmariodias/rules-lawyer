@@ -17,9 +17,9 @@ from typing import Any
 
 import neo4j
 
-from ..config import get_settings
-from .prompts import prompt
-from .retrieval import driver, query
+from dnd_graph_rag.chat.prompts import prompt
+from dnd_graph_rag.chat.retrieval import driver, query
+from dnd_graph_rag.config import get_settings
 
 # --------------------------------------------------------------------------
 # The guard

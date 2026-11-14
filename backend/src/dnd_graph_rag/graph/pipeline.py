@@ -5,10 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 
-from ..config import get_settings
-from ..srd import load
-from . import embeddings, mapping, verify as verification
-from .loader import load_graph, session
+from dnd_graph_rag.config import get_settings
+from dnd_graph_rag.graph import embeddings, mapping
+from dnd_graph_rag.graph import verify as verification
+from dnd_graph_rag.graph.loader import load_graph, session
+from dnd_graph_rag.srd import load
 
 Report = Callable[[str], None]
 

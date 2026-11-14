@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterator
 
-from .model import (
+from dnd_graph_rag.srd.model import (
     Block,
     Contents,
     Entry,

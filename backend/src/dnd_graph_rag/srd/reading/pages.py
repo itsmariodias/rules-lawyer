@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pymupdf
 
-from ..model import Box
+from dnd_graph_rag.srd.model import Box
 
 # Measured over all 364 pages: the only text below this baseline is the
 # footer, a page number and the book's title, "System Reference Document

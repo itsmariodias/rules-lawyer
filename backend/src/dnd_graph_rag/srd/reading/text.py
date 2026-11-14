@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 from itertools import pairwise
 
-from ..model import Run
-from .pages import Line, Span, word_gap
+from dnd_graph_rag.srd.model import Run
+from dnd_graph_rag.srd.reading.pages import Line, Span, word_gap
 
 _WORD = re.compile(r"[A-Za-z]+")
 _COMPOUND = re.compile(r"[A-Za-z]+-[A-Za-z]+")

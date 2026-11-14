@@ -10,16 +10,16 @@ from __future__ import annotations
 
 import re
 
-from ..model import Section, Table, plain
-from ..output.render import render_runs
-from ..sections import walk
-from .records import (
+from dnd_graph_rag.srd.entities.records import (
     description,
     labelled_fields,
     named_entries,
     paragraphs_of,
     source,
 )
+from dnd_graph_rag.srd.model import Section, Table, plain
+from dnd_graph_rag.srd.output.render import render_runs
+from dnd_graph_rag.srd.sections import walk
 
 # A Core Traits table's labels and the record fields they fill; the keys are the
 # ones graph/ reads ("Saving Throw Proficiencies" was misread as "Saving Throw").

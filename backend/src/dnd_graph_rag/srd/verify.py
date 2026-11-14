@@ -13,8 +13,17 @@ from __future__ import annotations
 import re
 from itertools import pairwise
 
-from .model import Block, Contents, Heading, Paragraph, Section, StatBlock, Table, plain
-from .sections import walk_paths
+from dnd_graph_rag.srd.model import (
+    Block,
+    Contents,
+    Heading,
+    Paragraph,
+    Section,
+    StatBlock,
+    Table,
+    plain,
+)
+from dnd_graph_rag.srd.sections import walk_paths
 
 CONTENTS = "Contents"
 INDEX = "Index of Stat Blocks"

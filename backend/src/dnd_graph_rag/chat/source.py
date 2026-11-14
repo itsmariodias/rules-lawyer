@@ -10,9 +10,9 @@ from __future__ import annotations
 import json
 from functools import lru_cache
 
-from ..config import anchors_path_for, get_settings, markdown_path_for
-from ..srd.pipeline import section_boxes
-from . import retrieval
+from dnd_graph_rag.chat import retrieval
+from dnd_graph_rag.config import anchors_path_for, get_settings, markdown_path_for
+from dnd_graph_rag.srd.pipeline import section_boxes
 
 
 @lru_cache(maxsize=1)

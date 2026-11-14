@@ -13,11 +13,11 @@ from __future__ import annotations
 import json
 import sys
 
-from ..config import anchors_path_for, get_settings, markdown_path_for
-from .build import build
-from .output.document import from_json
-from .output.render import render_book
-from .verify import KNOWN
+from dnd_graph_rag.config import anchors_path_for, get_settings, markdown_path_for
+from dnd_graph_rag.srd.build import build
+from dnd_graph_rag.srd.output.document import from_json
+from dnd_graph_rag.srd.output.render import render_book
+from dnd_graph_rag.srd.verify import KNOWN
 
 
 def main() -> None:

@@ -7,10 +7,10 @@ from typing import Callable, Iterator
 
 from neo4j import Driver, GraphDatabase, Session
 
-from ..config import Neo4jSettings, get_settings
-from . import schema
-from .embeddings import Vectors
-from .model import EdgeBatch, GraphData, NodeBatch
+from dnd_graph_rag.config import Neo4jSettings, get_settings
+from dnd_graph_rag.graph import schema
+from dnd_graph_rag.graph.embeddings import Vectors
+from dnd_graph_rag.graph.model import EdgeBatch, GraphData, NodeBatch
 
 Report = Callable[[str], None]
 
