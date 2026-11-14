@@ -30,7 +30,7 @@ class TestTypeSections:
         # When typed
         found = types(blocks)
 
-        # Then the subtitle decides, and a feat waits for stage 3
+        # Then the subtitle decides; a feat's italic line types nothing (its record does)
         assert (found["Acid Arrow"], found["Bag of Holding"], found["Alert"]) == ("spell", "magic_item", "rule")
 
     def test_given_a_stat_block_inside_a_spell_when_typed_then_the_spell_stays_a_spell(self):

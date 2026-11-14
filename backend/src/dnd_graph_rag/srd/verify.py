@@ -27,8 +27,10 @@ from dnd_graph_rag.srd.sections import walk_paths
 
 CONTENTS = "Contents"
 INDEX = "Index of Stat Blocks"
-# Disagreements printed in the book itself (CLAUDE.md, "Known source-document
-# quirks"): reported, never failed on.
+# Disagreements printed in the book itself, not in the reading of it: Flaming
+# Sphere's subtitle names Conjuration where its lists say Evocation, Mind Spike's
+# names Sorcerer, whose list lacks it, and Phantasmal Force is on no list.
+# Reported, never failed on.
 KNOWN = frozenset({
     *(f"Spells: Flaming Sphere is Level 2 Conjuration, the {c} list says Level 2 Evocation"
       for c in ("Druid", "Sorcerer", "Wizard")),

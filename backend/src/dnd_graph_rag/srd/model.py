@@ -217,8 +217,8 @@ class Section(Printed):
     subsections: list[Section]
     source: Source
     entity_type: EntityType = EntityType.RULE
-    # What stage 3 reads from the section, by type: a spell's fields, a magic
-    # item's subtitle, a glossary term and its tag, a creature group's members.
+    # What a typed section's blocks give: a spell's fields, a magic item's
+    # subtitle, a glossary term and its tag, a creature group's members.
     spell: Annotated[dict | None, UNSET_OMITTED] = None
     item: Annotated[dict | None, UNSET_OMITTED] = None
     term: Annotated[str | None, UNSET_OMITTED] = None

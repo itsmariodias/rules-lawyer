@@ -21,8 +21,7 @@ from dnd_graph_rag.srd.model import Section, Table, plain
 from dnd_graph_rag.srd.output.render import render_runs
 from dnd_graph_rag.srd.sections import walk
 
-# A Core Traits table's labels and the record fields they fill; the keys are the
-# ones graph/ reads ("Saving Throw Proficiencies" was misread as "Saving Throw").
+# A Core Traits table's labels and the class record fields they fill.
 CORE_TRAITS = {"Primary Ability": "primary_ability", "Hit Point Die": "hit_point_die",
                "Saving Throw Proficiencies": "saving_throw", "Skill Proficiencies": "skill_proficiencies",
                "Weapon Proficiencies": "weapon_proficiencies", "Tool Proficiencies": "tool_proficiencies",

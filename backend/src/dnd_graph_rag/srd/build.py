@@ -1,4 +1,4 @@
-"""The whole of stage 1: the PDF to the document, its markdown and its page anchors."""
+"""The SRD PDF to the document, its markdown and its page anchors."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from dnd_graph_rag.srd.entities.characters import classes, feats, origins
 from dnd_graph_rag.srd.entities.creatures import check_mechanics, creatures
 from dnd_graph_rag.srd.entities.equipment import equipment
 from dnd_graph_rag.srd.entities.glossary import glossary
+from dnd_graph_rag.srd.entities.references import references, unresolved
 from dnd_graph_rag.srd.entity_types import type_from_records, type_sections
 from dnd_graph_rag.srd.output.anchors import anchors, misplaced
 from dnd_graph_rag.srd.output.document import to_json
@@ -61,9 +62,12 @@ def build(pdf: Path, markdown_name: str) -> Artifact:
     type_from_records(sections, records["classes"], records["species"] + records["backgrounds"],
                       records["feats"], records["equipment"])
     records["glossary"] = glossary(sections, pdf.name)
+    records["references"] = references(sections)
 
     page_anchors = anchors(parts)
-    found = problems(blocks, sections) + misplaced(sections, page_anchors)
+    dangling = unresolved(records["references"], sections, records["glossary"])
+    found = (problems(blocks, sections) + misplaced(sections, page_anchors)
+             + [f"References: {target} names nothing extracted" for target in dangling])
     meta = {"title": book.title, "pdf": pdf.name, "pages": len(book.pages), "generated": date.today().isoformat(),
             "markdown": markdown_name,
             "counts": {"sections": sum(1 for _ in walk(sections)), **{k: len(v) for k, v in records.items()},
@@ -71,5 +75,7 @@ def build(pdf: Path, markdown_name: str) -> Artifact:
     validation = {"problems": [m for m in found if m not in KNOWN], "known_quirks": [m for m in found if m in KNOWN],
                   "stat_block_warnings": [{"creature": c["name"], "page": c["source"]["page_start"],
                                            "warnings": c["warnings"]} for c in records["creatures"] if c["warnings"]],
-                  **check_mechanics(records["creatures"]), "anchor_parts": len(page_anchors)}
+                  **check_mechanics(records["creatures"]),
+                  "unresolved_references": dangling,
+                  "anchor_parts": len(page_anchors)}
     return Artifact(to_json(meta, sections, records, validation), markdown, page_anchors, found)

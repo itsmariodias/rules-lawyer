@@ -79,6 +79,34 @@ class DamageType(StrEnum):
     THUNDER = "Thunder"
 
 
+class Action(StrEnum):
+    """The twelve actions (Rules Glossary, "[Action]")."""
+
+    ATTACK = "Attack"
+    DASH = "Dash"
+    DISENGAGE = "Disengage"
+    DODGE = "Dodge"
+    HELP = "Help"
+    HIDE = "Hide"
+    INFLUENCE = "Influence"
+    MAGIC = "Magic"
+    READY = "Ready"
+    SEARCH = "Search"
+    STUDY = "Study"
+    UTILIZE = "Utilize"
+
+
+class AreaOfEffect(StrEnum):
+    """The six areas of effect (Rules Glossary, "[Area of Effect]")."""
+
+    CONE = "Cone"
+    CUBE = "Cube"
+    CYLINDER = "Cylinder"
+    EMANATION = "Emanation"
+    LINE = "Line"
+    SPHERE = "Sphere"
+
+
 class TermType(StrEnum):
     """What a glossary term is: its heading's tag ("Prone [Condition]"), a definition if it has
     none, or one of the types defined in a passage rather than a heading of their own."""
@@ -158,6 +186,23 @@ class StatPart(StrEnum):
     def field(self) -> str:
         """The creature record's field for this section ("bonus_actions")."""
         return self.value.lower().replace(" ", "_")
+
+
+class Target(StrEnum):
+    """What a cross-reference points at."""
+
+    SPELL = "spell"
+    MAGIC_ITEM = "magic_item"
+    CREATURE = "creature"
+    CONDITION = "condition"
+    ACTION = "action"
+    DAMAGE_TYPE = "damage_type"
+    AREA_OF_EFFECT = "area_of_effect"
+
+    @property
+    def relation(self) -> str:
+        """The edge's relation when the text mentions the target ("references_spell")."""
+        return f"references_{self.value}"
 
 
 def alternatives(vocabulary: type[StrEnum]) -> str:

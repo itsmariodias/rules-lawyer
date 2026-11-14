@@ -11,7 +11,14 @@ from dnd_graph_rag.srd.entities.records import description, source
 from dnd_graph_rag.srd.model import Paragraph, Section, Table, plain
 from dnd_graph_rag.srd.output.render import render_runs
 from dnd_graph_rag.srd.sections import walk
-from dnd_graph_rag.srd.vocabulary import DamageType, EntityType, TermType
+from dnd_graph_rag.srd.vocabulary import (
+    Action,
+    AreaOfEffect,
+    Condition,
+    DamageType,
+    EntityType,
+    TermType,
+)
 
 
 def glossary(sections: list[Section], pdf: str) -> list[dict]:
@@ -26,10 +33,16 @@ def glossary(sections: list[Section], pdf: str) -> list[dict]:
         ``section_id`` and ``source``.
 
     Raises:
-        ValueError: The Damage Types table does not list the 13 damage types.
+        ValueError: The glossary's conditions, actions or areas of effect, or the
+            Damage Types table's rows, are not the vocabulary's.
     """
     terms = [record(s.term, s.term_type, description(s), s, pdf)
              for s in walk(sections) if s.entity_type == EntityType.GLOSSARY_TERM]
+    for term_type, vocabulary in ((TermType.CONDITION, Condition), (TermType.ACTION, Action),
+                                  (TermType.AREA_OF_EFFECT, AreaOfEffect)):
+        names = sorted(term["name"] for term in terms if term["term_type"] == term_type)
+        if names != sorted(vocabulary):
+            raise ValueError(f"the glossary's {term_type} terms are {names}, not {sorted(vocabulary)}")
     damage = next(s for s in walk(sections) if len(s.blocks) == 1 and isinstance(s.blocks[0], Table)
                   and plain(s.blocks[0].caption) == "Damage Types")
     rows = [[plain(cell).strip() for cell in row] for row in damage.blocks[0].rows]
