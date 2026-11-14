@@ -29,19 +29,35 @@ def anchors(parts: list[tuple[int, int, Printed]]) -> list[dict]:
             for start, end, part in parts if part.boxes]
 
 
+def boxes_between(anchors: list[dict], start: int, end: int) -> list[dict]:
+    """The page boxes of every anchor overlapping a character range of the markdown.
+
+    Args:
+        anchors: The anchors file, in document order.
+        start: Start of the range.
+        end: End of the range, exclusive.
+
+    Returns:
+        Each overlapping anchor's boxes, in document order.
+    """
+    starts = [anchor["start"] for anchor in anchors]
+    found: list[dict] = []
+    for anchor in anchors[max(0, bisect.bisect_left(starts, start) - 1):bisect.bisect_left(starts, end)]:
+        if anchor["end"] > start:
+            found += anchor["boxes"]
+    return found
+
+
 def misplaced(sections: list[Section], anchors: list[dict]) -> list[str]:
     """Each section with no boxes in its span, or a box on a page outside its page range.
 
     The pages come from the blocks and the boxes from the lines, so a
     disagreement is a defect in one of them.
     """
-    starts = [anchor["start"] for anchor in anchors]
     found: list[str] = []
     for section in walk(sections):
         source = section.source
-        first = max(0, bisect.bisect_left(starts, source.char_start) - 1)
-        pages = {box["page"] for anchor in anchors[first:bisect.bisect_left(starts, source.char_end)]
-                 if anchor["end"] > source.char_start for box in anchor["boxes"]}
+        pages = {box["page"] for box in boxes_between(anchors, source.char_start, source.char_end)}
         if not pages:
             found.append(f"Anchors: {section.id} {section.heading} has no boxes")
         elif not pages <= set(range(source.page_start, source.page_end + 1)):

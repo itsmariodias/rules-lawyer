@@ -44,7 +44,7 @@ async def graph_health() -> dict:
 @router.post("/load")
 async def graph_load(request: GraphLoadRequest | None = None) -> dict:
     """
-    Run what ``srd-graph-load`` runs.
+    Run what ``dnd-graph-rag load`` runs.
 
     Args:
         request: Overrides for ``build_graph``'s arguments.

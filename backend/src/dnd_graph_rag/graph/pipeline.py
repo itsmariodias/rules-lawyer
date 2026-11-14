@@ -9,7 +9,7 @@ from dnd_graph_rag.config import get_settings
 from dnd_graph_rag.graph import embeddings, mapping
 from dnd_graph_rag.graph import verify as verification
 from dnd_graph_rag.graph.loader import load_graph, session
-from dnd_graph_rag.srd import load
+from dnd_graph_rag.srd.artifact import load
 
 Report = Callable[[str], None]
 
@@ -40,10 +40,6 @@ def build_graph(input_path: Path | None = None, *, reset: bool = True,
     """
     settings = get_settings()
     input_path = input_path or settings.output_path
-    if not input_path.exists():
-        raise FileNotFoundError(
-            f"artifact not found: {input_path} (run `uv run srd-parse` first)")
-
     report(f"reading {input_path}")
     document = load(input_path)
 
@@ -96,10 +92,6 @@ def build_embeddings(input_path: Path | None = None, *,
     """
     settings = get_settings()
     input_path = input_path or settings.output_path
-    if not input_path.exists():
-        raise FileNotFoundError(
-            f"artifact not found: {input_path} (run `uv run srd-parse` first)")
-
     path = embeddings_path or settings.embeddings_path
     document = load(input_path)
     vectors = embeddings.resolve(document, path=path,

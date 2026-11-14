@@ -21,9 +21,7 @@ dependencies = [
 ]
 
 [project.scripts]
-srd-parse = "dnd_graph_rag.srd.pipeline:main"
-srd-graph-load = "dnd_graph_rag.graph.cli:main"
-srd-embed = "dnd_graph_rag.graph.cli:embed_main"
+dnd-graph-rag = "dnd_graph_rag.cli:main"
 
 [build-system]
 requires = ["hatchling"]

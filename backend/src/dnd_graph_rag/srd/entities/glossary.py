@@ -7,9 +7,9 @@ paragraphs in "Poison". Each names the section that defines it.
 
 from __future__ import annotations
 
-from dnd_graph_rag.srd.entities.records import description, source
+from dnd_graph_rag.srd.entities.records import source
 from dnd_graph_rag.srd.model import Paragraph, Section, Table, plain
-from dnd_graph_rag.srd.output.render import render_runs
+from dnd_graph_rag.srd.output.render import render_runs, section_text
 from dnd_graph_rag.srd.sections import walk
 from dnd_graph_rag.srd.vocabulary import (
     Action,
@@ -36,7 +36,7 @@ def glossary(sections: list[Section], pdf: str) -> list[dict]:
         ValueError: The glossary's conditions, actions or areas of effect, or the
             Damage Types table's rows, are not the vocabulary's.
     """
-    terms = [record(s.term, s.term_type, description(s), s, pdf)
+    terms = [record(s.term, s.term_type, section_text(s), s, pdf)
              for s in walk(sections) if s.entity_type == EntityType.GLOSSARY_TERM]
     for term_type, vocabulary in ((TermType.CONDITION, Condition), (TermType.ACTION, Action),
                                   (TermType.AREA_OF_EFFECT, AreaOfEffect)):

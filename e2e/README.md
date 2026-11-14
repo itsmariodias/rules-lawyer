@@ -16,7 +16,7 @@ npm run report                # the HTML report of the last run
 
 Nothing else needs to be running: `npm test` starts everything it needs and
 takes it all down afterwards. It needs Docker for the database, and an
-artifact — `cd backend && uv run srd-parse` — and skips with a line saying so
+artifact (`cd backend && uv run dnd-graph-rag parse`), and skips with a line saying so
 if either is missing, rather than failing.
 
 ## What it runs against
@@ -34,7 +34,7 @@ Three deliberate separations, each of which was a bug before it was a rule:
 neither disturbed by a run nor mistaken for the server under test.
 
 **Its own database.** Not the Neo4j from `docker-compose.yml`, which holds
-whatever the last `srd-graph-load` put in it — that would make a passing run
+whatever the last `dnd-graph-rag load` put in it: that would make a passing run
 mean "the graph on this machine happens to be right". A container filled from
 the artifact each run tests the whole chain instead: parse → load → retrieve
 → answer → cite. Its port is *bound* rather than assigned, because Playwright

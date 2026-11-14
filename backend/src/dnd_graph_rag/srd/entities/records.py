@@ -6,13 +6,7 @@ from __future__ import annotations
 import re
 
 from dnd_graph_rag.srd.model import Paragraph, Run, Section
-from dnd_graph_rag.srd.output.render import render_block
 from dnd_graph_rag.srd.reading.text import merged
-
-
-def description(section: Section) -> str:
-    """The markdown of the section's own blocks, as a record's description."""
-    return "\n\n".join(render_block(block) for block in section.blocks)
 
 
 def source(section: Section, pdf: str) -> dict:

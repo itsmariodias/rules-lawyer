@@ -142,3 +142,22 @@ class TestCitationPattern:
         # When it is compared with the backend's
         # Then the two recognise exactly the same citations
         assert found.group(1) == CITATION.pattern
+
+
+class TestTheArtifactsOwnClaims:
+    def test_given_the_artifact_when_checked_then_every_section_has_geometry_on_its_pages(
+            self, document, anchors):
+        # Given the artifact and the anchors beside it
+        from dnd_graph_rag.srd.output.anchors import boxes_between
+
+        # When each section's range is resolved to rectangles
+        stack = list(document["sections"])
+        while stack:
+            node = stack.pop()
+            stack.extend(node["subsections"])
+            source = node["source"]
+            pages = {box["page"] for box in boxes_between(anchors, source["char_start"], source["char_end"])}
+
+            # Then it has geometry, and that geometry is on the pages it claims
+            assert pages, f"{node['id']} has no geometry"
+            assert source["page_start"] <= min(pages) and max(pages) <= source["page_end"]

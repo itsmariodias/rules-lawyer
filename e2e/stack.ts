@@ -28,11 +28,11 @@ export async function startNeo4j(): Promise<StartedNeo4jContainer> {
 }
 
 /**
- * Load the artifact with `srd-graph-load`, which exits non-zero if
+ * Load the artifact with `dnd-graph-rag load`, which exits non-zero if
  * verification fails.
  */
 export async function loadGraph(backend: string, data: string): Promise<void> {
-  await run('uv', ['run', 'srd-graph-load'], {
+  await run('uv', ['run', 'dnd-graph-rag', 'load'], {
     cwd: backend,
     env: {
       ...process.env,

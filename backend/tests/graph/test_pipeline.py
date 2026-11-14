@@ -13,7 +13,7 @@ class TestBuildGraph:
 
         # When the graph is built from it
         # Then the failure names both the file and the command that makes it
-        with pytest.raises(FileNotFoundError, match="srd-parse"):
+        with pytest.raises(FileNotFoundError, match="dnd-graph-rag parse"):
             pipeline.build_graph(missing)
 
     def test_given_a_report_callable_when_run_then_progress_is_announced(

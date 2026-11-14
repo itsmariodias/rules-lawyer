@@ -264,7 +264,7 @@ class TestResolve:
 
         message = str(raised.value)
         assert "2 of 2 sections" in message
-        assert "srd-embed" in message
+        assert "dnd-graph-rag embed" in message
         assert "DND_GRAPH_RAG_EMBEDDINGS" in message
 
     def test_given_a_partial_file_and_no_key_when_resolved_then_it_refuses(

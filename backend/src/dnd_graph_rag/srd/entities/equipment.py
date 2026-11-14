@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import re
 
-from dnd_graph_rag.srd.entities.records import description, source
+from dnd_graph_rag.srd.entities.records import source
 from dnd_graph_rag.srd.model import Paragraph, Section, Table, plain
+from dnd_graph_rag.srd.output.render import section_text
 from dnd_graph_rag.srd.sections import walk
 from dnd_graph_rag.srd.vocabulary import Coin, ItemKind, alternatives
 
@@ -94,7 +95,7 @@ def gear(parent: Section, table_section: Section, pdf: str) -> list[dict]:
         records.append({"name": name, "kind": ItemKind.GEAR, "category": "Adventuring Gear",
                         "weight_lb": weight_lb(plain(row[1])) if row else None,
                         **price(plain(row[2]) if row else priced.group(2)),
-                        "description": description(section), "section_id": section.id,
+                        "description": section_text(section), "section_id": section.id,
                         "source": source(section, pdf)})
     return records
 
@@ -110,7 +111,7 @@ def poisons(parent: Section, pdf: str) -> list[dict]:
         records.append({"name": (priced.group(1) if priced else section.heading).strip(), "kind": ItemKind.POISON,
                         "category": "Poison", "poison_type": kind.group(1) if kind else None,
                         **price(priced.group(2) if priced else ""), "weight_lb": None,
-                        "description": description(section), "section_id": section.id,
+                        "description": section_text(section), "section_id": section.id,
                         "source": source(section, pdf)})
     return records
 

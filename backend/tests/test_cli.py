@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from dnd_graph_rag.graph import cli
+from dnd_graph_rag import cli
 from dnd_graph_rag.graph.embeddings import MissingEmbeddings
 
 
@@ -10,7 +10,7 @@ from dnd_graph_rag.graph.embeddings import MissingEmbeddings
 def run(monkeypatch, capsys):
     """Run ``main`` with the given argv and a stubbed ``build_graph``."""
     def go(argv: list[str], result: dict | Exception):
-        monkeypatch.setattr("sys.argv", ["srd-graph-load", *argv])
+        monkeypatch.setattr("sys.argv", ["dnd-graph-rag", "load", *argv])
         seen: dict = {}
 
         def build_graph(input_path, *, reset, skip_verify, embeddings_path,
@@ -84,13 +84,13 @@ class TestMain:
         # Given a pipeline with neither vectors on disk nor a key
         code, output, _ = run([], MissingEmbeddings(
             "2156 of 2156 sections have no embedding and GOOGLE_API_KEY is "
-            "not set.\nEither set it and run `uv run srd-embed`, or download "
+            "not set.\nEither set it and run `uv run dnd-graph-rag embed`, or download "
             "srd_embeddings.idx and point DND_GRAPH_RAG_EMBEDDINGS at it."))
 
         # When the CLI finishes
         # Then it exits non-zero having named both ways out, with no traceback
         assert code == 1
-        assert "srd-embed" in output.err
+        assert "dnd-graph-rag embed" in output.err
         assert "DND_GRAPH_RAG_EMBEDDINGS" in output.err
 
     def test_given_no_arguments_when_run_then_it_resets_and_verifies(self, run):

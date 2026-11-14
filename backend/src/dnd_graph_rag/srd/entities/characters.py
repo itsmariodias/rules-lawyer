@@ -11,14 +11,13 @@ from __future__ import annotations
 import re
 
 from dnd_graph_rag.srd.entities.records import (
-    description,
     labelled_fields,
     named_entries,
     paragraphs_of,
     source,
 )
 from dnd_graph_rag.srd.model import Section, Table, plain
-from dnd_graph_rag.srd.output.render import render_runs
+from dnd_graph_rag.srd.output.render import render_runs, section_text
 from dnd_graph_rag.srd.sections import walk
 
 # A Core Traits table's labels and the class record fields they fill.
@@ -61,7 +60,7 @@ def class_record(section: Section, pdf: str) -> dict:
         if subclass := SUBCLASS.match(child.heading):
             own = features_of(child, subclass.group(2))
             subclasses.append({"name": subclass.group(2), "section_id": child.id,
-                               "description": description(child), "features": own})
+                               "description": section_text(child), "features": own})
             features += own
         elif child.heading == f"{name} Class Features":
             features += features_of(child, None)
@@ -115,7 +114,7 @@ def column_labels(features_table: Table) -> list[str]:
 def features_of(section: Section, subclass: str | None) -> list[dict]:
     """The "Level N: Name" features under a class's or subclass's section."""
     return [{"level": int(found.group(1)), "name": found.group(2), "subclass": subclass,
-             "description": description(child), "section_id": child.id}
+             "description": section_text(child), "section_id": child.id}
             for child in section.subsections if (found := FEATURE.match(child.heading))]
 
 
@@ -149,7 +148,7 @@ def entity(section: Section, kind: str, pdf: str) -> dict:
     section of its own, and the traits after it are still the entry's.
     """
     record: dict = {"name": section.heading, "kind": kind, "section_id": section.id,
-                    "description": description(section), "source": source(section, pdf)}
+                    "description": section_text(section), "source": source(section, pdf)}
     record |= labelled_fields(paragraphs_of(section))
     traits = [{"name": name, "description": render_runs(runs).strip().lstrip(".").strip()}
               for part in walk([section]) for name, runs in named_entries(paragraphs_of(part))]

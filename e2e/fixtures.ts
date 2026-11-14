@@ -8,7 +8,7 @@ import { expect, test as base, type Page } from '@playwright/test'
 export const test = base.extend<{ app: Page }>({
   app: async ({ page }, use, testInfo) => {
     test.skip(process.env.E2E_READY !== 'true',
-              'the graph is not loaded; run srd-graph-load')
+              'the graph is not loaded; run `dnd-graph-rag load`')
 
     // Attach console errors to failures; a blank page otherwise looks slow.
     const noise: string[] = []

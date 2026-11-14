@@ -12,7 +12,7 @@ from functools import lru_cache
 
 from dnd_graph_rag.chat import retrieval
 from dnd_graph_rag.config import anchors_path_for, get_settings, markdown_path_for
-from dnd_graph_rag.srd.pipeline import section_boxes
+from dnd_graph_rag.srd.output.anchors import boxes_between
 
 
 @lru_cache(maxsize=1)
@@ -40,7 +40,7 @@ def anchors() -> list[dict]:
 def _read(path, what: str) -> str:
     if not path.exists():
         raise FileNotFoundError(
-            f"source {what} not found: {path} (run `uv run srd-parse` first)")
+            f"source {what} not found: {path} (run `uv run dnd-graph-rag parse` first)")
     return path.read_text(encoding="utf-8")
 
 
@@ -75,7 +75,7 @@ def excerpt(section_id: str, context: int = 0) -> dict | None:
                 "text": passage.content or "", "highlight": None,
                 "boxes": [], "pages": [], **around}
 
-    boxes = section_boxes(anchors(), passage.char_start, passage.char_end)
+    boxes = boxes_between(anchors(), passage.char_start, passage.char_end)
     text = markdown()
     start = max(0, passage.char_start - context)
     end = min(len(text), passage.char_end + context)

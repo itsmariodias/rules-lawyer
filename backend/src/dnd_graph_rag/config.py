@@ -77,7 +77,7 @@ class ChatSettings(BaseSettings):
 
 class EmbeddingSettings(BaseSettings):
     """
-    Settings for ``srd-embed``.
+    Settings for ``dnd-graph-rag embed``.
 
     Model, dimensions and task type are written into the ``.idx`` header; a
     file made under different values is discarded whole on load.
@@ -183,7 +183,7 @@ class Settings(BaseSettings):
 
     @cached_property
     def neo4j(self) -> Neo4jSettings:
-        """Lazy, so ``srd-parse`` runs without ``NEO4J_PASSWORD``."""
+        """Lazy, so ``dnd-graph-rag parse`` runs without ``NEO4J_PASSWORD``."""
         return Neo4jSettings()  # type: ignore[call-arg]
 
 

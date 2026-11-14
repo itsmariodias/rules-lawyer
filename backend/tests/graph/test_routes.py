@@ -118,7 +118,7 @@ class TestGraphLoad:
             self, client, monkeypatch):
         # Given a pipeline that cannot find the artifact
         def missing(input_path, **kwargs):
-            raise FileNotFoundError("artifact not found: x (run srd-parse)")
+            raise FileNotFoundError("artifact not found: x (run dnd-graph-rag parse)")
 
         monkeypatch.setattr(routes.pipeline, "build_graph", missing)
 
@@ -135,7 +135,7 @@ class TestGraphLoad:
         def missing(input_path, **kwargs):
             raise MissingEmbeddings(
                 "2156 of 2156 sections have no embedding and GOOGLE_API_KEY "
-                "is not set.\nEither set it and run `uv run srd-embed`, or "
+                "is not set.\nEither set it and run `uv run dnd-graph-rag embed`, or "
                 "download srd_embeddings.idx and point "
                 "DND_GRAPH_RAG_EMBEDDINGS at it.")
 
@@ -146,5 +146,5 @@ class TestGraphLoad:
 
         # Then it is a conflict carrying the remedy rather than a 500
         assert response.status_code == 409
-        assert "srd-embed" in response.json()["detail"]
+        assert "dnd-graph-rag embed" in response.json()["detail"]
         assert "DND_GRAPH_RAG_EMBEDDINGS" in response.json()["detail"]

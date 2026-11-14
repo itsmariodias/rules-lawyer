@@ -361,7 +361,7 @@ def resolve(document: dict, *, path: Path, settings: EmbeddingSettings,
         raise MissingEmbeddings(
             f"{len(missing)} of {len(wanted)} sections have no embedding and "
             f"GOOGLE_API_KEY is not set.\nEither set it and run "
-            f"`uv run srd-embed`, or download {path.name} and point "
+            f"`uv run dnd-graph-rag embed`, or download {path.name} and point "
             f"DND_GRAPH_RAG_EMBEDDINGS at it.")
 
     if missing:

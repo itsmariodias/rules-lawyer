@@ -90,6 +90,11 @@ def render_book(title: str, sections: list[Section],
     return "\n\n".join(chunks) + "\n", spans, parts
 
 
+def section_text(section: Section) -> str:
+    """A section's own text, without its heading or subsections, as the markdown renders it."""
+    return "\n\n".join(render_block(untitled(block)) for block in section.blocks)
+
+
 def untitled(block: Block) -> Block:
     """A float without the caption, title or name its section's heading shows."""
     match block:

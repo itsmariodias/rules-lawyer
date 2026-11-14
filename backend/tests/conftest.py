@@ -16,11 +16,11 @@ from dnd_graph_rag.config import (anchors_path_for, get_settings,
 @pytest.fixture(scope="session")
 def document() -> dict:
     """The real artifact; skips if it has not been generated."""
-    from dnd_graph_rag.srd import load
+    from dnd_graph_rag.srd.artifact import load
 
     settings = get_settings()
     if not settings.output_path.exists():
-        pytest.skip(f"no artifact at {settings.output_path}; run srd-parse")
+        pytest.skip(f"no artifact at {settings.output_path}; run `dnd-graph-rag parse`")
     return load(settings.output_path)
 
 
@@ -240,7 +240,7 @@ def anchors() -> list[dict]:
     """The anchors file; skips if it has not been generated."""
     path = anchors_path_for(markdown_path_for(get_settings().output_path))
     if not path.exists():
-        pytest.skip(f"no anchors at {path}; re-run srd-parse")
+        pytest.skip(f"no anchors at {path}; run `dnd-graph-rag parse`")
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -249,7 +249,7 @@ def markdown() -> str:
     """The stage 1 markdown; skips if it has not been generated."""
     path = markdown_path_for(get_settings().output_path)
     if not path.exists():
-        pytest.skip(f"no markdown at {path}; run srd-parse")
+        pytest.skip(f"no markdown at {path}; run `dnd-graph-rag parse`")
     return path.read_text(encoding="utf-8")
 
 
@@ -260,7 +260,7 @@ def vectors():
 
     path = get_settings().embeddings_path
     if not path.exists():
-        pytest.skip(f"no embeddings at {path}; run srd-embed")
+        pytest.skip(f"no embeddings at {path}; run `dnd-graph-rag embed`")
     return embeddings.read(path)
 
 
@@ -275,7 +275,7 @@ def embedding_key():
 def graph(graph_session):
     """A session on a loaded graph; skips if Neo4j is down or empty."""
     if graph_session.run("MATCH (n:Section) RETURN count(n)").single()[0] == 0:
-        pytest.skip("graph is empty; run srd-graph-load")
+        pytest.skip("graph is empty; run `dnd-graph-rag load`")
     return graph_session
 
 
