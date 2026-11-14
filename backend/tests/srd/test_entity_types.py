@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dnd_graph_rag.srd.entity_types import type_sections
-from dnd_graph_rag.srd.model import Heading, Paragraph, Run, StatBlock
+from dnd_graph_rag.srd.entity_types import type_from_records, type_sections
+from dnd_graph_rag.srd.model import Heading, Paragraph, Run, Section, Source, StatBlock
 from dnd_graph_rag.srd.sections import build_sections, walk
 
 
@@ -80,3 +80,18 @@ class TestTypeSections:
         # When typed
         # Then only the first is front matter
         assert types(blocks) == {"Legal Information": "front_matter", "Playing the Game": "rule"}
+
+
+class TestTypeFromRecords:
+    def test_given_records_naming_sections_when_typed_then_only_rules_are_retyped(self):
+        # Given a class and its feature as rules, and a feat section already typed a spell
+        rage = Section("6.1.3.1", "Level 1: Rage", 4, [], [], Source(28, 28))
+        barbarian = Section("6.1", "Barbarian", 2, [], [rage], Source(28, 30))
+        odd = Section("8.1", "Alert", 3, [], [], Source(87, 87), "spell")
+        classes = [{"section_id": "6.1", "subclasses": [], "features": [{"section_id": "6.1.3.1"}]}]
+
+        # When typed from the records
+        type_from_records([barbarian, odd], classes, [], [{"section_id": "8.1"}], [])
+
+        # Then the rules take the records' types and the typed section keeps its own
+        assert (barbarian.entity_type, rage.entity_type, odd.entity_type) == ("class", "class_feature", "spell")

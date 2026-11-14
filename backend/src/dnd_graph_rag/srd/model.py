@@ -14,6 +14,8 @@ import pydantic
 from pydantic import TypeAdapter, model_serializer, model_validator
 from pydantic.dataclasses import dataclass, rebuild_dataclass
 
+from .vocabulary import EntityType
+
 
 @dataclass
 class Run:
@@ -183,12 +185,8 @@ for _container in (ListBlock, Sidebar):
 BLOCKS = TypeAdapter(list[Block])
 
 
-# The types a section can have: ``rule`` unless evidence says otherwise.
-EntityType = Literal["rule", "front_matter", "spell", "magic_item", "creature", "creature_group",
-                     "glossary_term", "environmental_effect", "trap", "contagion", "class", "subclass",
-                     "class_feature", "origin", "feat", "equipment"]
-
-
+# A field left out of the JSON while it has no value.
+UNSET_OMITTED = pydantic.Field(exclude_if=lambda value: value is None)
 @dataclass
 class Source:
     """Where a section is: the printed pages its subtree covers, and its span of the markdown.
@@ -218,7 +216,14 @@ class Section(Printed):
     blocks: list[Block]
     subsections: list[Section]
     source: Source
-    entity_type: EntityType = "rule"
+    entity_type: EntityType = EntityType.RULE
+    # What stage 3 reads from the section, by type: a spell's fields, a magic
+    # item's subtitle, a glossary term and its tag, a creature group's members.
+    spell: Annotated[dict | None, UNSET_OMITTED] = None
+    item: Annotated[dict | None, UNSET_OMITTED] = None
+    term: Annotated[str | None, UNSET_OMITTED] = None
+    term_type: Annotated[str | None, UNSET_OMITTED] = None
+    members: Annotated[list[str] | None, UNSET_OMITTED] = None
 
 
 rebuild_dataclass(Section)
