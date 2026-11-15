@@ -244,7 +244,7 @@ The frontend reaches all of these under `/api`.
 | `PUT /chat/threads/{id}/pin` | pin or unpin |
 | `DELETE /chat/threads/{id}` | delete |
 | `GET /source/{section_id}` | a cited section: its text, page boxes, ancestors and children |
-| `GET /neighbourhood` | the graph around a section or node, for the graph view |
+| `GET /neighbourhood` | the graph around a section or node (with neither, the book and its 16 top-level sections), for the graph view |
 
 `POST /chat` answers 503 without a `GOOGLE_API_KEY`; any other failure
 arrives as an `error` event in the stream.

@@ -1,6 +1,7 @@
 /**
  * The right-hand panel.  Page tab: the whole PDF with nothing cited, or the
- * cited page with its lines boxed.  Graph tab: the cited node's neighbourhood.
+ * cited page with its lines boxed.  Graph tab: the cited node's
+ * neighbourhood, or the book's with nothing cited.
  */
 
 import { lazy, Suspense, useEffect, useState } from 'react'
@@ -69,8 +70,8 @@ export function SidePanel({ sectionId, tab, onTab, onClose, onNavigate }: Props)
             ))}
           </div>
         )}
-        {tab === 'graph' && sectionId && (
-          <div className="zooms" title="How many hops from the cited node">
+        {tab === 'graph' && (
+          <div className="zooms" title="How many hops from the centre">
             {DEPTHS.map((hops) => (
               <button key={hops} className={depth === hops ? 'on' : ''}
                       onClick={() => setDepth(hops)}>

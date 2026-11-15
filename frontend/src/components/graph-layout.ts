@@ -79,6 +79,7 @@ export const KINDS: [string, string[]][] = [
   ['class', ['Class', 'Subclass', 'ClassLevel', 'ClassFeature', 'Feat',
              'Species', 'Background', 'Origin']],
   ['rule', ['Rule', 'Trap', 'EnvironmentalEffect', 'Contagion', 'FrontMatter']],
+  ['book', ['Book']],
 ]
 
 export function kindOf(node: GraphNode): string {

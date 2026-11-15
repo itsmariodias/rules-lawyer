@@ -125,7 +125,9 @@ add the whole viewer's global styles to the app.
    and direction, and keeps at most `fan` (default 8) per group,
    highest-degree neighbours first and name as the tie-break, so the same
    request always returns the same sample. Nodes are admitted until the
-   `limit` of 60. The response has:
+   `limit` of 60. With nothing cited the call has no seed, and the walk
+   starts at the book, a node the server makes and joins to the 16
+   top-level sections. The response has:
    - `nodes`: each with `uid` (Neo4j's `elementId`, since derived nodes have
      no section id), its labels, name, `section_id` and page if it is a
      section, a short plain-text `summary` (or a few `facts` when it has no

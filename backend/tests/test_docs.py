@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from rules_lawyer.chat.retrieval import neighbourhood
 from rules_lawyer.graph import mapping
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -123,7 +124,8 @@ class TestGraphViewPalette:
             self, built_labels, coloured):
         # Given the labels the palette colours
         # When they are held against the mapper
-        stale = coloured - built_labels
+        # The book node is made by the graph view's walk, not the mapper.
+        stale = coloured - built_labels - {neighbourhood.BOOK_LABEL}
 
         # Then the legend does not offer a kind nothing can be
         assert not stale, ("graph-layout's KINDS still colours labels nothing "

@@ -223,19 +223,54 @@ class TestAssemble:
 
 
 class TestNeighbourhood:
-    def test_given_no_seed_when_asked_then_it_is_refused(self):
-        # Given neither a section nor a node
-        # When the neighbourhood is asked for
-        # Then it is refused rather than guessed at
-        with pytest.raises(ValueError):
-            neighbourhood.neighbourhood()
-
     def test_given_two_seeds_when_asked_then_it_is_refused(self):
         # Given both ways of naming the seed at once
         # When the neighbourhood is asked for
-        # Then exactly one is required
+        # Then at most one is allowed
         with pytest.raises(ValueError):
             neighbourhood.neighbourhood(section_id="1", uid="x")
+
+    @pytest.mark.neo4j
+    def test_given_no_seed_when_asked_then_the_book_holds_every_root(self, graph):
+        # Given neither a section nor a node
+        # When the neighbourhood is asked for
+        found = neighbourhood.neighbourhood(depth=1)
+
+        # Then the book is at the centre, joined to all 16 roots, none hidden
+        assert found["root"] == neighbourhood.BOOK
+        book = next(n for n in found["nodes"] if n["uid"] == neighbourhood.BOOK)
+        assert book["name"] == neighbourhood.BOOK_TITLE
+        assert book["section_id"] is None
+        chapters = [n for n in found["nodes"] if n["depth"] == 1]
+        assert len(chapters) == 16
+        assert "Playing the Game" in {n["name"] for n in chapters}
+        assert len(found["edges"]) == 16
+        assert all(e["source"] == neighbourhood.BOOK
+                   and e["type"] == "HAS_SUBSECTION" for e in found["edges"])
+        assert found["truncated"] == []
+
+    @pytest.mark.neo4j
+    def test_given_the_book_when_expanded_by_its_id_then_it_is_the_same_picture(
+            self, graph):
+        # Given the book's uid, as the graph view's Expand sends it
+        # When its neighbourhood is asked for
+        found = neighbourhood.neighbourhood(uid=neighbourhood.BOOK, depth=1)
+
+        # Then it is the walk with no seed
+        assert found == neighbourhood.neighbourhood(depth=1)
+
+    @pytest.mark.neo4j
+    def test_given_the_book_at_two_hops_when_asked_then_it_reaches_into_chapters(
+            self, graph):
+        # Given the book walked two hops out
+        found = neighbourhood.neighbourhood(depth=2)
+
+        # When the deepest nodes are read
+        deeper = [n for n in found["nodes"] if n["depth"] == 2]
+
+        # Then sections under the chapters are drawn, within the budget
+        assert deeper
+        assert len(found["nodes"]) <= neighbourhood.LIMIT
 
     @pytest.mark.neo4j
     def test_given_a_citation_when_asked_then_it_opens_on_its_own_node(self, graph):

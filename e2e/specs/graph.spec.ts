@@ -23,14 +23,18 @@ const dots = (page: Page) => page.locator('.graph svg g[data-kind]')
 const select = (dot: ReturnType<Page['locator']>) => dot.click({ force: true })
 
 test.describe('the graph explorer', () => {
-  test('given nothing cited, when opened, then it says how to get in',
+  test('given nothing cited, when opened, then the book and its sections are drawn',
        async ({ app }) => {
     // Given the panel opened from the toolbar
     await app.getByRole('button', { name: 'Graph' }).click()
 
     // When it draws
-    // Then it explains what to do instead of showing nothing
-    await expect(panel(app).getByText('Nothing selected.')).toBeVisible()
+    await expect(app.locator('.graph svg')).toBeVisible({ timeout: 30_000 })
+
+    // Then the book is the seed, with the top-level sections around it
+    await expect(app.locator('.graph svg g.root[data-kind="book"]')).toBeVisible()
+    await expect(dots(app).filter({ hasText: 'Playing the Game' })).toBeVisible()
+    expect(await dots(app).count()).toBe(17)
   })
 
   test('given a citation, when opened, then its neighbourhood is drawn',

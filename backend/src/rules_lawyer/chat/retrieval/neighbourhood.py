@@ -4,6 +4,9 @@ Bounded by ``depth`` hops, ``fan`` neighbours per (node, type, direction)
 group, and ``limit`` nodes; ``truncated`` reports what the caps cut.  Nodes
 are addressed by ``elementId``, since derived nodes have no section id; it is
 stable until the next load.
+
+The section tree has 16 roots and nothing above them, so a walk with no seed
+starts at ``BOOK``, a node made here and never stored, joined to every root.
 """
 
 from __future__ import annotations
@@ -46,6 +49,12 @@ FACT_CHARS = 120
 # Excluded from ``facts``; long prose arrives once, as ``summary``.
 BULKY = ["content", "description", "outcomes_json"]
 
+# The virtual node's uid; Neo4j's element ids look like ``4:<uuid>:<n>``.
+BOOK = "book"
+BOOK_LABEL = "Book"
+# The title every page footer prints (``meta.title``); the graph stores none.
+BOOK_TITLE = "System Reference Document 5.2.1"
+
 _SEED_BY_SECTION = "MATCH (n:Section {id: $key})"
 _SEED_BY_NODE = "MATCH (n) WHERE elementId(n) = $key"
 
@@ -62,6 +71,9 @@ RETURN elementId(n) AS uid, labels(n) AS labels, n.entity_type AS entity_type,
        n.id AS section_id, n.page_start AS page,
        COUNT { (n)--() } AS degree,
 """ + _SUBSTANCE.format(n="n")
+
+_ROOTS = ("MATCH (n:Section) WHERE NOT ()-[:HAS_SUBSECTION]->(n)"
+          + _RETURN_NODE + "ORDER BY toInteger(n.id)")
 
 # One row per sampled edge.  Each (type, direction) group is sliced to
 # ``$fan`` separately, taking the highest-degree neighbours with name as the
@@ -264,7 +276,9 @@ def neighbourhood(*, section_id: str | None = None, uid: str | None = None,
 
     Args:
         section_id: Seed by dotted section id.
-        uid: Seed by ``elementId``.  Exactly one of the two is required.
+        uid: Seed by ``elementId``, or ``BOOK``.  With neither seed, the walk
+            starts at ``BOOK``, whose neighbours are the 16 root sections,
+            all shown whatever ``fan`` is.
         depth: Hops, clamped to ``0..MAX_DEPTH``.
         fan: Neighbours per (node, type, direction) group.
         limit: Maximum nodes.
@@ -273,10 +287,14 @@ def neighbourhood(*, section_id: str | None = None, uid: str | None = None,
         See ``assemble``; None if the seed does not exist.
 
     Raises:
-        ValueError: Neither or both of ``section_id`` and ``uid`` given.
+        ValueError: Both ``section_id`` and ``uid`` given.
     """
-    if (section_id is None) == (uid is None):
-        raise ValueError("neighbourhood takes exactly one of section_id, uid")
+    if section_id is not None and uid is not None:
+        raise ValueError("neighbourhood takes at most one of section_id, uid")
+
+    depth = max(0, min(depth, MAX_DEPTH))
+    if section_id is None and uid in (None, BOOK):
+        return _book(depth, fan, limit)
 
     key = section_id if section_id is not None else uid
     match = _SEED_BY_SECTION if section_id is not None else _SEED_BY_NODE
@@ -284,10 +302,34 @@ def neighbourhood(*, section_id: str | None = None, uid: str | None = None,
     if not found:
         return None
 
-    depth = max(0, min(depth, MAX_DEPTH))
+    seed = found[0]["uid"]
+    return assemble(found[0], _rounds([seed], {seed}, depth, fan), limit)
+
+
+def _book(depth: int, fan: int, limit: int) -> dict:
+    """The walk from ``BOOK``: the root sections, then ``depth - 1`` hops on."""
+    roots = query(_ROOTS, {"bulky": BULKY})
+    seed = {
+        "uid": BOOK, "labels": [BOOK_LABEL], "entity_type": None,
+        "name": BOOK_TITLE, "section_id": None, "page": None,
+        "degree": len(roots), "summary": None, "facts": None,
+    }
+    if depth == 0:
+        return assemble(seed, [], limit)
+    # The roots as ``_NEIGHBOURS`` rows; their degree counts the book's edge.
+    first = [{**row, "anchor": BOOK, "type": "HAS_SUBSECTION",
+              "outgoing": True, "total": len(roots),
+              "edge": f"{BOOK}:{row['uid']}", "degree": row["degree"] + 1}
+             for row in roots]
+    uids = [row["uid"] for row in roots]
+    later = _rounds(uids, {BOOK, *uids}, depth - 1, fan)
+    return assemble(seed, [first, *later], limit)
+
+
+def _rounds(frontier: list[str], seen: set[str], depth: int,
+            fan: int) -> list[list[dict]]:
+    """``_NEIGHBOURS`` rows per hop for ``depth`` hops out from ``frontier``."""
     rounds: list[list[dict]] = []
-    seen = {found[0]["uid"]}
-    frontier = [found[0]["uid"]]
     for _ in range(depth):
         rows = query(_NEIGHBOURS, {"uids": frontier, "fan": fan,
                                    "bulky": BULKY})
@@ -296,5 +338,4 @@ def neighbourhood(*, section_id: str | None = None, uid: str | None = None,
         seen.update(frontier)
         if not frontier:
             break
-
-    return assemble(found[0], rounds, limit)
+    return rounds

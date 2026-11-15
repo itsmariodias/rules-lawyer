@@ -195,12 +195,13 @@ export const loadSource = (sectionId: string, context = 0) =>
   getJSON<SourceExcerpt>(`/source/${sectionId}?context=${context}`)
 
 /**
- * The graph around a section or a node.  `fan` caps neighbours per
- * relationship type and direction; the server's sample is deterministic, so
- * asking for more means raising it.
+ * The graph around a section or a node, or with a `null` seed around the
+ * book, a node the server joins to every top-level section.  `fan` caps
+ * neighbours per relationship type and direction; the server's sample is
+ * deterministic, so asking for more means raising it.
  */
 export const loadNeighbourhood = (
-  seed: { section: string } | { node: string },
+  seed: { section: string } | { node: string } | null,
   depth: number,
   fan?: number,
 ) => {

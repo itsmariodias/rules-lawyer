@@ -1,7 +1,8 @@
 /**
- * Force-directed view of the cited node's neighbourhood.  Expanding a node
- * merges its neighbours into the current picture.  The seed is pinned at
- * the centre; the simulation stops once it cools.
+ * Force-directed view of the cited node's neighbourhood, or with nothing
+ * cited, of the book and its top-level sections.  Expanding a node merges
+ * its neighbours into the current picture.  The seed is pinned at the
+ * centre; the simulation stops once it cools.
  */
 
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
@@ -77,7 +78,6 @@ export function GraphView({ sectionId, depth, onOpenPage }: Props) {
   }, [selected, graph])
 
   useEffect(() => {
-    if (!sectionId) { setGraph(null); return }
     let live = true
     setBusy(true)
     setError(null)
@@ -87,7 +87,7 @@ export function GraphView({ sectionId, depth, onOpenPage }: Props) {
     setSelected(null)
     setView({ x: 0, y: 0, k: 1 })
     framed.current = false
-    loadNeighbourhood({ section: sectionId }, depth)
+    loadNeighbourhood(sectionId ? { section: sectionId } : null, depth)
       .then((found) => { if (live) { setGraph(found); setSelected(found.root) } })
       .catch((problem) => { if (live) setError(String(problem)) })
       .finally(() => { if (live) setBusy(false) })
@@ -134,18 +134,6 @@ export function GraphView({ sectionId, depth, onOpenPage }: Props) {
   // Null until the simulation has published positions.
   const seeded = graph && Object.keys(places).length > 0 ? graph : null
 
-  if (!sectionId) {
-    return (
-      <div className="graph-empty">
-        <p>Nothing selected.</p>
-        <p className="muted">
-          Cite a passage — or open one from the Page tab — and its node, the
-          nodes around it and the edges between them are drawn here.
-        </p>
-      </div>
-    )
-  }
-
   const node = graph?.nodes.find((n) => n.uid === selected) ?? null
   // Edges end at the target's rim so the arrowhead is visible.
   const radii: Record<string, number> = {}
@@ -161,7 +149,9 @@ export function GraphView({ sectionId, depth, onOpenPage }: Props) {
         {!graph && !error && <p className="muted graph-note">Loading…</p>}
         {seeded && (
           <svg width={size.width} height={size.height}
-               role="img" aria-label="The graph around the cited section">
+               role="img"
+               aria-label={sectionId ? 'The graph around the cited section'
+                                     : 'The book and its top-level sections'}>
             <defs>
               {/* SVG markers cannot inherit stroke, so one per state. */}
               {['edge', 'edge-on'].map((name) => (

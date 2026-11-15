@@ -94,6 +94,16 @@ describe('SidePanel', () => {
     expect(screen.getByRole('button', { name: 'Go' })).toBeDisabled()
   })
 
+  it('given nothing cited, when the graph tab is open, then the depth can still be chosen', () => {
+    // Given the graph tab with no citation
+    panel({ sectionId: null, tab: 'graph' })
+
+    // When the toolbar is read
+    // Then the hops are offered, since the book is drawn
+    expect(screen.getByRole('button', { name: '2 hops' })).toBeInTheDocument()
+    expect(screen.getByTestId('graph')).toHaveTextContent('none at 1')
+  })
+
   it('given the graph tab, when shown, then it opens on the same section', () => {
     // Given the panel on the graph tab
     panel({ tab: 'graph' })

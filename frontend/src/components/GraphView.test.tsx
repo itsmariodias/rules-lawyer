@@ -33,14 +33,14 @@ describe('GraphView', () => {
       Promise.resolve(graph()))
   })
 
-  it('given nothing cited, when rendered, then it says so rather than drawing', () => {
+  it('given nothing cited, when rendered, then the book is fetched instead', async () => {
     // Given a panel with no citation
-    render(<GraphView sectionId={null} depth={1} onOpenPage={vi.fn()} />)
+    render(<GraphView sectionId={null} depth={2} onOpenPage={vi.fn()} />)
 
-    // When it is rendered
-    // Then it explains itself and asks for nothing
-    expect(api.loadNeighbourhood).not.toHaveBeenCalled()
-    expect(screen.getByText(/cite/i)).toBeInTheDocument()
+    // When the view opens
+    // Then the seed is the book, at the chosen depth
+    await waitFor(() => expect(api.loadNeighbourhood)
+      .toHaveBeenCalledWith(null, 2))
   })
 
   it('given a citation, when rendered, then the neighbourhood is fetched for it', async () => {

@@ -217,7 +217,7 @@ PUT  /chat/threads/{id}/pin           {"pinned"}; 404 if no such thread
 DEL  /chat/threads/{id}               delete; 404 if no such thread
 GET  /source/{id}?context=400         markdown slice, highlight offsets, boxes,
                                       ancestors, parent, children
-GET  /neighbourhood?section=|node=    &depth &fan &limit
+GET  /neighbourhood?section=|node=    &depth &fan &limit; neither: the book
 ```
 
 - The Neo4j driver is synchronous, so graph endpoints use `run_in_threadpool`,
@@ -810,6 +810,11 @@ browser stays on one origin and the SSE stream shares it.
 - The Graph tab shows the cited section's neighbourhood (default depth 1,
   remembered). Both tabs share the selected section; a node opens on the
   page, a subsection link re-seeds the graph.
+- **With nothing cited, the seed is the book:** a node `neighbourhood.py`
+  makes (uid `book`, label `:Book`) joined by `HAS_SUBSECTION` to the 16
+  roots, all shown whatever the fan. It is never stored, so the agent's
+  schema and verification never see it; `test_docs.py` exempts `Book` from
+  the mapper check on `KINDS`.
 - **Expanding merges** into the picture. A capped node shows a dashed halo;
   asking it for more requests twice its largest drawn group, since the server
   sample is deterministic and the same fan returns the same nodes.

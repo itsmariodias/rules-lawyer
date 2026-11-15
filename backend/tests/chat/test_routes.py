@@ -489,15 +489,16 @@ class TestNeighbourhood:
         assert response.status_code == 200
         assert response.json()["root"] == node
 
-    def test_given_neither_a_section_nor_a_node_when_asked_then_it_is_refused(
-            self, client):
+    @pytest.mark.neo4j
+    def test_given_neither_a_section_nor_a_node_when_asked_then_the_book_opens(
+            self, client, graph):
         # Given no seed at all
         # When the neighbourhood is asked for
         response = client.get("/neighbourhood")
 
-        # Then the requirement is stated rather than guessed at
-        assert response.status_code == 400
-        assert "exactly one" in response.json()["detail"]
+        # Then the book is the seed
+        assert response.status_code == 200
+        assert response.json()["root"] == "book"
 
     def test_given_both_a_section_and_a_node_when_asked_then_it_is_refused(
             self, client):

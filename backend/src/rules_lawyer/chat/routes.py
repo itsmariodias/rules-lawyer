@@ -249,8 +249,9 @@ async def neighbourhood(section: str | None = None, node: str | None = None,
                         limit: int = graph_view.LIMIT) -> dict:
     """The bounded graph around one node; see ``neighbourhood.neighbourhood``.
 
-    Pass exactly one of ``section`` (a dotted id) or ``node`` (a ``uid`` from
-    an earlier response; derived nodes have no section id).
+    Pass at most one of ``section`` (a dotted id) or ``node`` (a ``uid`` from
+    an earlier response; derived nodes have no section id).  With neither,
+    the seed is the book, a node joined to the 16 root sections.
 
     Args:
         section: Seed by dotted section id.
@@ -263,12 +264,12 @@ async def neighbourhood(section: str | None = None, node: str | None = None,
         ``root``, ``nodes``, ``edges`` and ``truncated``.
 
     Raises:
-        HTTPException: 400 unless exactly one is given; 404 if not found.
+        HTTPException: 400 if both are given; 404 if not found.
     """
-    if (section is None) == (node is None):
+    if section is not None and node is not None:
         raise HTTPException(
             status_code=400,
-            detail="pass exactly one of section= or node=")
+            detail="pass at most one of section= or node=")
 
     found = await run_in_threadpool(
         graph_view.neighbourhood, section_id=section, uid=node,
