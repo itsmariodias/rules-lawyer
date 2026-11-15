@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from rules_lawyer.chat.prompts import HERE, prompt
+from rules_lawyer.chat.agent.prompts import HERE, prompt
 
 NAMES = sorted(path.stem for path in HERE.glob("*.md"))
 

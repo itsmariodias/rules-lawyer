@@ -43,8 +43,9 @@ interfere:
 A fresh database means a passing run tests the whole chain (parse, load,
 search, answer, cite) rather than whatever happens to be in your local graph.
 
-**No API key, no model.** The API runs with `CHAT_STUB=1`, so a scripted
-model (`backend/src/rules_lawyer/chat/stub.py`) stands in for Gemini. It
+**No API key, no model.** The API is served by `backend/tests/e2e_app.py`,
+which builds the app with a fake chat model (`backend/tests/fakes.py`) in
+place of Gemini. It
 calls the real `search_srd` tool against the real graph and cites the first
 result, so every event a real turn sends still crosses the wire; only the
 answer's wording is canned. With no key, search is full-text only.

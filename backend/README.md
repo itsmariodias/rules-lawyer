@@ -78,16 +78,20 @@ src/rules_lawyer/
     routes.py         /graph/health, /graph/load
 
   chat/               questions -> cited answers
-    agent.py          the LangGraph agent on Gemini
-    tools.py          the four tools the agent can call
-    retrieval.py      full-text, vector and fused search
-    cypher.py         safe, read-only Cypher for the agent
-    neighbourhood.py  a bounded walk around one node
-    service.py        one turn as a stream of events; thread storage
-    source.py         a citation -> markdown slice and page boxes
-    titles.py         short conversation titles
-    stub.py           a scripted model for tests (CHAT_STUB=1)
-    prompts/          the system prompt and friends, sent verbatim
+    agent/
+      model.py        the chat model (Gemini)
+      build.py        the LangGraph agent
+      tools.py        the four tools the agent can call
+      titles.py       short conversation titles
+      prompts/        the system prompt and friends, sent verbatim
+    retrieval/
+      search.py       full-text, vector and fused search
+      cypher.py       safe, read-only Cypher for the agent
+      neighbourhood.py  a bounded walk around one node
+      source.py       a citation -> markdown slice and page boxes
+    service.py        ChatService: ask, retry, history, pins, list, delete
+    turn.py           one turn as a stream of events
+    threads.py        stored messages as the turns the UI shows
     routes.py         /chat, /chat/threads/*, /source, /neighbourhood
 
 tests/                mirrors src/: tests/graph/test_mapping.py tests
@@ -137,7 +141,7 @@ is unreachable). It has four tools:
 
 Agent-written Cypher runs in a read-access transaction, so Neo4j itself
 refuses writes; procedures are allow-listed, and rows, cell sizes and run
-time are capped. The tool docstrings and the files in `chat/prompts/` are
+time are capped. The tool docstrings and the files in `chat/agent/prompts/` are
 sent to the model as written, so editing them changes its behaviour.
 
 **Citations.** The model cites sections as `[11.2.114]`. Ids are resolved
@@ -146,7 +150,7 @@ against the graph after the answer is written, and invented ones are dropped.
 the PDF page (from `srd_hierarchy.anchors.json`), which the frontend draws
 over the page.
 
-**Streaming.** `service.stream_turn` turns one LangGraph run into typed
+**Streaming.** `turn.stream_turn` turns one LangGraph run into typed
 events (`start`, `token`, `tool_start`, `tool_end`, `usage`, `citations`,
 `error`, `done`), sent as Server-Sent Events. A turn fails after
 `CHAT_TIMEOUT_SECONDS` of silence, and every failure arrives as an `error`

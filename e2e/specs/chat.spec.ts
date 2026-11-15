@@ -1,6 +1,6 @@
 /**
- * Runs with `CHAT_STUB=1`: the model's wording is scripted, everything else is
- * live.
+ * Runs with the backend's fake chat model: the model's wording is scripted,
+ * everything else is live.
  */
 
 import { ask, expect, test } from '../fixtures'

@@ -25,9 +25,9 @@ def documented() -> tuple[set[str], set[str]]:
         pytest.skip(f"{GRAPH_MD} is missing")
     text = GRAPH_MD.read_text(encoding="utf-8")
     labels = {label
-              for entry in re.findall(r"^### `:([\w:]+)`", text, re.M)
+              for entry in re.findall(r"^### `:([\w:]+)`", text, re.MULTILINE)
               for label in entry.split(":")}
-    types = set(re.findall(r"^### `([A-Z_]+)`", text, re.M))
+    types = set(re.findall(r"^### `([A-Z_]+)`", text, re.MULTILINE))
     return labels, types
 
 
@@ -37,7 +37,7 @@ def coloured() -> set[str]:
     if not PALETTE.exists():
         pytest.skip(f"{PALETTE} is missing")
     text = PALETTE.read_text(encoding="utf-8")
-    table = re.search(r"KINDS: \[string, string\[\]\]\[\] = \[.*?\n\]", text, re.S)
+    table = re.search(r"KINDS: \[string, string\[\]\]\[\] = \[.*?\n\]", text, re.DOTALL)
     assert table, "graph-layout.ts no longer has a KINDS table to read"
     quoted = re.findall(r"'([\w]+)'", table.group(0))
     # Rows are `['kind', ['Label', …]]`; a kind is followed by `, [`.
@@ -133,7 +133,7 @@ class TestGraphViewPalette:
 class TestCitationPattern:
     def test_given_the_frontend_copy_when_compared_then_it_matches_the_backend(self):
         # Given the citation pattern the frontend numbers and links
-        from rules_lawyer.chat.retrieval import CITATION
+        from rules_lawyer.chat.retrieval.search import CITATION
 
         source = MARKDOWN_TSX.read_text(encoding="utf-8")
         found = re.search(r"const CITATION = /(.+)/g\n", source)

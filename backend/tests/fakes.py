@@ -1,36 +1,42 @@
-"""A scripted chat model for the test suites, selected by ``CHAT_STUB``.
+"""A fake chat model, and a chat service answered by it, for the test suites.
 
-Never a fallback for a failing provider.  In the package rather than
-``tests/`` because e2e runs a real uvicorn process configured by environment.
-It calls the real ``search_srd`` and cites the first result, so everything
-but the model's wording is live.
+The model calls the real ``search_srd`` and cites the first result, so everything
+but the model's wording is live.  ``tests.e2e_app`` serves the API with it.
 """
 
 from __future__ import annotations
 
 import json
-from typing import Any, Iterator, Sequence
+from collections.abc import Iterator, Sequence
+from functools import cached_property
+from typing import Any
 from uuid import uuid4
 
+from fastapi import Request
 from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 
-from rules_lawyer.chat.retrieval import CITATION
+from rules_lawyer.chat.retrieval.search import CITATION
+from rules_lawyer.chat.service import ChatService
 
 # Fixed, made-up usage per call, so the usage event is exercised.
 USAGE = {"input_tokens": 1200, "output_tokens": 30, "total_tokens": 1230}
 
 
-class ScriptedModel(BaseChatModel):
-    """Calls ``search_srd`` with the question, then cites the first result."""
+class FakeChatModel(BaseChatModel):
+    """Calls ``search_srd`` with the question, then cites the first result.
+
+    Asked for a title, it calls the search too, so its reply has no text and
+    conversations stay untitled: the list shows the cut question.
+    """
 
     @property
     def _llm_type(self) -> str:
-        return "scripted-srd"
+        return "fake-srd"
 
-    def bind_tools(self, tools: Sequence[Any], **kwargs: Any) -> ScriptedModel:
+    def bind_tools(self, tools: Sequence[Any], **kwargs: Any) -> FakeChatModel:
         """Ignore ``tools``; the script only ever calls ``search_srd``.
 
         Args:
@@ -103,3 +109,25 @@ def _answer(result: str) -> str:
         return "The SRD search found nothing for that."
     return (f"The SRD covers this in section [{found.group(1)}], which is "
             "the passage the search returned first.")
+
+
+
+class FakeChatService(ChatService):
+    """A ``ChatService`` answered by ``FakeChatModel``, which needs no key."""
+
+    @cached_property
+    def model(self) -> BaseChatModel:
+        """The fake model."""
+        return FakeChatModel()
+
+
+def fake_chat_service(request: Request) -> ChatService:
+    """``routes.chat_service`` answered by the fake, for ``dependency_overrides``.
+
+    Args:
+        request: The request, whose app holds the checkpointer and store.
+
+    Returns:
+        The fake service over the app's storage.
+    """
+    return FakeChatService(request.app.state.checkpointer, request.app.state.store)

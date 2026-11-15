@@ -1,6 +1,6 @@
 /**
  * Client for the backend API.  `ChatEvent` mirrors the dicts
- * `chat/service.py` yields; keep the two in step.
+ * `chat/turn.py` yields; keep the two in step.
  */
 
 export type Citation = {

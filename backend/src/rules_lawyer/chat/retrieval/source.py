@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from functools import lru_cache
 
-from rules_lawyer.chat import retrieval
+from rules_lawyer.chat.retrieval import search
 from rules_lawyer.config import anchors_path_for, get_settings, markdown_path_for
 from rules_lawyer.srd.output.anchors import boxes_between
 
@@ -67,7 +67,7 @@ def excerpt(section_id: str, context: int = 0) -> dict | None:
     Raises:
         FileNotFoundError: The markdown has not been generated.
     """
-    found = retrieval.get_section(section_id)
+    found = search.get_section(section_id)
     if found is None:
         return None
     passage, around = found

@@ -70,8 +70,6 @@ class ChatSettings(BaseSettings):
     # cartesian product that runs long before returning anything.
     cypher_timeout_seconds: float = 10
     cypher_max_rows: int = 50
-    # Swap Gemini for ``chat.stub``.  Test suites only, never a fallback.
-    stub: bool = False
 
 
 class EmbeddingSettings(BaseSettings):

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from rules_lawyer.chat import neighbourhood, retrieval
+from rules_lawyer.chat.retrieval import neighbourhood, search
 
 
 def row(anchor, uid, type_="REFERENCES_SPELL", outgoing=True, total=1,
@@ -267,7 +267,7 @@ class TestNeighbourhood:
     def test_given_a_hub_when_asked_then_it_is_sampled_and_says_what_it_hid(
             self, graph):
         # Given the most-referenced node in the graph
-        poison = retrieval.query(
+        poison = search.query(
             "MATCH (n:DamageType {name: 'Poison'}) RETURN elementId(n) AS uid",
             {})
 

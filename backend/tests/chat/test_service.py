@@ -1,24 +1,24 @@
 from __future__ import annotations
 
-import asyncio
-
 import pytest
 
-from rules_lawyer.chat import service, titles
+from rules_lawyer.chat import service as chat_service
+from rules_lawyer.chat.agent import titles
+from rules_lawyer.chat.service import ChatService
+from tests.fakes import FakeChatService
 
 
-async def answer(saver, thread_id: str, question: str = "Prone condition") -> None:
-    """Run one stub turn and return the stored thread id."""
-    async for _ in service.stream_turn(question, thread_id, saver):
+@pytest.fixture
+def service(saver, store) -> ChatService:
+    """A service over in-memory storage, answered by the fake model."""
+    return FakeChatService(saver, store)
+
+
+async def answer(service: ChatService, thread_id: str,
+                 question: str = "Prone condition") -> None:
+    """Run one turn to its end."""
+    async for _ in await service.ask(question, thread_id):
         pass
-
-
-def raising(exc: Exception):
-    """A ``build_agent`` replacement that raises ``exc``."""
-    def build(_checkpointer):
-        raise exc
-
-    return build
 
 
 async def stored(saver, thread_id: str, *messages) -> dict:
@@ -40,640 +40,124 @@ def answered(question: str, answer: str = "Prone creatures crawl."):
     return HumanMessage(content=question), AIMessage(content=answer)
 
 
-async def collect(message, saver) -> list[dict]:
-    return [event async for event in
-            service.stream_turn(message, "test", saver)]
-
-
-@pytest.mark.neo4j
-class TestResolveCitations:
-    def test_given_an_invented_id_when_resolved_then_it_is_dropped(self, graph):
-        # Given an answer citing one real id and one invented one, twice
-        text = "Real [11.2.114], invented [99.99.99], and again [11.2.114]."
-
-        # When the citations are resolved
-        citations = service.resolve_citations(text)
-
-        # Then only what resolves survives, once
-        assert [c["section_id"] for c in citations] == ["11.2.114"]
-
-    def test_given_no_citations_at_all_when_resolved_then_the_list_is_empty(
-            self, graph):
-        # Given an answer citing nothing
-        # When the citations are resolved
-        # Then nothing is invented for it
-        assert service.resolve_citations("No ids here.") == []
-
-
-class TestExplain:
-    def test_given_a_missing_key_when_explained_then_the_fix_is_in_the_sentence(self):
-        # Given the error a missing key raises
-        # When it is explained
-        explained = service._explain(RuntimeError("GOOGLE_API_KEY is not set"))
-
-        # Then it says where to put one
-        assert "GOOGLE_API_KEY is not set" in explained
-        assert ".env" in explained
-
-    def test_given_a_rejected_key_when_explained_then_it_is_not_the_providers_json(self):
-        """Google's invalid-key error is about 600 characters of JSON."""
-        # Given Google's own rejection
-        error = RuntimeError("400 INVALID_ARGUMENT {'reason': 'API_KEY_INVALID'}")
-
-        # When it is explained
-        # Then the reader gets a sentence rather than a payload
-        assert "GOOGLE_API_KEY was rejected" in service._explain(error)
-
-    def test_given_a_spent_quota_when_explained_then_it_is_named_as_one(self):
-        # Given the error a spent free tier raises
-        # When it is explained
-        explained = service._explain(RuntimeError("429 RESOURCE_EXHAUSTED: quota"))
-
-        # Then the reader is told the model, not the answer, is the problem
-        assert "quota" in explained.lower()
-
-    def test_given_a_stall_when_explained_then_it_says_nothing_arrived(self):
-        # Given a timeout
-        # When it is explained
-        explained = service._explain(TimeoutError("the model sent nothing for 60s"))
-
-        # Then it says why the turn was ended rather than left hanging
-        assert "stopped responding" in explained
-
-    def test_given_an_error_nobody_anticipated_when_explained_then_it_stays_readable(self):
-        # Given an enormous unrecognised error
-        # When it is explained
-        explained = service._explain(RuntimeError("boom " * 200))
-
-        # Then it is capped at a length someone will still read
-        assert len(explained) <= service.ERROR_CHARS + 1
-        assert explained.endswith("…")
-
-    def test_given_a_short_error_when_explained_then_it_is_passed_through_whole(self):
-        # Given a short unrecognised error
-        # When it is explained
-        explained = service._explain(ValueError("something odd"))
-
-        # Then nothing is cut from it
-        assert explained == "ValueError: something odd"
-
-
-class TestFromUpdate:
-    @staticmethod
-    def _update(**kwargs):
-        from langchain_core.messages import ToolMessage
-
-        return {"tools": {"messages": [
-            ToolMessage(content="…", tool_call_id="c1", name="query_srd_graph",
-                        **kwargs)]}}
-
-    def test_given_an_artifact_when_read_then_the_outcome_reaches_the_browser(
-            self):
-        # Given a tool result carrying the status and summary a tool attaches
-        update = self._update(artifact={"status": "ok", "summary": "12 rows"})
-
-        # When it is flattened
-        [event] = service._from_update(update)
-
-        # Then what came back is on the event, not only how long it was
-        assert event["status"] == "ok"
-        assert event["summary"] == "12 rows"
-
-    def test_given_a_refusal_when_read_then_it_is_not_reported_as_success(self):
-        # Given a tool that refused to run
-        update = self._update(artifact={"status": "refused",
-                                        "summary": "refused"})
-
-        # When it is flattened
-        [event] = service._from_update(update)
-
-        # Then the refusal survives to the trace
-        assert event["status"] == "refused"
-
-    def test_given_a_tool_that_raised_when_read_then_it_is_marked_failed(self):
-        # Given a tool result LangChain marked as an error
-        update = self._update(status="error")
-
-        # When it is flattened
-        [event] = service._from_update(update)
-
-        # Then the absent artifact does not read as a successful call
-        assert event["status"] == "failed"
-
-    def test_given_no_artifact_when_read_then_the_event_is_still_whole(self):
-        # Given a plain tool result
-        update = self._update()
-
-        # When it is flattened
-        [event] = service._from_update(update)
-
-        # Then it is assumed to have worked, and claims no outcome
-        assert event["status"] == "ok"
-        assert event["summary"] is None
-        assert event["id"] == "c1"
-
-
-class TestUsageOf:
-    @staticmethod
-    def _call(content: str, input_tokens: int, output_tokens: int):
-        from langchain_core.messages import AIMessage
-        return AIMessage(content=content, usage_metadata={
-            "input_tokens": input_tokens, "output_tokens": output_tokens,
-            "total_tokens": input_tokens + output_tokens})
-
-    def test_given_several_calls_when_counted_then_they_are_summed(self):
-        # Given a turn of three model calls
-        messages = [self._call("", 4000, 20), self._call("", 5200, 35),
-                    self._call("It is [11.2.114].", 6100, 410)]
-
-        # When what it cost is counted
-        usage = service.usage_of(messages)
-
-        # Then every call is in the sum, and the calls are counted
-        assert usage == {"input": 15300, "output": 465, "total": 15765,
-                         "calls": 3}
-
-    def test_given_other_messages_when_counted_then_only_model_calls_count(self):
-        # Given a question and a tool result among the calls
-        from langchain_core.messages import HumanMessage, ToolMessage
-        messages = [HumanMessage(content="Prone?"), self._call("", 100, 5),
-                    ToolMessage(content="[1.1] …", tool_call_id="c1")]
-
-        # When what it cost is counted
-        # Then neither is mistaken for a call
-        assert service.usage_of(messages)["calls"] == 1
-
-    def test_given_no_counts_when_counted_then_there_is_no_usage(self):
-        # Given calls that carry no counts, as a conversation stored before might
-        from langchain_core.messages import AIMessage
-
-        # When what it cost is counted
-        # Then there is no figure at all
-        assert service.usage_of([AIMessage(content="It is.")]) is None
-        assert service.usage_of([]) is None
-
-
-class TestTurnsOf:
-    @staticmethod
-    def _turn(question: str, call_id: str, query: str, answer: str,
-              artifact: dict | None = None):
-        """Messages for one turn: question, search call, result, answer."""
-        from langchain_core.messages import (AIMessage, HumanMessage,
-                                             ToolMessage)
-        if artifact is None:
-            artifact = {"status": "ok", "summary": "3 passages"}
-        return [
-            HumanMessage(content=question),
-            AIMessage(content="", tool_calls=[{"name": "search_srd",
-                                               "args": {"query": query},
-                                               "id": call_id}]),
-            ToolMessage(content="[1.1] …", tool_call_id=call_id,
-                        name="search_srd", artifact=artifact),
-            AIMessage(content=answer),
-        ]
-
-    def test_given_a_stored_turn_when_read_then_its_lookup_comes_with_it(self):
-        # Given one complete turn
-        messages = self._turn("Prone?", "c1", "prone", "It is.")
-
-        # When it is read back
-        turns = service.turns_of(messages)
-
-        # Then the lookup is on the answer, finished, with its outcome
-        assert [t["role"] for t in turns] == ["user", "assistant"]
-        assert turns[1]["tools"] == [{
-            "id": "c1", "name": "search_srd", "args": {"query": "prone"},
-            "done": True, "status": "ok", "summary": "3 passages",
-            "subject": None}]
-
-    def test_given_two_turns_when_read_then_each_counts_only_its_own_calls(self):
-        # Given two turns, every call in them counted
-        messages = (self._turn("Prone?", "c1", "prone", "It is.")
-                    + self._turn("Grappled?", "c2", "grappled", "It is."))
-        for message in messages:
-            if message.type == "ai":
-                message.usage_metadata = {"input_tokens": 1000,
-                                          "output_tokens": 10,
-                                          "total_tokens": 1010}
-
-        # When they are read back
-        answers = [t for t in service.turns_of(messages) if t["role"] == "assistant"]
-
-        # Then each answer carries its own two calls, not the turn before's
-        assert [a["usage"] for a in answers] == [
-            {"input": 2000, "output": 20, "total": 2020, "calls": 2}] * 2
-
-    def test_given_two_turns_when_read_then_each_keeps_its_own_lookups(self):
-        # Given two complete turns in one conversation
-        messages = (self._turn("Prone?", "c1", "prone", "First.")
-                    + self._turn("Restrained?", "c2", "restrained", "Second."))
-
-        # When they are read back
-        answers = [t for t in service.turns_of(messages)
-                   if t["role"] == "assistant"]
-
-        # Then neither turn carries the other's searches
-        assert [len(a["tools"]) for a in answers] == [1, 1]
-        assert answers[0]["tools"][0]["id"] == "c1"
-        assert answers[1]["tools"][0]["id"] == "c2"
-
-    def test_given_a_turn_that_never_answered_when_read_then_it_leaks_nothing(
-            self):
-        # Given a turn whose search never reached an answer
-        from langchain_core.messages import AIMessage, HumanMessage
-
-        messages = [
-            HumanMessage(content="Prone?"),
-            AIMessage(content="", tool_calls=[{"name": "search_srd",
-                                               "args": {"query": "prone"},
-                                               "id": "lost"}]),
-        ] + self._turn("Restrained?", "c2", "restrained", "Second.")
-
-        # When it is read back
-        answers = [t for t in service.turns_of(messages)
-                   if t["role"] == "assistant"]
-
-        # Then the abandoned search is not credited to the question after it
-        assert [c["id"] for c in answers[0]["tools"]] == ["c2"]
-
-    def test_given_several_lookups_when_read_then_they_keep_their_order(self):
-        # Given a turn that searched, then read a section
-        from langchain_core.messages import (AIMessage, HumanMessage,
-                                             ToolMessage)
-
-        messages = [
-            HumanMessage(content="Prone?"),
-            AIMessage(content="", tool_calls=[
-                {"name": "search_srd", "args": {}, "id": "a"}]),
-            ToolMessage(content="…", tool_call_id="a", name="search_srd"),
-            AIMessage(content="", tool_calls=[
-                {"name": "get_srd_section", "args": {}, "id": "b"}]),
-            ToolMessage(content="…", tool_call_id="b", name="get_srd_section"),
-            AIMessage(content="Answer."),
-        ]
-
-        # When it is read back
-        [_, answer] = service.turns_of(messages)
-
-        # Then the trace reads in the order the agent worked
-        assert [c["id"] for c in answer["tools"]] == ["a", "b"]
-
-    def test_given_a_result_with_no_artifact_when_read_then_it_reads_as_done(
-            self):
-        # Given a turn whose tool result predates the artifact
-        messages = self._turn("Prone?", "c1", "prone", "Answer.",
-                              artifact={})
-
-        # When it is read back
-        [_, answer] = service.turns_of(messages)
-
-        # Then it is a finished call with an unknown outcome, not a broken one
-        assert answer["tools"][0]["done"] is True
-        assert answer["tools"][0]["status"] == "ok"
-        assert answer["tools"][0]["summary"] is None
-
-    def test_given_a_tool_that_raised_when_read_then_it_is_marked_failed(self):
-        # Given a turn whose tool LangChain marked as an error
-        from langchain_core.messages import (AIMessage, HumanMessage,
-                                             ToolMessage)
-
-        messages = [
-            HumanMessage(content="Prone?"),
-            AIMessage(content="", tool_calls=[
-                {"name": "query_srd_graph", "args": {}, "id": "a"}]),
-            ToolMessage(content="boom", tool_call_id="a",
-                        name="query_srd_graph", status="error"),
-            AIMessage(content="Answer."),
-        ]
-
-        # When it is read back
-        [_, answer] = service.turns_of(messages)
-
-        # Then the failure survives being reopened
-        assert answer["tools"][0]["status"] == "failed"
-
-    def test_given_a_blank_answer_when_read_then_no_turn_is_made_for_it(self):
-        # Given a conversation whose answer is empty
-        from langchain_core.messages import AIMessage, HumanMessage
-
-        messages = [HumanMessage(content="Prone?"), AIMessage(content="  ")]
-
-        # When it is read back
-        turns = service.turns_of(messages)
-
-        # Then only the question is a turn
-        assert [t["role"] for t in turns] == ["user"]
-
-
-class TestWrittenAt:
-    def test_given_a_dated_conversation_when_read_then_each_turn_carries_its_moment(
-            self):
-        # Given a conversation whose messages were stamped as they were stored
-        from langchain_core.messages import AIMessage, HumanMessage
-
-        asked = HumanMessage(content="Prone?", id="h1")
-        answered = AIMessage(content="It does.", id="a1")
-        when = {"h1": "2026-09-14T08:57:45+00:00",
-                "a1": "2026-09-14T08:57:58+00:00"}
-
-        # When the turns are read back
-        turns = service.turns_of([asked, answered], when)
-
-        # Then each is dated
-        assert [t["at"] for t in turns] == [when["h1"], when["a1"]]
-
-    def test_given_an_undated_conversation_when_read_then_the_turns_still_come_back(
-            self):
-        # Given messages with nothing known about when they were written
-        from langchain_core.messages import AIMessage, HumanMessage
-
-        messages = [HumanMessage(content="Prone?"), AIMessage(content="Yes.")]
-
-        # When the turns are read back
-        turns = service.turns_of(messages)
-
-        # Then they are simply undated
-        assert [t["at"] for t in turns] == [None, None]
-
-
-class TestFindResult:
-    @staticmethod
-    def _messages(*results):
-        from langchain_core.messages import AIMessage, ToolMessage
-
-        return [AIMessage(content="")] + [
-            ToolMessage(content=body, tool_call_id=call_id, name="search_srd")
-            for call_id, body in results]
-
-    def test_given_a_call_id_when_looked_up_then_its_own_result_comes_back(self):
-        # Given a conversation with two lookups in it
-        messages = self._messages(("a", "first result"), ("b", "second result"))
-
-        # When one is looked up
-        found = service.find_result(messages, "b")
-
-        # Then it is that one, not the other
-        assert found["content"] == "second result"
-        assert found["id"] == "b"
-        assert found["truncated"] is False
-
-    def test_given_an_unknown_call_when_looked_up_then_it_is_absent(self):
-        # Given a conversation
-        # When a call that is not in it is looked up
-        # Then the absence is answered, so the route can say 404
-        assert service.find_result(self._messages(("a", "x")), "zzz") is None
-
-    def test_given_an_enormous_result_when_looked_up_then_it_is_capped(self):
-        # Given a result longer than anything worth sending
-        messages = self._messages(("a", "x" * (service.RESULT_CHARS + 500)))
-
-        # When it is looked up
-        found = service.find_result(messages, "a")
-
-        # Then it is cut, and says so rather than reading as the whole result
-        assert len(found["content"]) == service.RESULT_CHARS
-        assert found["truncated"] is True
-
-
-class TestLookup:
+class TestModel:
+    def test_given_a_key_when_read_then_it_is_the_configured_model(
+            self, saver, store, settings_env, monkeypatch):
+        # Given a key in the environment
+        monkeypatch.setenv("GOOGLE_API_KEY", "not-a-real-key")
+        settings = settings_env()
+
+        # When a service's model is read twice
+        chats = ChatService(saver, store)
+        built = chats.model
+
+        # Then it is the configured model, built once
+        assert built.model.endswith(settings.chat.model)
+        assert chats.model is built
+
+
+class TestAsk:
     @pytest.mark.asyncio
-    async def test_given_a_step_still_running_when_looked_up_then_a_finished_result_is_found(
-            self, saver):
-        # Given a lookup whose result is written while its step is unfinished
-        from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-        config = await stored(saver, "busy", HumanMessage(content="Prone?"), AIMessage(
-            content="", tool_calls=[{"name": "search_srd", "args": {}, "id": "call-1"}]))
-        await saver.aput_writes(config, [("messages", [ToolMessage(
-            content="the result", tool_call_id="call-1", name="search_srd")])], "task-1")
+    async def test_given_no_key_when_asked_then_it_fails_before_any_stream(
+            self, saver, store, settings_env):
+        # Given no key to build the model with
+        from rules_lawyer.chat.agent.model import NoApiKey
 
-        # When it is looked up
-        found = await service.lookup("busy", "call-1", saver)
+        settings_env(GOOGLE_API_KEY="")
 
-        # Then it is there before the step is checkpointed
-        assert found["content"] == "the result"
-
-    @pytest.mark.asyncio
-    async def test_given_no_api_key_when_looked_up_then_the_stored_result_still_comes_back(
-            self, saver, settings_env):
-        # Given a stored result, and no key to build a model with
-        from langchain_core.messages import ToolMessage
-        settings_env(GOOGLE_API_KEY="", CHAT_STUB="0")
-        await stored(saver, "kept", ToolMessage(content="kept result", tool_call_id="call-1",
-                                                name="search_srd"))
-
-        # When it is looked up
-        found = await service.lookup("kept", "call-1", saver)
-
-        # Then reading what was stored needed no model
-        assert found["content"] == "kept result"
-
-
-class TestNameMissingSubjects:
-    @staticmethod
-    def _turn(**call):
-        return [{"role": "assistant", "content": "…", "tools": [
-            {"id": "a", "name": "get_srd_section", "args": {},
-             "done": True, "status": "ok", "summary": None,
-             "subject": None, **call}]}]
+        # When a question is asked
+        # Then the request fails, rather than a stream that errors later
+        with pytest.raises(NoApiKey, match="GOOGLE_API_KEY"):
+            await ChatService(saver, store).ask("Prone condition")
 
     @pytest.mark.neo4j
-    def test_given_a_legacy_lookup_when_read_then_the_graph_names_it(
-            self, graph):
-        # Given a stored lookup with an id and no subject
-        turns = self._turn(args={"section_id": "11.2.114"})
+    @pytest.mark.asyncio
+    async def test_given_no_thread_when_asked_then_the_stream_names_a_new_one(
+            self, graph, service):
+        # Given a question with no thread
+        # When it is asked
+        events = [event async for event in await service.ask("Prone condition")]
 
-        # When the missing subjects are filled in
-        service.name_missing_subjects(turns)
-
-        # Then the row can say what was read
-        assert turns[0]["tools"][0]["subject"] == "Prone [Condition]"
+        # Then the stream opens by naming the thread it started, and ends there
+        assert events[0]["type"] == "start"
+        assert events[0]["thread_id"]
+        assert events[-1] == {"type": "done", "thread_id": events[0]["thread_id"]}
 
     @pytest.mark.neo4j
-    def test_given_a_lookup_that_named_itself_when_read_then_it_is_left_alone(
-            self, graph):
-        # Given a lookup whose tool already said what it looked at
-        turns = self._turn(args={"section_id": "11.2.114"},
-                           subject="Something else")
+    @pytest.mark.asyncio
+    async def test_given_an_opening_turn_when_it_ends_then_its_title_is_stored(
+            self, graph, service, store, monkeypatch):
+        # Given a model that titles the question
+        async def summarise(question, model):
+            return "Prone condition effects"
 
-        # When the missing subjects are filled in
-        service.name_missing_subjects(turns)
+        monkeypatch.setattr(titles, "summarise", summarise)
 
-        # Then what the tool said stands
-        assert turns[0]["tools"][0]["subject"] == "Something else"
+        # When a thread's first turn ends
+        await answer(service, "titled")
 
-    def test_given_a_lookup_with_no_id_when_read_then_nothing_is_invented(self):
-        # Given a search, which carries no section id
-        turns = self._turn(name="search_srd", args={"query": "prone"})
+        # Then the title is stored for the list
+        assert await titles.titled(store) == {"titled": "Prone condition effects"}
 
-        # When the missing subjects are filled in
-        service.name_missing_subjects(turns)
 
-        # Then it is untouched, without reaching the graph
-        assert turns[0]["tools"][0]["subject"] is None
+class TestRetry:
+    @pytest.mark.neo4j
+    @pytest.mark.asyncio
+    async def test_given_a_later_turn_when_retried_then_it_branches_before_it(
+            self, graph, service):
+        # Given a conversation of two answered turns
+        await answer(service, "again", "Prone condition")
+        await answer(service, "again", "Restrained condition")
+
+        # When the last of them is asked again
+        events = [event async for event in await service.retry("again")]
+
+        # Then the question was asked once, still after the first
+        assert events[0] == {"type": "start", "thread_id": "again"}
+        turns = await service.history("again")
+        assert [t["content"] for t in turns if t["role"] == "user"] == [
+            "Prone condition", "Restrained condition"]
 
     @pytest.mark.neo4j
-    def test_given_an_id_that_resolves_to_nothing_when_read_then_it_stays_empty(
-            self, graph):
-        # Given a lookup of a section that is no longer there
-        turns = self._turn(args={"section_id": "999.999"})
-
-        # When the missing subjects are filled in
-        service.name_missing_subjects(turns)
-
-        # Then the row falls back to the id rather than inventing a heading
-        assert turns[0]["tools"][0]["subject"] is None
-
-    def test_given_one_id_read_twice_when_filled_then_it_is_looked_up_once(
-            self, monkeypatch):
-        # Given two lookups of the same section, and a counted resolver
-        calls = []
-        monkeypatch.setattr(
-            service.retrieval, "get_section",
-            lambda section_id: calls.append(section_id) or None)
-        turns = (self._turn(args={"section_id": "11.2.114"})
-                 + self._turn(args={"section_id": "11.2.114"}))
-
-        # When the missing subjects are filled in
-        service.name_missing_subjects(turns)
-
-        # Then the graph was asked once
-        assert calls == ["11.2.114"]
-
-
-class TestUntilSilent:
     @pytest.mark.asyncio
-    async def test_given_a_stalled_stream_when_run_then_the_turn_fails(self):
-        # Given a stream that says nothing at all
-        async def never_speaks():
-            await asyncio.sleep(30)
-            yield ("messages", None)
+    async def test_given_the_only_turn_when_retried_then_it_branches_before_it(
+            self, graph, service):
+        """
+        The graph checkpoints once before the input, so the first turn has an
+        empty state to branch from.
+        """
+        # Given a conversation of one answered turn
+        await answer(service, "first", "Prone condition")
 
-        # When it is run under a short silence limit
-        # Then it fails rather than hanging
-        with pytest.raises(TimeoutError, match="sent nothing"):
-            async for _ in service._until_silent(never_speaks(), 0.05):
-                pass
+        # When it is asked again
+        async for _ in await service.retry("first"):
+            pass
+
+        # Then the conversation is still that one question, under its own id
+        turns = await service.history("first")
+        assert [t["content"] for t in turns if t["role"] == "user"] == [
+            "Prone condition"]
+        assert [t["thread_id"] for t in await service.list_threads()] == ["first"]
 
     @pytest.mark.asyncio
-    async def test_given_a_slow_but_steady_stream_when_run_then_it_is_never_cut_off(self):
-        # Given a stream slower overall than the limit but never silent for it
-        async def slow_but_steady():
-            for index in range(4):
-                await asyncio.sleep(0.02)
-                yield ("messages", index)
-
-        # When it is run
-        seen = [item async for item in
-                service._until_silent(slow_but_steady(), 0.05)]
-
-        # Then every event arrived
-        assert [payload for _, payload in seen] == [0, 1, 2, 3]
-
-    @pytest.mark.asyncio
-    async def test_given_a_stream_that_ends_when_run_then_it_ends_cleanly(self):
-        # Given a stream that finishes
-        async def finishes():
-            yield ("messages", 1)
-
-        # When it is run
-        seen = [item async for item in service._until_silent(finishes(), 1)]
-
-        # Then exhaustion is not a timeout
-        assert seen == [("messages", 1)]
-
-
-@pytest.mark.neo4j
-class TestStreamTurn:
-    @pytest.mark.asyncio
-    async def test_given_a_turn_when_run_then_what_it_cost_comes_before_done(
-            self, graph, stub_model, saver):
-        # Given the scripted model, which searches and then answers
-        # When the turn runs
-        events = await collect("Prone condition", saver)
-
-        # Then both calls are counted, once, ahead of the end of the turn
-        kinds = [e["type"] for e in events if e["type"] != "token"]
-        usage = next(e for e in events if e["type"] == "usage")
-        assert kinds[-3:] == ["usage", "citations", "done"]
-        assert usage["calls"] == 2
-        assert usage["total"] == usage["input"] + usage["output"]
-
-    @pytest.mark.asyncio
-    async def test_given_a_failed_model_when_run_then_the_error_is_the_answer(
-            self, graph, saver, monkeypatch):
-        # Given a model that fails on the first call
-        monkeypatch.setattr(service, "build_agent",
-                            raising(RuntimeError("429 RESOURCE_EXHAUSTED")))
-
-        # When the turn runs
-        events = await collect("Prone condition", saver)
-
-        # Then the failure is the whole of what is said
-        error = next(e for e in events if e["type"] == "error")
-        assert "quota" in error["message"].lower()
-        assert [e["type"] for e in events] == ["error", "done"]
-
-    @pytest.mark.asyncio
-    async def test_given_a_failed_model_when_run_then_nothing_is_offered(
-            self, graph, saver, monkeypatch):
-        # Given a model that fails
-        monkeypatch.setattr(service, "build_agent",
-                            raising(RuntimeError("429 RESOURCE_EXHAUSTED")))
-
-        # When the turn runs
-        events = await collect("Prone condition", saver)
-
-        # Then the error says only what went wrong
-        error = next(e for e in events if e["type"] == "error")
-        assert set(error) == {"type", "message"}
-
-    @pytest.mark.asyncio
-    async def test_given_a_working_model_when_run_then_a_whole_turns_events_arrive(
-            self, graph, stub_model, saver):
-        # Given the scripted model
-        # When a turn runs
-        events = await collect("Prone condition", saver)
-        kinds = [event["type"] for event in events]
-
-        # Then the search, the answer and its citations all happen
-        for expected in ("tool_start", "tool_end", "token", "citations", "done"):
-            assert expected in kinds
-        assert "error" not in kinds
-
-    @pytest.mark.asyncio
-    async def test_given_a_finished_answer_when_it_ends_then_it_cites_the_book(
-            self, graph, stub_model, saver):
-        # Given a turn
-        # When it finishes
-        events = await collect("Prone condition", saver)
-
-        # Then the citations resolve from what was actually said
-        citations = next(e for e in events
-                         if e["type"] == "citations")["citations"]
-        assert citations
-        assert all(c["section_id"] for c in citations)
-
-    @pytest.mark.asyncio
-    async def test_given_any_turn_when_it_ends_then_done_names_the_thread(
-            self, graph, stub_model, saver):
-        # Given a turn
-        # When it finishes
-        events = await collect("Prone condition", saver)
-
-        # Then the last event tells the browser which thread to keep using
-        assert events[-1] == {"type": "done", "thread_id": "test"}
+    async def test_given_a_thread_nobody_used_when_retried_then_there_is_nothing(
+            self, service):
+        # Given an id nothing was stored under
+        # When it is retried
+        # Then there is no question to ask again
+        assert await service.retry("never-used") is None
 
 
 class TestHistory:
     @pytest.mark.neo4j
     @pytest.mark.asyncio
     async def test_given_a_stored_thread_when_read_then_the_turns_come_back(
-            self, graph, stub_model, saver):
+            self, graph, service):
         # Given a thread with one turn in it
-        await answer(saver, "kept", "Prone condition")
+        await answer(service, "kept", "Prone condition")
 
         # When it is read back
-        turns = await service.history("kept", saver)
+        turns = await service.history("kept")
 
         # Then the question opens it, with its answer's citations resolved
         assert turns[0]["role"] == "user"
@@ -685,119 +169,72 @@ class TestHistory:
 
     @pytest.mark.asyncio
     async def test_given_no_api_key_when_read_then_the_stored_turns_still_come_back(
-            self, saver, settings_env):
+            self, saver, store, settings_env):
         # Given a stored conversation, and no key to build a model with
-        settings_env(GOOGLE_API_KEY="", CHAT_STUB="0")
+        settings_env(GOOGLE_API_KEY="")
         await stored(saver, "kept", *answered("Prone?"))
+        reader = ChatService(saver, store)
 
         # When it is read back
-        turns = await service.history("kept", saver)
+        turns = await reader.history("kept")
 
         # Then reading what was stored needed no model
         assert [turn["content"] for turn in turns] == ["Prone?", "Prone creatures crawl."]
 
     @pytest.mark.asyncio
     async def test_given_a_thread_nobody_used_when_read_then_it_is_empty(
-            self, stub_model, saver):
+            self, service):
         # Given an id nothing was stored under
         # When it is read back
         # Then the route can answer 404 from the emptiness
-        assert await service.history("never-used", saver) == []
+        assert await service.history("never-used") == []
 
 
-class TestLastQuestion:
-    def test_given_a_conversation_when_read_then_the_latest_question_wins(self):
-        # Given a conversation of two answered turns
-        from langchain_core.messages import AIMessage, HumanMessage
-        messages = [HumanMessage(content="Prone?"), AIMessage(content="Yes."),
-                    HumanMessage(content="Restrained?"), AIMessage(content="No.")]
-
-        # When its last question is found
-        found = service.last_question(messages)
-
-        # Then it is the one a retry would ask again, named by its own id
-        assert found == ("Restrained?", messages[2].id)
-
-    def test_given_a_turn_that_failed_when_read_then_the_question_still_stands(
-            self):
-        # Given a question with no answer under it
-        from langchain_core.messages import HumanMessage
-        messages = [HumanMessage(content="Prone?")]
-
-        # When its last question is found
-        # Then the failure did not take it with it
-        assert service.last_question(messages)[0] == "Prone?"
-
-    def test_given_nothing_asked_when_read_then_there_is_nothing_to_retry(self):
-        # Given a conversation with no question in it
-        # When its last question is found
-        # Then the route has its 404
-        assert service.last_question([]) is None
-
-
-class TestRewind:
-    @pytest.mark.neo4j
+class TestLookup:
     @pytest.mark.asyncio
-    async def test_given_a_later_turn_when_rewound_then_it_branches_before_it(
-            self, graph, stub_model, saver):
-        # Given a conversation of two answered turns
-        await answer(saver, "again", "Prone condition")
-        await answer(saver, "again", "Restrained condition")
+    async def test_given_a_step_still_running_when_looked_up_then_a_finished_result_is_found(
+            self, saver, service):
+        # Given a lookup whose result is written while its step is unfinished
+        from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+        config = await stored(saver, "busy", HumanMessage(content="Prone?"), AIMessage(
+            content="", tool_calls=[{"name": "search_srd", "args": {}, "id": "call-1"}]))
+        await saver.aput_writes(config, [("messages", [ToolMessage(
+            content="the result", tool_call_id="call-1", name="search_srd")])], "task-1")
 
-        # When the last of them is rewound and asked again
-        text, checkpoint_id = await service.rewind("again", saver)
-        async for _ in service.stream_turn(text, "again", saver, checkpoint_id):
-            pass
+        # When it is looked up
+        found = await service.lookup("busy", "call-1")
 
-        # Then the question came back, and it was asked once
-        assert text == "Restrained condition"
-        assert checkpoint_id is not None
-        turns = await service.history("again", saver)
-        assert [t["content"] for t in turns if t["role"] == "user"] == [
-            "Prone condition", "Restrained condition"]
-
-    @pytest.mark.neo4j
-    @pytest.mark.asyncio
-    async def test_given_the_only_turn_when_rewound_then_it_branches_before_it(
-            self, graph, stub_model, saver):
-        """
-        The graph checkpoints once before the input, so the first turn has an
-        empty state to branch from.
-        """
-        # Given a conversation of one answered turn
-        await answer(saver, "first", "Prone condition")
-
-        # When it is rewound and asked again
-        text, checkpoint_id = await service.rewind("first", saver)
-        async for _ in service.stream_turn(text, "first", saver, checkpoint_id):
-            pass
-
-        # Then the conversation is still that one question, under its own id
-        turns = await service.history("first", saver)
-        assert [t["content"] for t in turns if t["role"] == "user"] == [
-            "Prone condition"]
-        assert [t["thread_id"] for t in await service.threads(saver)] == ["first"]
+        # Then it is there before the step is checkpointed
+        assert found["content"] == "the result"
 
     @pytest.mark.asyncio
-    async def test_given_a_thread_nobody_used_when_rewound_then_it_is_nothing(
-            self, stub_model, saver):
-        # Given an id nothing was stored under
-        # When it is rewound
-        # Then there is no question to ask again
-        assert await service.rewind("never-used", saver) is None
+    async def test_given_no_api_key_when_looked_up_then_the_stored_result_still_comes_back(
+            self, saver, store, settings_env):
+        # Given a stored result, and no key to build a model with
+        from langchain_core.messages import ToolMessage
+        settings_env(GOOGLE_API_KEY="")
+        await stored(saver, "kept", ToolMessage(content="kept result", tool_call_id="call-1",
+                                                name="search_srd"))
+        reader = ChatService(saver, store)
+
+        # When it is looked up
+        found = await reader.lookup("kept", "call-1")
+
+        # Then reading what was stored needed no model
+        assert found["content"] == "kept result"
 
 
-class TestThreads:
+class TestListThreads:
     @pytest.mark.neo4j
     @pytest.mark.asyncio
     async def test_given_two_conversations_when_listed_then_the_newest_leads(
-            self, graph, stub_model, saver, store):
+            self, graph, service):
         # Given two conversations, one after the other
-        await answer(saver, "older", "Prone condition")
-        await answer(saver, "newer", "Restrained condition")
+        await answer(service, "older", "Prone condition")
+        await answer(service, "newer", "Restrained condition")
 
         # When they are listed
-        listed = await service.threads(saver, store)
+        listed = await service.list_threads()
 
         # Then the most recent is first
         assert [t["thread_id"] for t in listed] == ["newer", "older"]
@@ -805,14 +242,14 @@ class TestThreads:
     @pytest.mark.neo4j
     @pytest.mark.asyncio
     async def test_given_a_pinned_conversation_when_listed_then_it_sorts_above(
-            self, graph, stub_model, saver, store):
+            self, graph, service):
         # Given two conversations with the older one pinned
-        await answer(saver, "older", "Prone condition")
-        await answer(saver, "newer", "Restrained condition")
-        await service.set_pinned(store, "older", True)
+        await answer(service, "older", "Prone condition")
+        await answer(service, "newer", "Restrained condition")
+        await service.set_pinned("older", True)
 
         # When they are listed
-        listed = await service.threads(saver, store)
+        listed = await service.list_threads()
 
         # Then the pin outranks the ordering
         assert [t["thread_id"] for t in listed] == ["older", "newer"]
@@ -820,27 +257,14 @@ class TestThreads:
 
     @pytest.mark.neo4j
     @pytest.mark.asyncio
-    async def test_given_no_store_when_listed_then_nothing_is_pinned(
-            self, graph, stub_model, saver):
-        # Given a conversation and no store to ask
-        await answer(saver, "alone")
-
-        # When the threads are listed
-        listed = await service.threads(saver)
-
-        # Then the listing still works, with nothing pinned
-        assert [t["pinned"] for t in listed] == [False]
-
-    @pytest.mark.neo4j
-    @pytest.mark.asyncio
     async def test_given_a_conversation_when_listed_then_it_is_titled_by_its_question(
-            self, graph, stub_model, saver):
+            self, graph, service):
         # Given a conversation opened with a long question
         question = "What happens to a creature that " + "really " * 20 + "falls?"
-        await answer(saver, "titled", question)
+        await answer(service, "titled", question)
 
         # When it is listed
-        listed, = await service.threads(saver)
+        listed, = await service.list_threads()
 
         # Then the title is the question, cut at a word
         assert listed["title"].startswith("What happens to a creature")
@@ -850,14 +274,14 @@ class TestThreads:
     @pytest.mark.neo4j
     @pytest.mark.asyncio
     async def test_given_a_stored_title_when_listed_then_it_names_the_conversation(
-            self, graph, stub_model, saver, store):
+            self, graph, service, store):
         # Given two conversations, only one of them titled
-        await answer(saver, "titled", "What exactly does the Prone condition do?")
-        await answer(saver, "untitled", "Restrained condition")
+        await answer(service, "titled", "What exactly does the Prone condition do?")
+        await answer(service, "untitled", "Restrained condition")
         await titles.remember(store, "titled", "Prone condition effects")
 
         # When they are listed
-        listed = {t["thread_id"]: t["title"] for t in await service.threads(saver, store)}
+        listed = {t["thread_id"]: t["title"] for t in await service.list_threads()}
 
         # Then the title is used where there is one, and the question elsewhere
         assert listed == {"titled": "Prone condition effects",
@@ -865,109 +289,112 @@ class TestThreads:
 
     @pytest.mark.asyncio
     async def test_given_pins_beyond_the_scan_when_listed_then_every_pin_is_there(
-            self, saver, store, monkeypatch):
+            self, saver, service, monkeypatch):
         # Given two pinned conversations and a scan that reaches only one
-        monkeypatch.setattr(service, "CHECKPOINTS_PER_THREAD", 1)
+        monkeypatch.setattr(chat_service, "CHECKPOINTS_PER_THREAD", 1)
         await stored(saver, "first", *answered("Prone?"))
         await stored(saver, "second", *answered("Restrained?"))
-        await service.set_pinned(store, "first", True)
-        await service.set_pinned(store, "second", True)
+        await service.set_pinned("first", True)
+        await service.set_pinned("second", True)
 
         # When one thread is asked for
-        listed = await service.threads(saver, store, limit=1)
+        listed = await service.list_threads(limit=1)
 
         # Then both pins are listed anyway: the limit is for the rest
         assert sorted(t["thread_id"] for t in listed) == ["first", "second"]
         assert all(t["pinned"] for t in listed)
 
-
-class TestPinned:
     @pytest.mark.asyncio
-    async def test_given_no_store_when_asked_then_nothing_is_pinned(self):
-        # Given no store at all
-        # When the pins are read
-        # Then the absence is answered rather than raised
-        assert await service.pinned(None) == set()
-
-    @pytest.mark.asyncio
-    async def test_given_many_pins_when_asked_then_every_one_comes_back(self, store):
+    async def test_given_many_pins_when_listed_then_every_one_is_pinned(
+            self, saver, service):
         """``BaseStore.asearch`` returns ten results by default."""
-        # Given more pins than a default page holds
+        # Given more pinned conversations than a default page holds
         for n in range(11):
-            await service.set_pinned(store, f"t{n}", True)
+            await stored(saver, f"t{n}", *answered(f"Question {n}?"))
+            await service.set_pinned(f"t{n}", True)
 
-        # When the pins are read
-        # Then none is missing
-        assert await service.pinned(store) == {f"t{n}" for n in range(11)}
+        # When they are listed
+        listed = await service.list_threads()
+
+        # Then none has lost its pin
+        assert sum(t["pinned"] for t in listed) == 11
 
 
-@pytest.mark.neo4j
 class TestSetPinned:
     @pytest.mark.asyncio
     async def test_given_a_pin_when_removed_then_the_row_is_deleted(
-            self, graph, stub_model, saver, store):
+            self, saver, store, service):
         # Given a pinned conversation
-        await answer(saver, "kept")
-        await service.set_pinned(store, "kept", True)
-        assert await service.pinned(store) == {"kept"}
+        await stored(saver, "kept", *answered("Prone?"))
+        await service.set_pinned("kept", True)
 
         # When it is unpinned
-        await service.set_pinned(store, "kept", False)
+        await service.set_pinned("kept", False)
 
         # Then the row is gone, rather than holding a false
-        assert await service.pinned(store) == set()
-        assert await store.asearch(service.PINS) == []
+        assert await store.asearch(chat_service.PINS) == []
+
+    @pytest.mark.asyncio
+    async def test_given_no_such_thread_when_pinned_then_nothing_is_stored(
+            self, store, service):
+        # Given an id nothing was stored under
+        # When it is pinned
+        pinned = await service.set_pinned("never-used", True)
+
+        # Then the route can answer 404, and no pin was written
+        assert pinned is False
+        assert await store.asearch(chat_service.PINS) == []
 
 
 class TestForget:
     @pytest.mark.neo4j
     @pytest.mark.asyncio
     async def test_given_a_conversation_when_deleted_then_nothing_of_it_remains(
-            self, graph, stub_model, saver):
+            self, graph, service):
         # Given a stored conversation
-        await answer(saver, "doomed")
-        assert [t["thread_id"] for t in await service.threads(saver)] == ["doomed"]
+        await answer(service, "doomed")
+        assert [t["thread_id"] for t in await service.list_threads()] == ["doomed"]
 
         # When it is deleted
-        deleted = await service.forget("doomed", saver)
+        deleted = await service.forget("doomed")
 
         # Then it is gone from the listing and from the history
         assert deleted is True
-        assert await service.threads(saver) == []
-        assert await service.history("doomed", saver) == []
+        assert await service.list_threads() == []
+        assert await service.history("doomed") == []
 
     @pytest.mark.neo4j
     @pytest.mark.asyncio
     async def test_given_a_pinned_conversation_when_deleted_then_the_pin_goes_too(
-            self, graph, stub_model, saver, store):
+            self, graph, service, store):
         # Given a pinned conversation
-        await answer(saver, "doomed")
-        await service.set_pinned(store, "doomed", True)
+        await answer(service, "doomed")
+        await service.set_pinned("doomed", True)
 
         # When it is deleted
-        await service.forget("doomed", saver, store)
+        await service.forget("doomed")
 
         # Then its pin went with it
-        assert await service.pinned(store) == set()
+        assert await store.asearch(chat_service.PINS) == []
 
     @pytest.mark.neo4j
     @pytest.mark.asyncio
     async def test_given_a_titled_conversation_when_deleted_then_the_title_goes_too(
-            self, graph, stub_model, saver, store):
+            self, graph, service, store):
         # Given a titled conversation
-        await answer(saver, "doomed")
+        await answer(service, "doomed")
         await titles.remember(store, "doomed", "Prone condition effects")
 
         # When it is deleted
-        await service.forget("doomed", saver, store)
+        await service.forget("doomed")
 
         # Then its title went with it
         assert await titles.titled(store) == {}
 
     @pytest.mark.asyncio
-    async def test_given_an_id_nobody_used_when_deleted_then_it_is_not_a_delete(
-            self, saver):
+    async def test_given_a_thread_nobody_used_when_deleted_then_it_says_so(
+            self, service):
         # Given an id nothing was stored under
         # When it is deleted
-        # Then nothing was deleted, and the caller is told
-        assert await service.forget("never-used", saver) is False
+        # Then the route can answer 404
+        assert await service.forget("never-used") is False

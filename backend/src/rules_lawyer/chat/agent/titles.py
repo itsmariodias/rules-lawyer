@@ -1,7 +1,7 @@
 """Model-written conversation titles, stored beside the pins.
 
-Best effort: on any failure ``threads()`` falls back to the cut opening
-question.
+Best effort: on any failure ``ChatService.list_threads`` falls back to the
+cut opening question.
 """
 
 from __future__ import annotations
@@ -10,11 +10,10 @@ import asyncio
 import logging
 import re
 
+from langchain_core.language_models import BaseChatModel
 from langgraph.store.base import BaseStore
 
-from rules_lawyer.chat import agent
-from rules_lawyer.chat.prompts import prompt
-from rules_lawyer.config import get_settings
+from rules_lawyer.chat.agent.prompts import prompt
 
 log = logging.getLogger(__name__)
 
@@ -45,25 +44,21 @@ def clean(raw: str) -> str | None:
     return " ".join(words[:WORDS]) or None
 
 
-async def summarise(question: str) -> str | None:
+async def summarise(question: str, model: BaseChatModel) -> str | None:
     """Ask the model for a short title.  Never raises.
 
     Args:
         question: The conversation's first question.
+        model: The chat model to ask.
 
     Returns:
-        The cleaned title, or None under the stub, without a key, after
-        ``TIMEOUT_SECONDS``, or on any model error.
+        The cleaned title, or None after ``TIMEOUT_SECONDS``, on any model
+        error, or if the reply has no text.
     """
-    if get_settings().chat.stub:
-        return None
     try:
-        model = agent.model()
         reply = await asyncio.wait_for(
             model.ainvoke(PROMPT.format(question=question)), TIMEOUT_SECONDS)
-    except agent.NoApiKey:
-        return None
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - never raises: a title is optional
         log.warning("Could not title a conversation: %s", exc)
         return None
     return clean(reply.text)

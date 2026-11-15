@@ -9,13 +9,12 @@ stable until the next load.
 from __future__ import annotations
 
 import re
-from typing import Any
 
-from rules_lawyer.chat.retrieval import query
+from rules_lawyer.chat.retrieval.search import query
 
-_MARKUP = re.compile(r"[*_`]{1,3}|^#+\s*", re.M)
+_MARKUP = re.compile(r"[*_`]{1,3}|^#+\s*", re.MULTILINE)
 
-_TABLE_ROW = re.compile(r"^\s*\|.*$", re.M)
+_TABLE_ROW = re.compile(r"^\s*\|.*$", re.MULTILINE)
 
 # Shorter summaries are dropped in favour of facts.
 MIN_SUMMARY = 20

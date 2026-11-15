@@ -1,7 +1,8 @@
 /**
- * End-to-end run over Vite, FastAPI and a fresh Neo4j container, with
- * `CHAT_STUB=1` so no API key is needed.  Uses its own ports (8001, 5174) and
- * its own `.data` directory, whose `chat/` is emptied each run.
+ * End-to-end run over Vite, FastAPI and a fresh Neo4j container, with the
+ * backend's fake chat model (`tests.e2e_app`) so no API key is needed.  Uses
+ * its own ports (8001, 5174) and its own `.data` directory, whose `chat/` is
+ * emptied each run.
  */
 
 import { defineConfig, devices } from '@playwright/test'
@@ -57,14 +58,13 @@ export default defineConfig({
     {
       // Builds the data directory and starts the server in one command.
       command: `node "${prepare}" `
-               + `&& uv run uvicorn rules_lawyer.api:app --port ${API_PORT}`,
+               + `&& uv run uvicorn tests.e2e_app:app --port ${API_PORT}`,
       cwd: backend,
       // Needs neither the database nor a key.
       url: `http://127.0.0.1:${API_PORT}/health`,
       // The container starts later in global setup; the driver connects lazily.
       env: {
         RULES_LAWYER_DATA: data,
-        CHAT_STUB: '1',
         // Blank, not unset, to override the root .env: otherwise every query
         // is embedded live and spends quota.  Search runs lexical-only.
         GOOGLE_API_KEY: '',

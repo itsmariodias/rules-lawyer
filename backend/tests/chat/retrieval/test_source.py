@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from rules_lawyer.chat import source
+from rules_lawyer.chat.retrieval import source
 
 
 @pytest.mark.neo4j

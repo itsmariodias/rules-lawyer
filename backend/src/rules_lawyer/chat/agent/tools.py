@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from langchain_core.tools import tool
 
-from rules_lawyer.chat import cypher, neighbourhood, retrieval
+from rules_lawyer.chat.retrieval import cypher, neighbourhood, search
 from rules_lawyer.config import get_settings
 
 # ``(content, artifact)``.  The artifact rides on the ToolMessage, hidden from
@@ -66,7 +66,7 @@ def search_srd(query: str, entity_type: str | None = None) -> Result:
                        "refused", f"unknown type {entity_type!r}")
 
     chat = get_settings().chat
-    passages = retrieval.hybrid_search(
+    passages = search.hybrid_search(
         query,
         limit=chat.top_k,
         candidates=chat.search_limit,
@@ -94,7 +94,7 @@ def get_srd_section(section_id: str) -> Result:
         section_id: A dotted section id such as "11.2.46.1", exactly as it
             appears in square brackets in a search result.
     """
-    found = retrieval.get_section(section_id.strip())
+    found = search.get_section(section_id.strip())
     if found is None:
         return _result(
             f"No section with id {section_id!r}. Ids come from search "
@@ -142,7 +142,7 @@ def _printed_in(nodes: list[dict]) -> dict[str, dict]:
     uids = [n["uid"] for n in nodes if not n["section_id"]]
     if not uids:
         return {}
-    return {row["uid"]: row for row in retrieval.query(_PRINTED_IN,
+    return {row["uid"]: row for row in search.query(_PRINTED_IN,
                                                        {"uids": uids})}
 
 
@@ -299,7 +299,7 @@ def query_srd_graph(cypher_query: str) -> Result:
                                       timeout=chat.cypher_timeout_seconds,
                                       max_rows=chat.cypher_max_rows)
     # Returned, not raised: the model fixes the query and retries.
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return _result(
             f"The query failed: {_reason(exc)}\n\nCheck it against the "
             "schema in your instructions, then try again.",

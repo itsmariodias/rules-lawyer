@@ -1,57 +1,57 @@
 """Stage 3 over HTTP: the chat stream, threads, citation sources and the graph view.
 
-The checkpointer and store come from ``request.app.state`` (see
-``api.lifespan``).
+Chat routes reach conversations through a ``ChatService`` over the app's
+checkpointer and store (see ``api.lifespan``), from ``chat_service``, which
+tests replace through ``app.dependency_overrides``.  Only asking and retrying
+build the model, so the other routes work without a key.
 """
 
 from __future__ import annotations
 
-import asyncio
 import json
-from typing import Annotated, AsyncIterator
-from uuid import uuid4
+from collections.abc import AsyncIterator, Iterator
+from contextlib import contextmanager
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from langgraph.checkpoint.base import BaseCheckpointSaver
-from langgraph.store.base import BaseStore
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from rules_lawyer.chat import agent as chat_agent
-from rules_lawyer.chat import neighbourhood as graph_view
-from rules_lawyer.chat import service, titles
-from rules_lawyer.chat.source import excerpt
+from rules_lawyer.chat.agent.model import NoApiKey
+from rules_lawyer.chat.retrieval import neighbourhood as graph_view
+from rules_lawyer.chat.retrieval.source import excerpt
+from rules_lawyer.chat.service import ChatService
 
 router = APIRouter(tags=["chat"])
 
 
-def conversations(request: Request) -> BaseCheckpointSaver:
-    """The process-wide checkpointer, opened by the app's lifespan.
+def chat_service(request: Request) -> ChatService:
+    """The conversations, over the app's checkpointer and store.
 
     Args:
-        request: The request, whose app holds the checkpointer.
+        request: The request, whose app holds the checkpointer and store.
 
     Returns:
-        The conversation storage.
+        The service; it builds its model only when asked to answer.
     """
-    return request.app.state.checkpointer
+    return ChatService(request.app.state.checkpointer, request.app.state.store)
 
 
-def flags(request: Request) -> BaseStore:
-    """The process-wide pin and title store, opened by the app's lifespan.
+Chat = Annotated[ChatService, Depends(chat_service)]
 
-    Args:
-        request: The request, whose app holds the store.
 
-    Returns:
-        The pin and title store.
+@contextmanager
+def _answerable() -> Iterator[None]:
+    """Turn a missing key into a 503, before any stream starts.
+
+    Raises:
+        HTTPException: 503 if no API key is configured.
     """
-    return request.app.state.store
-
-
-Conversations = Annotated[BaseCheckpointSaver, Depends(conversations)]
-Flags = Annotated[BaseStore, Depends(flags)]
+    try:
+        yield
+    except NoApiKey as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 class PinRequest(BaseModel):
@@ -68,27 +68,14 @@ class ChatRequest(BaseModel):
     thread_id: str | None = None
 
 
-def _sse(event: dict) -> str:
-    """One server-sent event frame."""
-    return f"data: {json.dumps(event)}\n\n"
+def _streamed(events: AsyncIterator[dict]) -> StreamingResponse:
+    """Events as a server-sent event response."""
+    async def frames() -> AsyncIterator[str]:
+        async for event in events:
+            yield f"data: {json.dumps(event)}\n\n"
 
-
-def _require_model() -> None:
-    """Refuse a turn before its stream starts if no model can answer it.
-
-    Raises:
-        HTTPException: 503 if no API key is configured.
-    """
-    try:
-        chat_agent.model()
-    except chat_agent.NoApiKey as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-
-def _streamed(frames: AsyncIterator[str]) -> StreamingResponse:
-    """Server-sent event frames as a response."""
     return StreamingResponse(
-        frames,
+        frames(),
         media_type="text/event-stream",
         # Stops nginx-style proxies buffering the stream.
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
@@ -96,8 +83,7 @@ def _streamed(frames: AsyncIterator[str]) -> StreamingResponse:
 
 
 @router.post("/chat")
-async def chat(request: ChatRequest, checkpointer: Conversations,
-               store: Flags) -> StreamingResponse:
+async def chat(request: ChatRequest, service: Chat) -> StreamingResponse:
     """One turn, streamed as server-sent events.
 
     Events: ``start``, ``token``, ``tool_start``, ``tool_end``, ``usage``,
@@ -107,8 +93,7 @@ async def chat(request: ChatRequest, checkpointer: Conversations,
 
     Args:
         request: The question, and the thread to add it to if not a new one.
-        checkpointer: Conversation storage.
-        store: Where the opening turn's title is stored.
+        service: Conversations.
 
     Returns:
         The event stream.
@@ -116,41 +101,21 @@ async def chat(request: ChatRequest, checkpointer: Conversations,
     Raises:
         HTTPException: 503 if no API key is configured.
     """
-    _require_model()
-    thread_id = request.thread_id or uuid4().hex
-    # Checked in storage, not by a missing id: a client may mint its own.
-    opening = await checkpointer.aget_tuple(
-        {"configurable": {"thread_id": thread_id}}) is None
-
-    async def events() -> AsyncIterator[str]:
-        titling = (asyncio.create_task(titles.summarise(request.message))
-                   if opening else None)
-        try:
-            yield _sse({"type": "start", "thread_id": thread_id})
-            async for event in service.stream_turn(
-                    request.message, thread_id, checkpointer):
-                yield _sse(event)
-            if titling is not None and (title := await titling):
-                await titles.remember(store, thread_id, title)
-        finally:
-            # The client disconnected; nothing will read the title.
-            if titling is not None:
-                titling.cancel()
-
-    return _streamed(events())
+    with _answerable():
+        events = await service.ask(request.message, request.thread_id)
+    return _streamed(events)
 
 
 @router.post("/chat/threads/{thread_id}/retry")
-async def retry_turn(thread_id: str,
-                     checkpointer: Conversations) -> StreamingResponse:
-    """Re-ask the last question, replacing its answer (see ``service.rewind``).
+async def retry_turn(thread_id: str, service: Chat) -> StreamingResponse:
+    """Re-ask the last question, replacing its answer (see ``ChatService.retry``).
 
     Streams the same events as ``/chat``.  The question is read from the
     checkpoint, not sent by the client.
 
     Args:
         thread_id: The thread whose last question is asked again.
-        checkpointer: Conversation storage.
+        service: Conversations.
 
     Returns:
         The event stream.
@@ -159,94 +124,80 @@ async def retry_turn(thread_id: str,
         HTTPException: 503 if no API key is configured; 404 if the thread
             has no question.
     """
-    _require_model()
-    rewound = await service.rewind(thread_id, checkpointer)
-    if rewound is None:
+    with _answerable():
+        events = await service.retry(thread_id)
+    if events is None:
         raise HTTPException(status_code=404, detail=f"no thread {thread_id!r}")
-    message, checkpoint_id = rewound
-
-    async def events() -> AsyncIterator[str]:
-        yield _sse({"type": "start", "thread_id": thread_id})
-        async for event in service.stream_turn(
-                message, thread_id, checkpointer, checkpoint_id):
-            yield _sse(event)
-
-    return _streamed(events())
+    return _streamed(events)
 
 
 @router.get("/chat/threads")
-async def chat_threads(checkpointer: Conversations, store: Flags,
-                       limit: int = 50) -> dict:
+async def chat_threads(service: Chat, limit: int = 50) -> dict:
     """Stored conversations, pinned first and newest first within that.
 
     Args:
-        checkpointer: Conversation storage.
-        store: Pins and titles.
+        service: Conversations.
         limit: Maximum unpinned threads; every pinned thread is listed.
 
     Returns:
-        ``{"threads"}``, as ``service.threads`` lists them.
+        ``{"threads"}``, as ``ChatService.list_threads`` lists them.
     """
-    return {"threads": await service.threads(checkpointer, store, limit)}
+    return {"threads": await service.list_threads(limit)}
 
 
 @router.put("/chat/threads/{thread_id}/pin", status_code=204)
-async def pin_thread(thread_id: str, request: PinRequest,
-                     checkpointer: Conversations, store: Flags) -> None:
+async def pin_thread(thread_id: str, request: PinRequest, service: Chat) -> None:
     """Pin or unpin one conversation.
 
     Args:
         thread_id: The conversation.
         request: Whether to pin it.
-        checkpointer: Conversation storage, to check the thread exists.
-        store: Where pins are kept.
+        service: Conversations.
 
     Raises:
         HTTPException: 404 if the thread does not exist.
     """
-    if await checkpointer.aget_tuple(
-            {"configurable": {"thread_id": thread_id}}) is None:
+    if not await service.set_pinned(thread_id, request.pinned):
         raise HTTPException(status_code=404, detail=f"no thread {thread_id!r}")
-    await service.set_pinned(store, thread_id, request.pinned)
 
 
 @router.get("/chat/threads/{thread_id}")
-async def chat_thread(thread_id: str, checkpointer: Conversations) -> dict:
+async def chat_thread(thread_id: str, service: Chat) -> dict:
     """One conversation's turns.
 
     Args:
         thread_id: The conversation.
-        checkpointer: Conversation storage.
+        service: Conversations.
 
     Returns:
-        ``{"thread_id", "messages"}``, the turns as ``service.history`` reads them.
+        ``{"thread_id", "messages"}``, the turns as ``ChatService.history``
+        reads them.
 
     Raises:
         HTTPException: 404 if the thread does not exist.
     """
-    messages = await service.history(thread_id, checkpointer)
+    messages = await service.history(thread_id)
     if not messages:
         raise HTTPException(status_code=404, detail=f"no thread {thread_id!r}")
     return {"thread_id": thread_id, "messages": messages}
 
 
 @router.get("/chat/threads/{thread_id}/lookups/{call_id}")
-async def chat_lookup(thread_id: str, call_id: str,
-                      checkpointer: Conversations) -> dict:
+async def chat_lookup(thread_id: str, call_id: str, service: Chat) -> dict:
     """One tool call's stored result, fetched on demand because results are large.
 
     Args:
         thread_id: The conversation the call was made in.
         call_id: The tool call's id, from its ``tool_start`` event.
-        checkpointer: Conversation storage.
+        service: Conversations.
 
     Returns:
-        The result, as ``service.find_result`` returns it.
+        The result, as ``threads.find_result`` returns it.
 
     Raises:
         HTTPException: 404 if the thread has no such call.
     """
-    found = await service.lookup(thread_id, call_id, checkpointer)
+    found = await service.lookup(thread_id, call_id)
     if found is None:
         raise HTTPException(status_code=404,
                             detail=f"no lookup {call_id!r} in {thread_id!r}")
@@ -254,19 +205,17 @@ async def chat_lookup(thread_id: str, call_id: str,
 
 
 @router.delete("/chat/threads/{thread_id}", status_code=204)
-async def forget_thread(thread_id: str, checkpointer: Conversations,
-                        store: Flags) -> None:
+async def forget_thread(thread_id: str, service: Chat) -> None:
     """Delete one conversation, its pin and its title.
 
     Args:
         thread_id: The conversation.
-        checkpointer: Conversation storage.
-        store: Pins and titles.
+        service: Conversations.
 
     Raises:
         HTTPException: 404 if the thread does not exist.
     """
-    if not await service.forget(thread_id, checkpointer, store):
+    if not await service.forget(thread_id):
         raise HTTPException(status_code=404, detail=f"no thread {thread_id!r}")
 
 

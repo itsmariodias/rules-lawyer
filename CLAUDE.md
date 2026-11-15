@@ -70,21 +70,26 @@ backend/src/rules_lawyer/
     pipeline.py      orchestration
     routes.py        /graph/health, /graph/load
   chat/              stage 3
-    retrieval.py     lexical, dense and fused search; one section by id;
-                     CITATION, the citation pattern
-    cypher.py        guard, read-only transaction, derived schema, rendering
-    neighbourhood.py bounded walk around one node (graph view and tool)
-    tools.py         the four agent tools
-    agent.py         LangGraph agent on Gemini
-    service.py       one turn -> typed event stream; thread storage; rewind
-    source.py        a citation -> markdown slice and page rectangles
-    titles.py        conversation titles
-    stub.py          scripted model for the test suites (CHAT_STUB)
-    prompts/         system.md, graph-orientation.md, title.md
+    agent/           the model and everything built on it
+      model.py       the chat model factory (Gemini) and NoApiKey
+      build.py       LangGraph agent: system prompt, compiled and cached
+      tools.py       the four agent tools
+      titles.py      conversation titles
+      prompts/       system.md, graph-orientation.md, title.md
+    retrieval/       reads from the graph
+      search.py      driver; lexical, dense and fused search; one section
+                     by id; CITATION, the citation pattern
+      cypher.py      guard, read-only transaction, derived schema, rendering
+      neighbourhood.py  bounded walk around one node (graph view and tool)
+      source.py      a citation -> markdown slice and page rectangles
+    service.py       ChatService: ask, retry, history, lookups, pins, list,
+                     delete; builds its model only to answer
+    turn.py          one turn -> typed event stream
+    threads.py       stored messages -> UI turns, traces and results (no I/O)
     routes.py        /chat, /chat/threads/*, /source/{id}, /neighbourhood
 
 frontend/src/
-  api.ts             client; ChatEvent mirrors service.py's events
+  api.ts             client; ChatEvent mirrors turn.py's events
   useChat.ts         conversation state for the open thread
   useStored.ts       localStorage-backed state and theme
   useGraphStatus.ts  graph availability, polled until connected
@@ -112,7 +117,7 @@ GRAPH.md             reference for every label and relationship type
 - **Docstrings:** Google style, the summary on the opening `"""` line.
   Public functions document `Args`, `Returns`, `Raises` (and `Yields`)
   where they apply; private helpers get one line. Tool docstrings in
-  `chat/tools.py` are the exception (see below).
+  `chat/agent/tools.py` are the exception (see below).
 - **Comments** only for what the code cannot say: a library quirk, a bug
   being prevented, an SRD fact, a measured number. They describe the code
   and the book as they are, never the history of a change, a plan, or this
@@ -124,17 +129,17 @@ GRAPH.md             reference for every label and relationship type
   measurement behind them (`HEADING_LEVELS = {26.0: 1, ...}`), and come from
   something the book guarantees (a font, a size, a frame, a fixed phrase)
   rather than a statistical guess.
-- **Tool docstrings in `chat/tools.py` are prompt text.** LangChain parses
+- **Tool docstrings in `chat/agent/tools.py` are prompt text.** LangChain parses
   them into the tool descriptions and `Args:` into the parameter schema, so
   edits change model behaviour.
-- **Prompt files** in `chat/prompts/` are sent verbatim: one paragraph per
+- **Prompt files** in `chat/agent/prompts/` are sent verbatim: one paragraph per
   line, since a line break in the file reaches the model. Only the trailing
   newline is stripped. They are read at import, so a misspelt name fails at
   startup.
 - **Commits** are conventional: `type(scope): subject`.
 - **Docs that tests hold:** `tests/test_docs.py` fails if GRAPH.md falls
   behind `mapping`, if `KINDS` in `graph-layout.ts` misses a label, or if
-  `Markdown.tsx`'s citation pattern differs from `retrieval.CITATION`. When
+  `Markdown.tsx`'s citation pattern differs from `search.CITATION`. When
   a count in this file changes (a re-parse, a load), update the tables here.
 
 ## Configuration
@@ -188,7 +193,7 @@ The pipelines are importable: `srd.artifact.build`, `write` and `load`, and
 `graph.pipeline.build_graph`. Progress goes through an injected `report`
 callable (`graph.model.Report`; the CLI passes `print`). Every `__init__.py`
 is empty, so importing one module pulls in only what it imports
-(`graph.embeddings` loads no PDF reader, `chat.cypher` no agent), and
+(`graph.embeddings` loads no PDF reader, `chat.retrieval.cypher` no agent), and
 importing a pipeline pulls in no web framework.
 
 ## API
@@ -560,7 +565,11 @@ A LangGraph tool-calling agent (`langchain.agents.create_agent`) on Gemini
 | `explore_srd_graph` | the bounded walk around a section, as prose |
 | `query_srd_graph` | read-only Cypher |
 
-`service.stream_turn` flattens LangGraph's stream into events: `start`,
+`ChatService` (`service.py`) is what the routes call: `ask`, `retry`,
+`history`, `lookup`, `list_threads`, `set_pinned`, `forget`, over the
+checkpointer and the store. Its `model` is a `cached_property`: only `ask`
+and `retry` read it, so stored conversations open without a key.
+`turn.stream_turn` flattens LangGraph's stream into events: `start`,
 `token`, `tool_start`, `tool_end`, `usage`, `citations`, `error`, `done`.
 `routes.py` encodes them as SSE; tests iterate them directly.
 
@@ -611,9 +620,9 @@ A LangGraph tool-calling agent (`langchain.agents.create_agent`) on Gemini
   Frightened question (median of 5): schema alone 29 tool calls, with the
   idiom 12, with the 600-char cell cap 8.
 - **If the graph is unreachable the prompt omits the schema** rather than
-  failing the turn. `build_agent` recomputes the prompt each call and
-  `compile_agent` caches on (checkpointer, prompt), so the schema is picked
-  up once the graph is reachable.
+  failing the turn. `build_agent` compiles the agent every turn, prompt
+  included (about 2ms; building the Gemini client costs 16), so the schema
+  is picked up once the graph is reachable.
 
 ### The graph walk (`explore_srd_graph`, `/neighbourhood`)
 
@@ -644,19 +653,25 @@ A LangGraph tool-calling agent (`langchain.agents.create_agent`) on Gemini
   Phantasmal Killer) against a graph that was right; answering from the
   tools alone was not enough to stop that.
 - **The model is required, and a failure is the reply.** No fallback answer.
-  A missing key is knowable before the stream starts, so `/chat` answers 503;
-  everything else arrives as an `error` event. `_explain` names the common
+  A missing key is knowable before the stream starts: `ask` and `retry`
+  build the model before returning their stream, so `/chat` and retry
+  answer 503; everything else arrives as an `error` event. `_explain` names the common
   failures (no key, rejected key, spent quota) and truncates the rest.
 - **A stall is not an error by itself,** so `_until_silent` fails a turn
   after `CHAT_TIMEOUT_SECONDS` of silence, reset by every token and tool
   result.
-- **`CHAT_STUB` is a test seam, not a fallback:** `stub.py` calls the real
-  `search_srd` and cites the first result. It lives in the package because
-  e2e drives a real uvicorn process.
+- **The model is never switched by configuration:** `ChatService.model`
+  builds the configured one (`agent.model.model()`), lazily. Tests replace
+  the `chat_service` route dependency through `app.dependency_overrides`
+  with `fake_chat_service`, whose `FakeChatService` overrides `model` with
+  `FakeChatModel` (`tests/fakes.py`). The fake calls the real `search_srd`
+  and cites the first result; asked for a title it replies with a search,
+  so conversations stay untitled. e2e serves `tests/e2e_app.py`, the app with that override, so
+  no production code knows a fake exists.
 - **Citations come from the answer.** The prompt asks for `[11.2.114]` after
   each claim; `resolve_citations` resolves the ids in the finished text, in
   order of first appearance, dropping invented ones. The pattern is
-  `retrieval.CITATION`; `Markdown.tsx` has a copy that `test_docs.py` holds
+  `search.CITATION`; `Markdown.tsx` has a copy that `test_docs.py` holds
   against it.
 - **The id is what the model writes; a number is what the reader sees.**
   `Markdown` numbers resolved citations `[1]`, `[2]` and the list below is the
@@ -668,7 +683,7 @@ A LangGraph tool-calling agent (`langchain.agents.create_agent`) on Gemini
   `empty` is a valid answer, not a failure.
 - **Usage** is summed from `usage_metadata` over a turn's model calls, live
   (sent before `done`, after an `error` too) and when reopened. A turn
-  without counts shows nothing. The stub reports a fixed 1230 per call.
+  without counts shows nothing. The fake reports a fixed 1230 per call.
 
 ### Threads
 
@@ -691,8 +706,8 @@ A LangGraph tool-calling agent (`langchain.agents.create_agent`) on Gemini
   back to the cut question. Whether a turn is the opening one is asked of the
   checkpointer, since a client may mint its own id.
 - **Retry is a rewind, not a second question.** The checkpointer cannot drop
-  one checkpoint, so `rewind` finds the newest checkpoint without the last
-  question and the retry branches from it; later checkpoints stay on disk,
+  one checkpoint, so `ChatService.retry` finds the newest checkpoint without
+  the last question and the retry branches from it; later checkpoints stay on disk,
   unreachable. The question is read from the checkpoint, not resent. The
   graph checkpoints before the input, so the first turn also has a state to
   branch from. An empty thread is a 404 before the stream starts.
@@ -835,9 +850,9 @@ browser stays on one origin and the SSE stream shares it.
 - `npm test` in `e2e/`: Playwright over Vite, FastAPI and a **fresh Neo4j
   container** loaded from this checkout's artifact (not the docker-compose
   database). Own ports (8001, 5174, 7688) and own `.data` directory, with
-  `chat/` emptied each run. `CHAT_STUB=1` and a blank `GOOGLE_API_KEY`, so no
-  quota is spent and search is lexical only. Needs Docker, the artifact and
-  `srd_embeddings.idx`; skips without them. Specs import `test` from
+  `chat/` emptied each run. Served by `tests.e2e_app` (the fake model) with
+  a blank `GOOGLE_API_KEY`, so no quota is spent and search is lexical only.
+  Needs Docker, the artifact and `srd_embeddings.idx`; skips without them. Specs import `test` from
   `fixtures.ts` and use its `app` fixture, which is what skips them. The
   development Neo4j can stay up: `docker-compose.yml` caps its memory as the
   test containers are capped. Short of memory, macOS suspends the browser's

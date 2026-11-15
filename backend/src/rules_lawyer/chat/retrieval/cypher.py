@@ -16,8 +16,8 @@ from typing import Any
 
 import neo4j
 
-from rules_lawyer.chat.prompts import prompt
-from rules_lawyer.chat.retrieval import driver, query
+from rules_lawyer.chat.agent.prompts import prompt
+from rules_lawyer.chat.retrieval.search import driver, query
 from rules_lawyer.config import get_settings
 
 # --------------------------------------------------------------------------
@@ -33,8 +33,8 @@ class Refused(ValueError):
 _STRING = re.compile(r"'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\"")
 
 # Subqueries (``CALL {`` and ``CALL (n) {``) have no name, so do not match.
-_PROCEDURE = re.compile(r"\bCALL\s+([A-Za-z_][\w.]*)", re.I)
-_LOAD_CSV = re.compile(r"\bLOAD\s+CSV\b", re.I)
+_PROCEDURE = re.compile(r"\bCALL\s+([A-Za-z_][\w.]*)", re.IGNORECASE)
+_LOAD_CSV = re.compile(r"\bLOAD\s+CSV\b", re.IGNORECASE)
 
 # Lowercase.  ``dbms.*`` must stay out: it returns server configuration.
 ALLOWED_PROCEDURES = frozenset({
@@ -87,14 +87,14 @@ def read(cypher: str, *, timeout: float,
     """
     settings = get_settings().neo4j
     rows: list[dict] = []
-    with driver().session(database=settings.database,
-                          default_access_mode=neo4j.READ_ACCESS) as session:
-        with session.begin_transaction(timeout=timeout) as transaction:
-            result = transaction.run(cypher)
-            for record in result:
-                rows.append(record.data())
-                if len(rows) > max_rows:
-                    break
+    with (driver().session(database=settings.database,
+                           default_access_mode=neo4j.READ_ACCESS) as session,
+          session.begin_transaction(timeout=timeout) as transaction):
+        result = transaction.run(cypher)
+        for record in result:
+            rows.append(record.data())
+            if len(rows) > max_rows:
+                break
     if len(rows) > max_rows:
         return rows[:max_rows], True
     return rows, False

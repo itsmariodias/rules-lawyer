@@ -4,9 +4,15 @@ from pathlib import Path
 
 import pytest
 
-from rules_lawyer.config import (ChatSettings, EmbeddingSettings,
-                                  Neo4jSettings, Settings, anchors_path_for,
-                                  get_settings, markdown_path_for)
+from rules_lawyer.config import (
+    ChatSettings,
+    EmbeddingSettings,
+    Neo4jSettings,
+    Settings,
+    anchors_path_for,
+    get_settings,
+    markdown_path_for,
+)
 
 
 class TestSettingsPaths:
@@ -111,14 +117,6 @@ class TestSettingsGroups:
 
 
 class TestChatSettings:
-    def test_given_no_stub_when_read_then_the_model_is_the_real_one(self):
-        # Given no CHAT_STUB in the environment
-        chat = ChatSettings()
-
-        # When the setting is read
-        # Then a turn goes to the provider
-        assert chat.stub is False
-
     def test_given_no_overrides_when_read_then_the_search_is_wider_than_the_answer(
             self):
         # Given no CHAT_ overrides in the environment

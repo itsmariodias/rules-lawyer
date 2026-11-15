@@ -11,8 +11,7 @@ import os
 
 import pytest
 
-from rules_lawyer.config import (anchors_path_for, get_settings,
-                                  markdown_path_for)
+from rules_lawyer.config import anchors_path_for, get_settings, markdown_path_for
 
 NEO4J_IMAGE = "neo4j:5.26-community"
 
@@ -76,7 +75,7 @@ def neo4j():
                      .with_env("NEO4J_server_memory_heap_max__size", "512m")
                      .with_env("NEO4J_server_memory_pagecache_size", "256m"))
         container.start()
-    except Exception as exc:  # Docker absent, not running, or the pull failed
+    except Exception as exc:  # noqa: BLE001 - Docker absent, not running, or the pull failed
         pytest.skip(f"no Neo4j container (is Docker running?): {exc}")
 
     with pytest.MonkeyPatch.context() as patch:
@@ -92,11 +91,11 @@ def neo4j():
 
 def _forget_connections() -> None:
     """Drop cached settings, driver and schema, so the next use reconnects."""
-    from rules_lawyer.chat import cypher, retrieval
+    from rules_lawyer.chat.retrieval import cypher, search
 
-    if retrieval.driver.cache_info().currsize:
-        retrieval.driver().close()
-    retrieval.driver.cache_clear()
+    if search.driver.cache_info().currsize:
+        search.driver().close()
+    search.driver.cache_clear()
     cypher.shapes.cache_clear()
     get_settings.cache_clear()
 
@@ -371,20 +370,6 @@ def settings_env(monkeypatch):
 
     yield apply
     get_settings.cache_clear()
-
-
-@pytest.fixture
-def stub_model(settings_env):
-    """
-    Use the scripted model for one test.  Clears the ``compile_agent`` cache
-    either side, since it would otherwise hand back an agent built with the
-    other model.
-    """
-    from rules_lawyer.chat.agent import compile_agent
-
-    compile_agent.cache_clear()
-    yield settings_env(CHAT_STUB="1")
-    compile_agent.cache_clear()
 
 
 @pytest.fixture

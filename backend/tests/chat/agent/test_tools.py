@@ -4,7 +4,8 @@ import re
 
 import pytest
 
-from rules_lawyer.chat import retrieval, tools
+from rules_lawyer.chat.agent import tools
+from rules_lawyer.chat.retrieval import search
 
 
 class TestSearchSrd:
@@ -22,14 +23,14 @@ class TestSearchSrd:
             self, graph, settings_env):
         # Given a loaded graph, no key, and a question matching no section
         settings_env(GOOGLE_API_KEY="")
-        retrieval.embed_query.cache_clear()
+        search.embed_query.cache_clear()
 
         # When the tool is called
         result = tools.search_srd.invoke({"query": "zzzzqqqq"})
 
         # Then the model is told to try again rather than left with silence
         assert "No SRD sections matched" in result
-        retrieval.embed_query.cache_clear()
+        search.embed_query.cache_clear()
 
     @pytest.mark.neo4j
     def test_given_a_nonsense_question_when_searched_then_it_still_guesses(
@@ -333,7 +334,7 @@ class TestExploreSrdGraph:
                                                "depth": depth, "fan": 30})
 
         # Then every group it already drew is still there
-        for group in re.findall(r"^  (\w+, \w+) —", default, re.M):
+        for group in re.findall(r"^  (\w+, \w+) —", default, re.MULTILINE):
             assert group in wide
 
     def test_given_an_absurd_fan_when_walked_then_it_is_clamped(self, graph):

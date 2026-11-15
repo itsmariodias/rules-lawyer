@@ -6,6 +6,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from rules_lawyer.api import app
+from rules_lawyer.chat.routes import chat_service
+from tests.fakes import fake_chat_service
 
 
 def events_of(response) -> list[dict]:
@@ -18,28 +20,27 @@ def events_of(response) -> list[dict]:
 @pytest.fixture
 def client(settings_env, tmp_path):
     """
-    A test client with ``CHAT_STUB=1`` and conversation stores in a temporary
-    directory.  ``source/`` and ``output/`` are symlinked to the checkout for
-    ``/source``.
+    A test client answering with the fake chat model, its conversation stores
+    in a temporary directory.  ``source/`` and ``output/`` are symlinked to the
+    checkout for ``/source``.
     """
-    from rules_lawyer.chat import source
-    from rules_lawyer.chat.agent import compile_agent
+    from rules_lawyer.chat.retrieval import source
     from rules_lawyer.config import get_settings
 
     real = get_settings().data_dir
     for name in ("source", "output"):
         (tmp_path / name).symlink_to(real / name)
-    settings_env(RULES_LAWYER_DATA=str(tmp_path), CHAT_STUB="1")
-    compile_agent.cache_clear()
+    settings_env(RULES_LAWYER_DATA=str(tmp_path))
     source.markdown.cache_clear()
     source.anchors.cache_clear()
 
+    app.dependency_overrides[chat_service] = fake_chat_service
     with TestClient(app) as running:
         yield running
 
+    app.dependency_overrides.clear()
     source.markdown.cache_clear()
     source.anchors.cache_clear()
-    compile_agent.cache_clear()
 
 
 class TestChat:
@@ -83,13 +84,11 @@ class TestChat:
             assert expected in kinds
 
     def test_given_no_api_key_when_posted_then_the_turn_is_refused_outright(
-            self, client, settings_env, monkeypatch):
-        # Given a server with the key blanked out and no stub
-        from rules_lawyer.chat.agent import compile_agent
-
-        monkeypatch.setenv("GOOGLE_API_KEY", "")
-        settings_env(CHAT_STUB="0")
-        compile_agent.cache_clear()
+            self, client, settings_env):
+        # Given a server answering with the configured model, and the key
+        # blanked out
+        app.dependency_overrides.pop(chat_service)
+        settings_env(GOOGLE_API_KEY="")
 
         # When a turn is posted
         response = client.post("/chat", json={"message": "Prone condition"})
@@ -97,7 +96,6 @@ class TestChat:
         # Then it is refused, in words naming what to fix
         assert response.status_code == 503
         assert "GOOGLE_API_KEY" in response.json()["detail"]
-        compile_agent.cache_clear()
 
     @pytest.mark.neo4j
     def test_given_a_thread_id_when_posted_then_the_turn_joins_that_conversation(
@@ -149,11 +147,11 @@ class TestChatThreads:
     def test_given_a_new_conversation_when_listed_then_its_summary_is_the_title(
             self, client, graph, monkeypatch):
         # Given a model that titles every question it is asked about
-        from rules_lawyer.chat import titles
+        from rules_lawyer.chat.agent import titles
 
         asked: list[str] = []
 
-        async def summarise(question: str) -> str:
+        async def summarise(question: str, model) -> str:
             asked.append(question)
             return "Prone condition effects"
 

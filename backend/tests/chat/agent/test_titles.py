@@ -5,7 +5,8 @@ import asyncio
 import pytest
 from langchain_core.messages import AIMessage
 
-from rules_lawyer.chat import agent, titles
+from rules_lawyer.chat.agent import titles
+from tests.fakes import FakeChatModel
 
 
 class Replying:
@@ -33,12 +34,6 @@ class Stalling:
     async def ainvoke(self, prompt: str) -> AIMessage:
         await asyncio.sleep(60)
         raise AssertionError("never reached")
-
-
-@pytest.fixture
-def live(settings_env):
-    """Turn the stub off and give the settings a key."""
-    settings_env(CHAT_STUB="0")
 
 
 class TestClean:
@@ -84,28 +79,23 @@ class TestClean:
 
 class TestSummarise:
     @pytest.mark.asyncio
-    async def test_given_the_stub_when_summarised_then_no_model_is_asked(
-            self, stub_model, monkeypatch):
-        # Given the scripted model, and a real one that must not be reached
-        model = Replying("Should not appear")
-        monkeypatch.setattr(agent, "model", lambda: model)
-
+    async def test_given_the_fake_model_when_summarised_then_there_is_no_title(self):
+        # Given the fake model, which answers every first message with a search
         # When a question is summarised
-        title = await titles.summarise("What does Prone do?")
+        title = await titles.summarise("What does Prone do?", FakeChatModel())
 
-        # Then there is no title and nothing was asked
+        # Then there is no title, so the list shows the question
         assert title is None
-        assert model.prompts == []
 
     @pytest.mark.asyncio
     async def test_given_a_model_when_summarised_then_its_reply_is_the_title(
-            self, live, monkeypatch):
+            self):
         # Given a model that replies the way models do
         model = Replying('"Prone Condition Effects."')
-        monkeypatch.setattr(agent, "model", lambda: model)
 
         # When a question is summarised
-        title = await titles.summarise("What exactly does the Prone condition do?")
+        title = await titles.summarise("What exactly does the Prone condition do?",
+                                       model)
 
         # Then the cleaned reply is the title, and the question was in the prompt
         assert title == "Prone Condition Effects"
@@ -113,37 +103,21 @@ class TestSummarise:
 
     @pytest.mark.asyncio
     async def test_given_a_failing_model_when_summarised_then_there_is_no_title(
-            self, live, monkeypatch):
+            self):
         # Given a model with its quota spent
-        monkeypatch.setattr(agent, "model", lambda: Failing())
-
         # When a question is summarised
         # Then there is no title, rather than a raised error
-        assert await titles.summarise("What does Prone do?") is None
-
-    @pytest.mark.asyncio
-    async def test_given_no_key_when_summarised_then_there_is_no_title(
-            self, live, monkeypatch):
-        # Given no key to call the model with
-        def missing():
-            raise agent.NoApiKey("GOOGLE_API_KEY is not set.")
-
-        monkeypatch.setattr(agent, "model", missing)
-
-        # When a question is summarised
-        # Then there is no title
-        assert await titles.summarise("What does Prone do?") is None
+        assert await titles.summarise("What does Prone do?", Failing()) is None
 
     @pytest.mark.asyncio
     async def test_given_a_stalled_model_when_summarised_then_it_gives_up(
-            self, live, monkeypatch):
+            self, monkeypatch):
         # Given a model that never answers, and a short bound
-        monkeypatch.setattr(agent, "model", lambda: Stalling())
         monkeypatch.setattr(titles, "TIMEOUT_SECONDS", 0.05)
 
         # When a question is summarised
         # Then it stops waiting and there is no title
-        assert await titles.summarise("What does Prone do?") is None
+        assert await titles.summarise("What does Prone do?", Stalling()) is None
 
 
 class TestTitled:
