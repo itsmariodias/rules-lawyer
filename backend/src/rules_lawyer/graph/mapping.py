@@ -17,7 +17,8 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
-from typing import Any, Iterator
+from collections.abc import Iterator
+from typing import Any
 
 from rules_lawyer.graph.model import EdgeBatch, GraphData, NodeBatch, as_json, clean
 

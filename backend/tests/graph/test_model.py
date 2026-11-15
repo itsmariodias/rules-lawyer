@@ -4,8 +4,7 @@ import json
 
 import pytest
 
-from rules_lawyer.graph.model import (EdgeBatch, GraphData, NodeBatch,
-                                       as_json, clean)
+from rules_lawyer.graph.model import EdgeBatch, GraphData, NodeBatch, as_json, clean
 
 
 class TestNodeBatch:

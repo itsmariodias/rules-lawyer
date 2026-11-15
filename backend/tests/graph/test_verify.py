@@ -5,6 +5,7 @@ import pytest
 from rules_lawyer.graph import mapping
 from rules_lawyer.graph.loader import load_graph
 from rules_lawyer.graph.schema import VECTOR_NAME
+
 # Not via the package: ``graph.verify`` there is the function, not the module.
 from rules_lawyer.graph.verify import _check, verify
 

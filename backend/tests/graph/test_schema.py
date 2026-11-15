@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 from rules_lawyer.graph import mapping, schema
 
 

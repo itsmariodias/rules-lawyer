@@ -108,8 +108,8 @@ class TestReadBlocks:
 
         # Then each lead heads one paragraph, the indented lines its own, none a quote
         assert texts(blocks) == ["Weapons. Anyone can wield a weapon, but proficiency makes you better.",
-                                 "Tools. If you have proficiency with a tool, you can add your "
-                                 "Proficiency Bonus."]
+                                 ("Tools. If you have proficiency with a tool, you can add your "
+                                  "Proficiency Bonus.")]
         assert [b.role for b in blocks] == [None, None]
 
     def test_given_one_line_paragraphs_with_leads_when_read_then_each_lead_starts_one(self):

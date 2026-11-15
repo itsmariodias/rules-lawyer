@@ -23,6 +23,8 @@ jobs:
       - run: uv sync --locked
       - name: Compile
         run: uv run python -m compileall -q src tests
+      - name: Lint
+        run: uv run ruff check
       # Parsing also checks the book against itself, and gives the tests the
       # artifact they need. Without embeddings or a key, the tests needing
       # vectors skip; the Neo4j tests start their own container.

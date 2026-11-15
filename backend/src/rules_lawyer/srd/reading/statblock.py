@@ -139,7 +139,8 @@ def entries(lines: list[Line], hyphenated: set[str],
     blocks = read(lines, hyphenated)
     for block in blocks:
         if not isinstance(block, Paragraph):
-            raise ValueError(f"page {lines[0].page}: a stat block entry is a {type(block).__name__}")
+            raise ValueError(  # noqa: TRY004 - a bad parse, not a bad argument
+                f"page {lines[0].page}: a stat block entry is a {type(block).__name__}")
     return blocks
 
 

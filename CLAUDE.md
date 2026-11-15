@@ -176,6 +176,7 @@ uv run rules-lawyer load                       # artifact + vectors -> graph, ve
 uv run rules-lawyer load --no-reset --skip-verify
 uv run rules-lawyer load --embeddings ~/Downloads/srd_embeddings.idx
 uv run pytest                                  # -m "not neo4j" for the Docker-free set
+uv run ruff check                              # lint (ruff's default rules); CI runs it
 uv run uvicorn rules_lawyer.api:app --reload --reload-include '*.md'
 
 cd ../frontend && npm install && npm run dev   # http://localhost:5173

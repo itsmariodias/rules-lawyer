@@ -27,6 +27,7 @@ uv run rules-lawyer embed                       # JSON -> srd_embeddings.idx (ne
 uv run rules-lawyer load                        # JSON + embeddings -> Neo4j, then verify
 uv run uvicorn rules_lawyer.api:app --reload --reload-include '*.md'
 uv run pytest                                   # the tests; see Tests below
+uv run ruff check                               # lint, as CI does
 ```
 
 Each command has `--help`. The useful options:

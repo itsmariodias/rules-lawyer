@@ -9,8 +9,14 @@ import pytest
 
 from rules_lawyer.graph import mapping
 from rules_lawyer.graph.embeddings import Vectors
-from rules_lawyer.graph.loader import (EMBEDDING_QUERY, edge_query, load_graph,
-                                        node_query, session, write_embeddings)
+from rules_lawyer.graph.loader import (
+    EMBEDDING_QUERY,
+    edge_query,
+    load_graph,
+    node_query,
+    session,
+    write_embeddings,
+)
 from rules_lawyer.graph.model import EdgeBatch, NodeBatch
 from rules_lawyer.graph.verify import verify
 
