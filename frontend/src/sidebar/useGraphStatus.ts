@@ -1,7 +1,7 @@
 /** Graph availability, polled every `RETRY_MS` until it is `connected`. */
 
 import { useEffect, useState } from 'react'
-import { graphStatus, type GraphStatus } from './api'
+import { graphStatus, type GraphStatus } from '../api'
 
 export const RETRY_MS = 15_000
 

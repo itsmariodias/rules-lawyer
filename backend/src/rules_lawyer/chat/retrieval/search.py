@@ -32,7 +32,7 @@ def escape_lucene(query: str) -> str:
 
 
 # A cited section id as the model writes it, e.g. [11.2.114]; "[see below]"
-# does not match.  ``frontend/src/components/Markdown.tsx`` has a copy, which
+# does not match.  ``frontend/src/chat/Markdown.tsx`` has a copy, which
 # ``tests/test_docs.py`` holds against this one.
 CITATION = re.compile(r"\[(\d+(?:\.\d+)+)\]")
 

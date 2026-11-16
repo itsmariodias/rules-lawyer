@@ -8,11 +8,11 @@ import type { SourceExcerpt } from '../api'
 import { SidePanel } from './SidePanel'
 
 vi.mock('../api', () => ({ loadSource: vi.fn() }))
-vi.mock('./GraphView', () => ({
+vi.mock('./graph/GraphView', () => ({
   GraphView: ({ sectionId, depth }: { sectionId: string | null; depth: number }) =>
     <div data-testid="graph">{`${sectionId ?? 'none'} at ${depth}`}</div>,
 }))
-vi.mock('./PdfPage', () => ({
+vi.mock('./page/PdfPage', () => ({
   PdfPage: ({ zoom }: { zoom: number }) =>
     <div data-testid="pdf-page">{`page at ${zoom}`}</div>,
   PdfBook: ({ jumpTo }: { jumpTo: { page: number } | null }) =>
@@ -253,5 +253,26 @@ describe('SidePanel', () => {
     await waitFor(() =>
       expect(screen.getByRole('heading', { name: 'Restrained' }))
         .toBeInTheDocument())
+  })
+
+  it('given two citations in quick succession, when the first answers last, then the second stays', async () => {
+    // Given a first citation whose source is slow to arrive
+    let first: (value: SourceExcerpt) => void = () => {}
+    vi.mocked(api.loadSource).mockReturnValueOnce(
+      new Promise((r) => { first = r }))
+    const { rerender } = panel()
+
+    // When a second citation is opened and answers before the first
+    vi.mocked(api.loadSource).mockResolvedValueOnce(
+      excerpt({ section_id: '11.2.120', heading: 'Restrained' }))
+    rerender(<SidePanel sectionId="11.2.120" tab="page" onTab={vi.fn()}
+                        onClose={vi.fn()} onNavigate={vi.fn()} />)
+    await screen.findByRole('heading', { name: 'Restrained' })
+    first(excerpt())
+
+    // Then the late first answer does not replace the passage being read
+    await new Promise((r) => setTimeout(r, 0))
+    expect(screen.getByRole('heading', { name: 'Restrained' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Prone [Condition]' })).toBeNull()
   })
 })

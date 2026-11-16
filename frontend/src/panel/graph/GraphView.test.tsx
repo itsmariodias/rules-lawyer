@@ -2,11 +2,11 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { GraphEdge, GraphNode, Neighbourhood } from '../api'
+import type { GraphEdge, GraphNode, Neighbourhood } from '../../api'
 import { GraphView } from './GraphView'
 
-vi.mock('../api', () => ({ loadNeighbourhood: vi.fn() }))
-const api = await import('../api')
+vi.mock('../../api', () => ({ loadNeighbourhood: vi.fn() }))
+const api = await import('../../api')
 
 const node = (uid: string, overrides: Partial<GraphNode> = {}): GraphNode => ({
   uid, name: uid, labels: ['Rule'], entity_type: 'rule',

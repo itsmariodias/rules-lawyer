@@ -15,8 +15,8 @@ from rules_lawyer.graph import mapping
 
 ROOT = Path(__file__).resolve().parents[2]
 GRAPH_MD = ROOT / "GRAPH.md"
-PALETTE = ROOT / "frontend" / "src" / "components" / "graph-layout.ts"
-MARKDOWN_TSX = ROOT / "frontend" / "src" / "components" / "Markdown.tsx"
+PALETTE = ROOT / "frontend" / "src" / "panel" / "graph" / "graph-layout.ts"
+MARKDOWN_TSX = ROOT / "frontend" / "src" / "chat" / "Markdown.tsx"
 
 
 @pytest.fixture(scope="module")

@@ -28,23 +28,33 @@ uses it to run on its own port.
 ```text
 src/
   main.tsx              mounts <App />
-  App.tsx               the shell: thread list, conversation, side panel
+  App.tsx               the shell: layout, side panel state, the composer
   api.ts                every call to the backend, and the types it returns
-  useChat.ts            the open conversation: send, stream, retry, reopen
-  useGraphStatus.ts     whether the graph is reachable, polled until it is
-  useStored.ts          state remembered in localStorage; the light/dark theme
   index.css             all styles; colour tokens are at the top
 
-  components/
+  chat/                 the conversation
+    useChat.ts          the open conversation: send, stream, retry, reopen
+    ChatMessage.tsx     one question or answer, with its time, cost, copy and retry
     Markdown.tsx        an answer, with [11.2.114] citations as numbered links
     ToolTrace.tsx       the lookups the agent made during a turn
     Timing.tsx          elapsed time while a turn runs, its date after
     Usage.tsx           tokens used by a turn
+
+  sidebar/              the thread list
+    Sidebar.tsx         rows, pin and delete, theme, graph status
+    useGraphStatus.ts   whether the graph is reachable, polled until it is
+
+  panel/                the side panel
     SidePanel.tsx       the Page and Graph tabs
-    PdfPage.tsx         a PDF page drawn with pdf.js, cited lines boxed
-    GraphView.tsx       the graph around the cited section
-    graph-layout.ts     the graph's pure maths: spring length, fit, colours, merging
-    Resizer.tsx         the drag handle that sizes the side panel
+    Resizer.tsx         the drag handle that sizes it
+    page/PdfPage.tsx    a PDF page drawn with pdf.js, cited lines boxed
+    graph/GraphView.tsx the graph around the cited section
+    graph/graph-layout.ts  the graph's pure maths: spring length, fit, colours, merging
+
+  shared/               used by more than one feature
+    icons.tsx           the inline SVG icons and the logo
+    pointer.ts          drags followed on the window until release or cancel
+    useStored.ts        state remembered in localStorage; the light/dark theme
 ```
 
 Tests sit beside the file they cover: `api.test.ts` tests `api.ts`.

@@ -93,12 +93,14 @@ backend/src/rules_lawyer/
 
 frontend/src/
   api.ts             client; ChatEvent mirrors turn.py's events
-  useChat.ts         conversation state for the open thread
-  useStored.ts       localStorage-backed state and theme
-  useGraphStatus.ts  graph availability, polled until connected
-  App.tsx            shell: thread list, conversation, side panel
-  components/        Markdown, ToolTrace, Timing, Usage, SidePanel, PdfPage,
-                     GraphView, graph-layout (pure layout maths), Resizer
+  App.tsx            shell: layout, panel state, composer
+  chat/              ChatMessage, Markdown, ToolTrace, Timing, Usage, and
+                     useChat (conversation state for the open thread)
+  sidebar/           Sidebar, and useGraphStatus (polled until connected)
+  panel/             SidePanel, Resizer; page/PdfPage; graph/GraphView and
+                     graph-layout (pure layout maths)
+  shared/            icons, pointer (followPointer: window-level drags,
+                     cancel included), useStored (localStorage state, theme)
   index.css          all styles; colour tokens at the top
 
 e2e/                 Playwright over the whole stack (see Testing)
@@ -128,6 +130,10 @@ GRAPH.md             reference for every label and relationship type
 - **Imports** are absolute from the top package (`from rules_lawyer.srd.model
   import Section`), never relative. An `__init__.py` with no code is empty:
   no docstring, no comment.
+- **Frontend folders are features:** `chat/`, `sidebar/`, `panel/` each
+  hold what one part of the screen needs, and `shared/` only what more than
+  one uses. Imports are relative and name the file; no `index.ts`
+  re-exports.
 - **Constants for book facts** are named, with a comment giving the
   measurement behind them (`HEADING_LEVELS = {26.0: 1, ...}`), and come from
   something the book guarantees (a font, a size, a frame, a fixed phrase)

@@ -11,7 +11,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import * as pdfjs from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
-import type { SourceExcerpt } from '../api'
+import type { SourceExcerpt } from '../../api'
+import { followPointer } from '../../shared/pointer'
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
 
@@ -362,10 +363,7 @@ export function verticalScroller(from: Element | null): HTMLElement | null {
   return null
 }
 
-/**
- * Pan by scrolling the figure horizontally and its scroller vertically.
- * Listeners are on the window so leaving the page mid-drag does not stop it.
- */
+/** Pan by scrolling the figure horizontally and its scroller vertically. */
 function usePan(frame: React.RefObject<HTMLElement | null>, armed?: boolean) {
   return useCallback((event: React.PointerEvent) => {
     const page = frame.current
@@ -378,21 +376,11 @@ function usePan(frame: React.RefObject<HTMLElement | null>, armed?: boolean) {
     const startY = event.clientY
     const from = { left: page.scrollLeft, top: pane?.scrollTop ?? 0 }
 
-    const move = (moved: PointerEvent) => {
+    document.body.classList.add('panning')
+    followPointer((moved) => {
       page.scrollLeft = from.left - (moved.clientX - startX)
       if (pane) pane.scrollTop = from.top - (moved.clientY - startY)
-    }
-    const stop = () => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', stop)
-      window.removeEventListener('pointercancel', stop)
-      document.body.classList.remove('panning')
-    }
-
-    document.body.classList.add('panning')
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', stop)
-    window.addEventListener('pointercancel', stop)
+    }, () => document.body.classList.remove('panning'))
   }, [frame, armed])
 }
 

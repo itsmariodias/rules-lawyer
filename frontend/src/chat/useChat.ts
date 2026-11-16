@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   deleteThread, listThreads, loadThread, pinThread, retryChat, streamChat,
   type ChatEvent, type Message, type Thread,
-} from './api'
+} from '../api'
 
 export function useChat() {
   const [messages, setMessages] = useState<Message[]>([])
@@ -130,12 +130,23 @@ export function useChat() {
     refreshThreads()
   }, [threadId, refreshThreads])
 
+  /**
+   * Show a stored thread.  The id changes only once its messages arrive, so
+   * a failed load leaves the next question in the thread on screen; the
+   * list is refetched, since the usual cause is a thread deleted elsewhere.
+   */
   const open = useCallback(async (id: string) => {
     abort.current?.abort()
+    let loaded: Message[]
+    try {
+      loaded = await loadThread(id)
+    } catch {
+      refreshThreads()
+      return
+    }
     setThreadId(id)
-    setMessages((await loadThread(id)).map(
-      (message) => ({ ...message, replayed: true })))
-  }, [])
+    setMessages(loaded.map((message) => ({ ...message, replayed: true })))
+  }, [refreshThreads])
 
   const reset = useCallback(() => {
     abort.current?.abort()

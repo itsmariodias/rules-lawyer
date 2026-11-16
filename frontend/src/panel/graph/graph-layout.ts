@@ -1,6 +1,6 @@
 /** Pure layout helpers for `GraphView`: spring length, fit, colour kind, merge. */
 
-import type { GraphEdge, GraphNode, Neighbourhood } from '../api'
+import type { GraphEdge, GraphNode, Neighbourhood } from '../../api'
 
 /** A simulated node. */
 export type Body = { x: number; y: number; vx: number; vy: number

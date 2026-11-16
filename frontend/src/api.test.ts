@@ -87,6 +87,15 @@ describe('listThreads', () => {
     // Then the failure carries its status, for the caller to show or swallow
     await expect(listThreads()).rejects.toThrow('503')
   })
+
+  it('given a refusal with a detail, when listed, then the detail is the message', async () => {
+    // Given a server explaining its refusal, as FastAPI does
+    answering({ detail: 'no thread \'gone\'' }, false, 404)
+
+    // When the threads are listed
+    // Then the reader is shown the server's words, not a status line
+    await expect(listThreads()).rejects.toThrow("no thread 'gone'")
+  })
 })
 
 describe('loadThread', () => {
@@ -271,6 +280,18 @@ describe('streamChat', () => {
     // Then the caller can show the failure rather than waiting on a stream
     await expect(streamChat('Prone?', null, () => {}))
       .rejects.toThrow('500')
+  })
+
+  it('given no model to answer with, when streamed, then the reason is raised', async () => {
+    // Given a server that cannot build a model and says why
+    const why = 'GOOGLE_API_KEY is not set'
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(
+      { ok: false, status: 503, statusText: 'Service Unavailable', body: null,
+        json: () => Promise.resolve({ detail: why }) } as unknown as Response)))
+
+    // When the turn is streamed
+    // Then the failure names the missing key rather than the status
+    await expect(streamChat('Prone?', null, () => {})).rejects.toThrow(why)
   })
 })
 

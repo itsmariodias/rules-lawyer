@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { GraphEdge, GraphNode, Neighbourhood } from '../api'
+import type { GraphEdge, GraphNode, Neighbourhood } from '../../api'
 import {
   clip, connections, countHidden, fit, kindOf, labelled, merge, radiusOf,
   restLength,

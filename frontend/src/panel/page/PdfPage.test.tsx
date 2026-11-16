@@ -3,7 +3,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { SourceExcerpt } from '../api'
+import type { SourceExcerpt } from '../../api'
 import { PdfBook, PdfPage, verticalScroller } from './PdfPage'
 
 const textLayer = vi.fn()
