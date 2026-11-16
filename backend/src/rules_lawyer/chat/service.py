@@ -47,7 +47,8 @@ class ChatService:
         """The chat model that answers and titles, built on first use.
 
         Raises:
-            NoApiKey: ``GOOGLE_API_KEY`` is unset.
+            ModelUnavailable: No model can be built (no key, model or
+                package).
         """
         return configured_model()
 
@@ -68,7 +69,8 @@ class ChatService:
             ``{"type": "start", "thread_id"}``, then ``stream_turn``'s events.
 
         Raises:
-            NoApiKey: ``GOOGLE_API_KEY`` is unset.
+            ModelUnavailable: No model can be built (no key, model or
+                package).
         """
         model = self.model
         thread_id = thread_id or uuid4().hex
@@ -109,7 +111,7 @@ class ChatService:
             has no question.
 
         Raises:
-            NoApiKey: ``GOOGLE_API_KEY`` is unset; checked before the thread.
+            ModelUnavailable: No model can be built; checked before the thread.
         """
         model = self.model
         asked = threads.last_question(await self._messages(thread_id))

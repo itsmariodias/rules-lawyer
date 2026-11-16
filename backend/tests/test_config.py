@@ -13,6 +13,7 @@ from rules_lawyer.config import (
     get_settings,
     markdown_path_for,
 )
+from rules_lawyer.providers import Provider
 
 
 class TestSettingsPaths:
@@ -63,6 +64,18 @@ class TestSettingsPaths:
         # Then it sits with the rest of the generated output
         assert settings.embeddings_path == Path(
             "/srv/app/data/output/srd_embeddings.idx")
+
+    def test_given_another_embedding_provider_when_read_then_it_has_its_own_file(
+            self, monkeypatch):
+        # Given Ollama embeddings
+        monkeypatch.setenv("EMBED_PROVIDER", "ollama")
+        monkeypatch.setenv("EMBED_MODEL", "nomic-embed-text")
+        settings = Settings(root=Path("/srv/app"))
+
+        # When the path is read
+        # Then it is beside the shared Gemini file, never over it
+        assert settings.embeddings_path == Path(
+            "/srv/app/data/output/srd_embeddings.ollama.idx")
 
     def test_given_an_explicit_embeddings_path_when_read_then_it_wins(self):
         # Given a settings object pointed at a downloaded file
@@ -155,6 +168,63 @@ class TestChatSettings:
         # Then it was picked up
         assert chat.google_api_key.get_secret_value() == "from-the-environment"
 
+    def test_given_no_provider_when_read_then_it_is_the_pinned_gemini(self):
+        # Given no provider or model chosen
+        chat = ChatSettings(provider="google", model=None)
+
+        # When the model is read
+        # Then Google serves the pinned Gemini
+        assert chat.provider is Provider.GOOGLE
+        assert chat.model == "gemini-3.8-flash"
+
+    def test_given_another_provider_when_read_then_no_model_is_guessed(self):
+        # Given Anthropic with no model named
+        chat = ChatSettings(provider="anthropic", model=None)
+
+        # When the model is read
+        # Then none is assumed: a guessed pin would drift
+        assert chat.model is None
+
+    def test_given_each_provider_when_its_key_is_missing_then_its_variable_is_named(
+            self):
+        # Given each provider with no keys at all
+        keyless = {"google_api_key": None, "openai_api_key": None,
+                   "anthropic_api_key": None}
+
+        # When the missing key is asked for
+        missing = {provider: ChatSettings(provider=provider, **keyless).missing_key()
+                   for provider in Provider}
+
+        # Then each names its own variable, and Ollama needs none
+        assert missing == {Provider.GOOGLE: "GOOGLE_API_KEY",
+                           Provider.OPENAI: "OPENAI_API_KEY",
+                           Provider.ANTHROPIC: "ANTHROPIC_API_KEY",
+                           Provider.OLLAMA: None}
+
+    def test_given_another_providers_key_when_read_then_it_does_not_count(self):
+        # Given Anthropic configured but only a Google key
+        chat = ChatSettings(provider="anthropic", google_api_key="g",
+                            anthropic_api_key=None)
+
+        # When the configured provider's key is read
+        # Then there is none
+        assert chat.api_key() is None
+        assert chat.missing_key() == "ANTHROPIC_API_KEY"
+
+    def test_given_the_environment_names_each_key_when_read_then_the_aliases_are_used(
+            self, monkeypatch):
+        # Given keys under the names each provider's own tooling uses
+        monkeypatch.setenv("CHAT_PROVIDER", "openai")
+        monkeypatch.setenv("OPENAI_API_KEY", "open")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "   ")
+
+        # When the chat settings are built
+        chat = ChatSettings()
+
+        # Then the provider's key was picked up, and a blank one is absent
+        assert chat.api_key().get_secret_value() == "open"
+        assert chat.anthropic_api_key is None
+
 
 class TestEmbeddingSettings:
     def test_given_no_override_when_read_then_the_pinned_model_is_used(self):
@@ -183,6 +253,21 @@ class TestEmbeddingSettings:
         # Then the key is not in what was printed
         assert "secret-value" not in repr(settings)
         assert settings.google_api_key.get_secret_value() == "secret-value"
+
+    def test_given_anthropic_when_built_then_it_is_refused(self):
+        # Given a provider with no embeddings API
+        # When the settings are built
+        # Then they are refused, naming the providers that can embed
+        with pytest.raises(ValueError, match="no embeddings API"):
+            EmbeddingSettings(provider="anthropic")
+
+    def test_given_another_provider_without_a_model_when_built_then_it_is_refused(
+            self):
+        # Given Ollama and no model, which has no pinned default
+        # When the settings are built
+        # Then the missing setting is named
+        with pytest.raises(ValueError, match="EMBED_MODEL"):
+            EmbeddingSettings(provider="ollama", model=None)
 
 
 class TestNeo4jSettings:

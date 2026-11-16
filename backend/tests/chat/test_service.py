@@ -61,13 +61,13 @@ class TestAsk:
     async def test_given_no_key_when_asked_then_it_fails_before_any_stream(
             self, saver, store, settings_env):
         # Given no key to build the model with
-        from rules_lawyer.chat.agent.model import NoApiKey
+        from rules_lawyer.chat.agent.model import ModelUnavailable
 
-        settings_env(GOOGLE_API_KEY="")
+        settings_env(GOOGLE_API_KEY="", CHAT_PROVIDER="google")
 
         # When a question is asked
         # Then the request fails, rather than a stream that errors later
-        with pytest.raises(NoApiKey, match="GOOGLE_API_KEY"):
+        with pytest.raises(ModelUnavailable, match="GOOGLE_API_KEY"):
             await ChatService(saver, store).ask("Prone condition")
 
     @pytest.mark.neo4j

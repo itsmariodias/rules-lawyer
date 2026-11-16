@@ -18,7 +18,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from rules_lawyer.chat.agent.model import NoApiKey
+from rules_lawyer.chat.agent.model import ModelUnavailable
 from rules_lawyer.chat.retrieval import neighbourhood as graph_view
 from rules_lawyer.chat.retrieval.source import excerpt
 from rules_lawyer.chat.service import ChatService
@@ -43,14 +43,15 @@ Chat = Annotated[ChatService, Depends(chat_service)]
 
 @contextmanager
 def _answerable() -> Iterator[None]:
-    """Turn a missing key into a 503, before any stream starts.
+    """Turn an unbuildable model into a 503, before any stream starts.
 
     Raises:
-        HTTPException: 503 if no API key is configured.
+        HTTPException: 503 if the model cannot be built (no key, model or
+            package).
     """
     try:
         yield
-    except NoApiKey as exc:
+    except ModelUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
@@ -99,7 +100,8 @@ async def chat(request: ChatRequest, service: Chat) -> StreamingResponse:
         The event stream.
 
     Raises:
-        HTTPException: 503 if no API key is configured.
+        HTTPException: 503 if the model cannot be built (no key, model or
+            package).
     """
     with _answerable():
         events = await service.ask(request.message, request.thread_id)
@@ -121,8 +123,8 @@ async def retry_turn(thread_id: str, service: Chat) -> StreamingResponse:
         The event stream.
 
     Raises:
-        HTTPException: 503 if no API key is configured; 404 if the thread
-            has no question.
+        HTTPException: 503 if the model cannot be built (no key, model or
+            package); 404 if the thread has no question.
     """
     with _answerable():
         events = await service.retry(thread_id)

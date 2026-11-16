@@ -150,6 +150,26 @@ class TestWriteAndRead:
         with pytest.raises(embeddings.BadEmbeddingsFile, match="format version"):
             embeddings.read(path)
 
+    def test_given_a_file_without_a_provider_when_read_then_it_is_googles(
+            self, tmp_path):
+        """Files written before providers were configurable hold Gemini
+        vectors."""
+        # Given a file whose header names no provider
+        path = tmp_path / "e.idx"
+        embeddings.write(path, embeddings.Vectors(
+            model="test-model", dimensions=1, task_type="RETRIEVAL_DOCUMENT",
+            keys=["a"], digests=["1"], rows=[[1.0]]))
+        header = json.loads(read_header(path))
+        del header["provider"]
+        rewrite_header(path, json.dumps(header).encode("utf-8"))
+
+        # When it is read
+        back = embeddings.read(path)
+
+        # Then it is Google's, and still matches the default settings
+        assert back.provider == "google"
+        assert back.matches(settings(dimensions=1))
+
 
 class TestNormalise:
     def test_given_a_vector_when_normalised_then_its_length_is_one(self):
@@ -191,6 +211,89 @@ class TestEmbed:
 
         # Then it waited between attempts, and not after the last
         assert waits == [1, 2, 4, 8]
+
+    def test_given_openai_when_embedded_then_its_client_gets_the_key_and_width(
+            self, monkeypatch):
+        # Given OpenAI configured, and its client replaced by one recording
+        # how it was built
+        langchain_openai = pytest.importorskip("langchain_openai")
+        built: dict = {}
+
+        class Recording:
+            def __init__(self, **options):
+                built.update(options)
+
+            def embed_documents(self, chunk):
+                return [[3.0, 4.0, 0.0] for _ in chunk]
+
+        monkeypatch.setattr(langchain_openai, "OpenAIEmbeddings", Recording)
+
+        # When three texts are embedded in batches of two
+        vectors = embeddings.embed(["a", "b", "c"], settings(
+            provider="openai", openai_api_key="not-a-real-key"))
+
+        # Then the key and width were passed, and the vectors normalised
+        assert built["api_key"] == "not-a-real-key"
+        assert built["dimensions"] == 3
+        assert vectors == [[0.6, 0.8, 0.0]] * 3
+
+    def test_given_ollama_when_embedded_then_no_key_is_needed(self, monkeypatch):
+        # Given Ollama, which runs locally, with its client replaced
+        langchain_ollama = pytest.importorskip("langchain_ollama")
+        built: dict = {}
+
+        class Recording:
+            def __init__(self, **options):
+                built.update(options)
+
+            def embed_documents(self, chunk):
+                return [[1.0, 0.0, 0.0] for _ in chunk]
+
+        monkeypatch.setattr(langchain_ollama, "OllamaEmbeddings", Recording)
+
+        # When a text is embedded
+        vectors = embeddings.embed(["a"], settings(
+            provider="ollama", ollama_base_url="http://ollama.test:11434"))
+
+        # Then it went to the configured server
+        assert built == {"model": "test-model",
+                         "base_url": "http://ollama.test:11434"}
+        assert vectors == [[1.0, 0.0, 0.0]]
+
+    def test_given_a_model_of_another_width_when_embedded_then_the_width_is_named(
+            self, monkeypatch):
+        """Truncating a model that was not trained for it ranks nonsense."""
+        # Given a model returning 768 dimensions where 3 are configured
+        langchain_ollama = pytest.importorskip("langchain_ollama")
+
+        class Wide:
+            def __init__(self, **_):
+                pass
+
+            def embed_documents(self, chunk):
+                return [[0.1] * 768 for _ in chunk]
+
+        monkeypatch.setattr(langchain_ollama, "OllamaEmbeddings", Wide)
+
+        # When a text is embedded
+        # Then it is refused with the setting that fixes it
+        with pytest.raises(embeddings.MissingEmbeddings,
+                           match="EMBED_DIMENSIONS=768"):
+            embeddings.embed(["a"], settings(provider="ollama"))
+
+    def test_given_an_uninstalled_package_when_embedded_then_the_extra_is_named(
+            self, monkeypatch):
+        # Given OpenAI configured but its package not importable
+        import sys
+
+        monkeypatch.setitem(sys.modules, "langchain_openai", None)
+
+        # When a text is embedded
+        # Then the failure says how to install it
+        with pytest.raises(embeddings.MissingEmbeddings,
+                           match="uv sync --extra openai"):
+            embeddings.embed(["a"], settings(provider="openai",
+                                             openai_api_key="k"))
 
 
 class TestResolve:
@@ -263,6 +366,21 @@ class TestResolve:
                            embedder=recorder(calls, width=4))
 
         # Then every section was re-embedded, not only the missing ones
+        assert sum(len(batch) for batch in calls) == 2
+
+    def test_given_a_file_from_another_provider_when_resolved_then_it_is_discarded(
+            self, tmp_path):
+        # Given Gemini vectors of the same model name and width
+        path = tmp_path / "e.idx"
+        seed(path, DOCUMENT, dimensions=3)
+        calls: list[list[str]] = []
+
+        # When the vectors are resolved for Ollama
+        embeddings.resolve(DOCUMENT, path=path,
+                           settings=settings(provider="ollama"),
+                           embedder=recorder(calls))
+
+        # Then none of Gemini's were reused
         assert sum(len(batch) for batch in calls) == 2
 
     def test_given_refresh_when_resolved_then_the_file_is_ignored(self, tmp_path):

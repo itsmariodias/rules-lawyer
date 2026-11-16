@@ -20,10 +20,12 @@ repository root wherever you run from.
 ## Commands
 
 ```bash
-uv sync                                         # install
+uv sync                                         # install (Gemini only)
+uv sync --extra anthropic                       # plus a provider: anthropic, openai, ollama
+uv sync --all-extras                            # every provider, as CI does
 
 uv run rules-lawyer parse                       # PDF -> data/output/srd_hierarchy.{json,md,anchors.json}
-uv run rules-lawyer embed                       # JSON -> srd_embeddings.idx (needs GOOGLE_API_KEY)
+uv run rules-lawyer embed                       # JSON -> srd_embeddings.idx (needs the provider's key)
 uv run rules-lawyer load                        # JSON + embeddings -> Neo4j, then verify
 uv run uvicorn rules_lawyer.api:app --reload --reload-include '*.md'
 uv run pytest                                   # the tests; see Tests below
@@ -56,6 +58,8 @@ src/rules_lawyer/
   api.py              the FastAPI app: every package's router, plus the
                       SQLite stores for conversations
   config.py           settings from .env (paths, NEO4J_*, CHAT_*, EMBED_*)
+  providers.py        Google, OpenAI, Anthropic, Ollama: what each needs and
+                      how it builds its chat model and embeddings
 
   srd/                PDF -> JSON
     reading/          PDF pages -> lines -> styled text -> blocks
@@ -80,7 +84,7 @@ src/rules_lawyer/
 
   chat/               questions -> cited answers
     agent/
-      model.py        the chat model (Gemini)
+      model.py        the chat model, from CHAT_PROVIDER
       build.py        the LangGraph agent
       tools.py        the four tools the agent can call
       titles.py       short conversation titles
@@ -113,11 +117,13 @@ still carries the character offsets that locate it in the book. Derived nodes
 Uniqueness constraints double as the indexes loads `MERGE` on.
 [GRAPH.md](../GRAPH.md) lists every label and relationship.
 
-**Embeddings.** Gemini `gemini-embedding-001`, one vector per section with
-prose, truncated to 1536 dimensions and normalised. They live in
-`srd_embeddings.idx`, a small binary format of our own (a JSON header, then
-raw float32), whose header records a digest of each section's text, so a
-re-parse re-embeds only what changed. On load they go into a Neo4j vector
+**Embeddings.** By default Gemini `gemini-embedding-001` (OpenAI and Ollama
+through `EMBED_PROVIDER`), one vector per section with prose, 1536
+dimensions and normalised. They live in `srd_embeddings.idx`
+(`srd_embeddings.<provider>.idx` for the others), a small binary format of
+our own (a JSON header, then raw float32), whose header records the provider,
+the model and a digest of each section's text, so a re-parse re-embeds only
+what changed and a file from another model is never mixed in. On load they go into a Neo4j vector
 index (`srd_vector`, cosine).
 
 **Search: hybrid.** Two arms, because they fail differently: Neo4j's Lucene
@@ -125,11 +131,12 @@ full-text index (`srd_text`, BM25) misses questions sharing no words with the
 book, and the vector index blurs exact terms (Fire and Cold damage sit close
 together). Each returns its top candidates, and reciprocal rank fusion
 (k = 60) merges them by rank, not score, since the two scores are not
-comparable. Questions are embedded live; without an API key search falls
-back to full-text only.
+comparable. Questions are embedded live, by the provider that embedded the
+book; without its API key search falls back to full-text only.
 
 **Agent.** A LangGraph tool-calling agent (`langchain.agents.create_agent`)
-on Gemini (`CHAT_MODEL`, pinned), with a system prompt that includes the
+on the configured model (`CHAT_PROVIDER` and `CHAT_MODEL`: Gemini by
+default, or OpenAI, Anthropic or Ollama), with a system prompt that includes the
 graph's schema, derived from the loaded data (and left out while the graph
 is unreachable). It has four tools:
 
@@ -168,6 +175,14 @@ Titles are written by the model beside the first turn.
 **Configuration.** `config.py` reads `.env` and the environment; each group
 (Neo4j, chat, embeddings) is built only when first used, so parsing needs no
 database or key.
+
+**Providers.** Everything that differs between model providers is in
+`providers.py`: a `ModelProvider` base class with one subclass each for
+Google, OpenAI, Anthropic and Ollama, holding its key variable, pinned
+models, error phrasing, and how it builds its chat model and embedder. The
+rest of the code asks the configured provider (`settings.model_provider`)
+and never branches on its name, so adding one is a subclass and an entry in
+`PROVIDERS`.
 
 ### Parsing
 
@@ -246,7 +261,8 @@ The frontend reaches all of these under `/api`.
 | `GET /source/{section_id}` | a cited section: its text, page boxes, ancestors and children |
 | `GET /neighbourhood` | the graph around a section or node (with neither, the book and its 16 top-level sections), for the graph view |
 
-`POST /chat` answers 503 without a `GOOGLE_API_KEY`; any other failure
+`POST /chat` answers 503 when the model cannot be built (no key for the
+provider, no `CHAT_MODEL`, or its package not installed); any other failure
 arrives as an `error` event in the stream.
 
 ## Tests

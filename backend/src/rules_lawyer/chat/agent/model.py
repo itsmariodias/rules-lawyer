@@ -3,31 +3,39 @@
 from __future__ import annotations
 
 from langchain_core.language_models import BaseChatModel
-from langchain_google_genai import ChatGoogleGenerativeAI
 
 from rules_lawyer.config import get_settings
 
 
-class NoApiKey(RuntimeError):
-    """``GOOGLE_API_KEY`` is unset."""
+class ModelUnavailable(RuntimeError):
+    """The configured chat model cannot be built: no key, no model or no
+    package."""
 
 
 def model() -> BaseChatModel:
-    """The configured chat model.
+    """The configured chat model, built by its provider.
 
     Returns:
         A chat model ready to bind tools to.
 
     Raises:
-        NoApiKey: ``GOOGLE_API_KEY`` is unset.
+        ModelUnavailable: The provider's key or ``CHAT_MODEL`` is unset, or
+            its package is not installed.
     """
     chat = get_settings().chat
-    if chat.google_api_key is None:
-        raise NoApiKey(
-            "GOOGLE_API_KEY is not set. Add it to .env and restart the "
-            "server.")
-    return ChatGoogleGenerativeAI(
-        model=chat.model,
-        temperature=chat.temperature,
-        google_api_key=chat.google_api_key.get_secret_value(),
-    )
+    variable = chat.missing_key()
+    if variable:
+        raise ModelUnavailable(
+            f"{variable} is not set (CHAT_PROVIDER={chat.provider}). Add it "
+            f"to .env and restart the server.")
+    if chat.model is None:
+        raise ModelUnavailable(
+            f"CHAT_MODEL is not set (CHAT_PROVIDER={chat.provider}). Add it "
+            f"to .env and restart the server.")
+    try:
+        return chat.model_provider.chat(chat)
+    except ImportError as exc:
+        raise ModelUnavailable(
+            f"CHAT_PROVIDER={chat.provider} needs its package: run "
+            f"`uv sync --extra {chat.provider}` in backend/ and restart the "
+            f"server.") from exc

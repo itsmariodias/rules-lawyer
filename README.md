@@ -50,7 +50,9 @@ searched by a tool-calling agent.
 ## Quickstart
 
 You need **Python 3.12+** with [uv](https://docs.astral.sh/uv/),
-**Node 22+**, **Docker**, and a **Gemini API key**.
+**Node 22+**, **Docker**, and a model provider: a **Gemini API key** by
+default, or OpenAI, Anthropic or a local Ollama (see
+[Other model providers](#other-model-providers)).
 
 Copy the example environment file at the repository root and fill in the
 first two values:
@@ -64,20 +66,23 @@ NEO4J_PASSWORD=choose-one
 GOOGLE_API_KEY=your-key
 ```
 
-Those two are all you need. The rest have defaults, listed commented out in
-the file; uncomment any of them to override:
+Those two are all you need with the default provider; for another, see
+[Other model providers](#other-model-providers). The rest have defaults,
+listed commented out in the file; uncomment any of them to override:
 
 | Variable | Default | What it is |
 | --- | --- | --- |
 | `NEO4J_PASSWORD` | none | **Required.** The database password, for the container and the app |
-| `GOOGLE_API_KEY` | none | **Required** for chat and `embed`. A blank value counts as unset |
-| `RULES_LAWYER_EMBEDDINGS` | `data/output/srd_embeddings.idx` | An embeddings file to use instead of generating one |
 | `NEO4J_URI` | `bolt://localhost:7687` | |
 | `NEO4J_USER` / `NEO4J_DATABASE` | `neo4j` / `neo4j` | |
-| `CHAT_MODEL` | `gemini-3.8-flash` | The Gemini model that answers |
+| `RULES_LAWYER_EMBEDDINGS` | `data/output/srd_embeddings.idx` | An embeddings file to use instead of generating one |
+| `GOOGLE_API_KEY` / `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | none | The chosen providers' keys; Google's is **required** by default. A blank value counts as unset |
+| `OPENAI_BASE_URL` / `OLLAMA_BASE_URL` | OpenAI / `http://localhost:11434` | Where the server is: an OpenAI-compatible one, or Ollama |
+| `CHAT_PROVIDER` / `EMBED_PROVIDER` | `google` | Who answers and who embeds: `google`, `openai`, `anthropic` (chat only) or `ollama` |
+| `CHAT_MODEL` / `EMBED_MODEL` | `gemini-3.8-flash` / `gemini-embedding-001` | Required for any provider but `google` |
+| `CHAT_TEMPERATURE` / `CHAT_MAX_TOKENS` | `0.2` / the provider's | A blank temperature sends none |
 | `CHAT_TIMEOUT_SECONDS` | `60` | How long the model may stay silent before a turn fails |
-| `EMBED_MODEL` | `gemini-embedding-001` | |
-| `EMBED_DIMENSIONS` | `1536` | Changing it means regenerating the embeddings |
+| `EMBED_DIMENSIONS` | `1536` | Must match the model unless it can be truncated. Changing it means regenerating the embeddings |
 
 Parsing needs neither a database nor a key, and the server starts without a
 key; only asking a question does.
@@ -112,6 +117,51 @@ RULES_LAWYER_EMBEDDINGS=/path/to/srd_embeddings.idx
 ```
 
 Re-running `embed` after a re-parse only embeds sections whose text changed.
+
+### Other model providers
+
+The chat and the embeddings each have a provider. Install its package from
+`backend/`, then set it in `.env`:
+
+```bash
+uv sync --extra openai          # or anthropic, ollama; --all-extras for every one
+```
+
+```text
+CHAT_PROVIDER=anthropic
+CHAT_MODEL=claude-sonnet-5-5
+ANTHROPIC_API_KEY=your-key
+```
+
+| Provider | Chat | Embeddings | Settings |
+| --- | --- | --- | --- |
+| `google` (default) | yes | yes | `GOOGLE_API_KEY` |
+| `openai` | yes | yes | `OPENAI_API_KEY`; `OPENAI_BASE_URL` for a compatible server (LM Studio, vLLM, OpenRouter) |
+| `anthropic` | yes | no | `ANTHROPIC_API_KEY` |
+| `ollama` | yes | yes | no key; `OLLAMA_BASE_URL` (default `http://localhost:11434`) |
+
+The chat model must support tool calling; with Ollama, `qwen3` or
+`llama3.1` does. The two providers are independent: Claude can answer over
+Gemini's embeddings, with `ANTHROPIC_API_KEY` for the chat and
+`GOOGLE_API_KEY` for embedding questions.
+
+Embeddings from another provider are a different vector space, so the
+shared `srd_embeddings.idx` cannot be used with them. Each provider keeps
+its own file (`srd_embeddings.ollama.idx`), so the Gemini one is never
+overwritten. Set `EMBED_DIMENSIONS` to the model's width unless it can be
+truncated (Gemini and OpenAI's `text-embedding-3` can), then embed and load:
+
+```text
+EMBED_PROVIDER=ollama
+EMBED_MODEL=nomic-embed-text
+EMBED_DIMENSIONS=768
+```
+
+```bash
+uv run rules-lawyer embed && uv run rules-lawyer load
+```
+
+Without the embedding provider's key, search is lexical only.
 
 ## Project structure
 
