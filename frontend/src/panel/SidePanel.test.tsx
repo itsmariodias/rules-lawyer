@@ -304,4 +304,24 @@ describe('SidePanel', () => {
     expect(screen.getByRole('heading', { name: 'Restrained' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Prone [Condition]' })).toBeNull()
   })
+
+  it('given a citation that fails after a newer one opened, when it fails, then no error is shown', async () => {
+    // Given a first citation whose source will fail late
+    let fail: (reason: Error) => void = () => {}
+    vi.mocked(api.loadSource).mockReturnValueOnce(
+      new Promise((_, reject) => { fail = reject }))
+    const { rerender } = panel()
+
+    // When a second citation loads, then the first fails
+    vi.mocked(api.loadSource).mockResolvedValueOnce(
+      excerpt({ section_id: '11.2.120', heading: 'Restrained' }))
+    rerender(<SidePanel sectionId="11.2.120" tab="page" onTab={vi.fn()}
+                        onClose={vi.fn()} onNavigate={vi.fn()} />)
+    await screen.findByRole('heading', { name: 'Restrained' })
+    fail(new Error('503 unavailable'))
+    await new Promise((r) => setTimeout(r, 0))
+
+    // Then the passage being read is not covered by an old failure
+    expect(screen.queryByText(/503 unavailable/)).toBeNull()
+  })
 })

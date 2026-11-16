@@ -293,4 +293,24 @@ describe('GraphView', () => {
       vi.useRealTimers()
     }
   })
+
+  it('given a layout still moving, when a node is dragged, then it follows the pointer', async () => {
+    // Given a graph just drawn, its simulation still running
+    const { container } = render(
+      <GraphView sectionId="11.2.114" depth={1} onOpenPage={vi.fn()} />)
+    const leaf = (await screen.findByText('Grappled')).closest('g')!
+
+    // When the node is dragged
+    fireEvent.pointerDown(leaf, { clientX: 10, clientY: 10 })
+    fireEvent.pointerMove(window, { clientX: 400, clientY: 300 })
+
+    // Then it is drawn under the pointer by the frames already running
+    await waitFor(() => {
+      const view = camera(container)
+      const [, x] = leaf.getAttribute('transform')!
+        .match(/translate\(([-\d.]+),/)!.map(Number)
+      expect(x).toBeCloseTo((400 - view.x) / view.k)
+    })
+    fireEvent.pointerUp(window)
+  })
 })

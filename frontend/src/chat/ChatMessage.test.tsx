@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -86,6 +86,27 @@ describe('ChatMessage', () => {
       .toBeInTheDocument()
   })
 
+  it('given a copy, when a moment has passed, then the button offers to copy again', async () => {
+    // Given an answer just copied
+    vi.useFakeTimers()
+    try {
+      vi.stubGlobal('navigator',
+                    { ...navigator, clipboard: { writeText: () => Promise.resolve() } })
+      message({ message: { role: 'assistant', content: 'A Prone creature.' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Copy this answer' }))
+      await act(() => vi.advanceTimersByTimeAsync(0))
+      expect(screen.getByRole('button', { name: 'Copied' })).toBeInTheDocument()
+
+      // When the confirmation has been shown for its 1.6 seconds
+      await act(() => vi.advanceTimersByTimeAsync(1600))
+
+      // Then the button is back to what it does
+      expect(screen.getByRole('button', { name: 'Copy this answer' })).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('given a clipboard that refuses, when copied, then no success is claimed', async () => {
     // Given a browser that denies the clipboard write
     vi.stubGlobal('navigator', { ...navigator, clipboard: {
@@ -125,6 +146,21 @@ describe('ChatMessage', () => {
     // Then the wait so far is on screen
     expect(container.querySelector('.elapsed')?.textContent)
       .toMatch(/^4\.\ds$/)
+  })
+
+  it('given an answer still streaming text, when rendered, then the wait is counted beside the stamp', () => {
+    // Given an answer that has started writing and is not done
+    // When it is rendered
+    const { container } = message({
+      running: true,
+      message: { role: 'assistant', content: 'A Prone creature',
+                 at: new Date(Date.now() - 2300).toISOString() },
+    })
+
+    // Then the counter has moved from "Thinking" to the timing row
+    expect(container.querySelector('.timing .elapsed')?.textContent)
+      .toMatch(/^2\.\ds$/)
+    expect(screen.queryByText(/Thinking/)).toBeNull()
   })
 
   it('given a finished turn, when rendered, then it is dated and timed', () => {

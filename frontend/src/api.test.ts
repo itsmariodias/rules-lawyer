@@ -149,6 +149,15 @@ describe('deleteThread', () => {
     expect(stub).toHaveBeenCalledWith('/api/chat/threads/abc',
                                       { method: 'DELETE' })
   })
+
+  it('given a thread that is gone, when deleted, then the failure surfaces', async () => {
+    // Given a server that answers 404
+    answering({ detail: "no thread 'gone'" }, false, 404)
+
+    // When it is deleted
+    // Then the dialog can say so rather than closing as if it worked
+    await expect(deleteThread('gone')).rejects.toThrow("no thread 'gone'")
+  })
 })
 
 describe('loadLookup', () => {
