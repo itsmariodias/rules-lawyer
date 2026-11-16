@@ -47,6 +47,19 @@ describe('the thread list', () => {
     expect(props.onOpen).toHaveBeenCalledWith('t1')
   })
 
+  it('given the conversation on screen, when listed, then its row is marked', () => {
+    // Given two conversations, one of them open
+    // When the list is rendered
+    sidebar({ threads: [thread(), thread({ thread_id: 't2', title: 'Grappled' })],
+              activeId: 't2' })
+
+    // Then only the open one's row is highlighted
+    const row = (title: string) =>
+      screen.getByRole('button', { name: title }).closest('li')
+    expect(row('Grappled')).toHaveClass('on')
+    expect(row('Prone condition')).not.toHaveClass('on')
+  })
+
   it('given a pinned conversation, when listed, then it has a section of its own', () => {
     // Given one pinned conversation and one not
     // When the list is rendered
@@ -130,6 +143,44 @@ describe('the thread list', () => {
 
     // Then it is dismissed
     expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('given an open menu, when its button is pressed again, then it closes', async () => {
+    // Given an open menu, its row marked so the button stays shown
+    sidebar()
+    await openMenu()
+    expect(screen.getByRole('button', { name: 'Prone condition' }).closest('li'))
+      .toHaveClass('menu-open')
+
+    // When the same button is pressed again
+    await openMenu()
+
+    // Then it toggles shut
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('given an open menu, when another key is pressed, then it stays', async () => {
+    // Given an open menu
+    sidebar()
+    await openMenu()
+
+    // When a key other than Escape is pressed
+    await userEvent.keyboard('a')
+
+    // Then the menu is still there
+    expect(screen.getByRole('menu')).toBeInTheDocument()
+  })
+
+  it('given an open menu, when its thread leaves the list, then it still offers to pin', async () => {
+    // Given an open menu
+    const { props, rerender } = sidebar()
+    await openMenu()
+
+    // When a refreshed list no longer holds the thread
+    rerender(<Sidebar {...props} threads={[]} />)
+
+    // Then the menu reads it as unpinned rather than breaking
+    expect(screen.getByRole('menuitem', { name: /^Pin/ })).toBeInTheDocument()
   })
 
   it('given the list, when it is collapsed, then the shell is told', async () => {
@@ -245,6 +296,18 @@ describe('deleting a conversation', () => {
 
     // Then the failure is shown, in the dialog that is still up
     expect(await screen.findByText(/503/)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Delete this conversation?' }))
+      .toBeInTheDocument()
+  })
+
+  it('given an open dialog, when its thread leaves the list, then it still asks', async () => {
+    // Given the dialog
+    const { props, rerender } = await armDelete()
+
+    // When a refreshed list no longer holds the thread
+    rerender(<Sidebar {...props} threads={[]} />)
+
+    // Then it still asks, untitled, rather than vanishing mid-decision
     expect(screen.getByRole('heading', { name: 'Delete this conversation?' }))
       .toBeInTheDocument()
   })

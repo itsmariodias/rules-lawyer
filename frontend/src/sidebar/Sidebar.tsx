@@ -34,8 +34,8 @@ export function Sidebar({ threads, activeId, expanded, onExpand, onOpen, onNew,
   // Thread awaiting delete confirmation, and the last delete error.
   const [arming, setArming] = useState<string | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
-  // The open row menu and its screen position.
-  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
+  // The open row menu, its screen position and the button that opened it.
+  const [menu, setMenu] = useState<{ id: string } & MenuAnchor | null>(null)
   // Stable: the menu's listeners depend on it, and every token re-renders.
   const closeMenu = useCallback(() => setMenu(null), [])
 
@@ -149,7 +149,7 @@ function ThreadRow({ thread, active, menuOpen, onOpen, onMenu }: {
   active: boolean
   menuOpen: boolean
   onOpen: () => void
-  onMenu: (at: { x: number; y: number }) => void
+  onMenu: (at: MenuAnchor) => void
 }) {
   return (
     <li className={`thread ${active ? 'on' : ''} ${menuOpen ? 'menu-open' : ''}`}>
@@ -162,7 +162,8 @@ function ThreadRow({ thread, active, menuOpen, onOpen, onMenu }: {
               aria-label={`Options for conversation: ${thread.title}`}
               onClick={(event) => {
                 const box = event.currentTarget.getBoundingClientRect()
-                onMenu({ x: box.right, y: box.bottom + 4 })
+                onMenu({ x: box.right, y: box.bottom + 4,
+                         opener: event.currentTarget })
               }}>
         <MoreIcon />
       </button>
@@ -209,12 +210,17 @@ function ConfirmDelete({ title, failed, onCancel, onDelete }: {
   )
 }
 
+/** Where a row menu opens, and the button that opened it. */
+type MenuAnchor = { x: number; y: number; opener: Element }
+
 /**
  * Row menu, `position: fixed` at the opening button so the scrolling list
- * cannot clip it.  Closes on outside click, Escape, resize or scroll.
+ * cannot clip it.  Closes on outside click, Escape, resize or scroll.  A
+ * press on the opener is not outside: it would close the menu on
+ * `pointerdown` and the `click` after it would open it again.
  */
 function ThreadMenu({ at, pinned, onClose, onPin, onDelete }: {
-  at: { x: number; y: number }
+  at: MenuAnchor
   pinned: boolean
   onClose: () => void
   onPin: (pinned: boolean) => void
@@ -224,7 +230,8 @@ function ThreadMenu({ at, pinned, onClose, onPin, onDelete }: {
 
   useEffect(() => {
     const away = (event: PointerEvent) => {
-      if (!menu.current?.contains(event.target as Node)) onClose()
+      const target = event.target as Node
+      if (!menu.current?.contains(target) && !at.opener.contains(target)) onClose()
     }
     const key = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
@@ -242,7 +249,7 @@ function ThreadMenu({ at, pinned, onClose, onPin, onDelete }: {
       window.removeEventListener('resize', onClose)
       window.removeEventListener('scroll', onClose, true)
     }
-  }, [onClose])
+  }, [onClose, at.opener])
 
   return (
     <div className="thread-menu" role="menu" ref={menu}
