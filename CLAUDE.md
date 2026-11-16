@@ -36,6 +36,8 @@ data/
 backend/src/rules_lawyer/
   cli.py             rules-lawyer parse | embed | load
   config.py          pydantic-settings: RULES_LAWYER_*, NEO4J_*, CHAT_*, EMBED_*
+  providers.py       ModelProvider and one subclass per provider (Google,
+                     OpenAI, Anthropic, Ollama); PROVIDERS
   api.py             FastAPI app; assembles each package's router
   srd/               stage 1
     reading/         PDF to blocks, in reading order
@@ -159,13 +161,22 @@ GRAPH.md             reference for every label and relationship type
   a `provider` (`CHAT_PROVIDER`, `EMBED_PROVIDER`: `Provider.GOOGLE`,
   `OPENAI`, `ANTHROPIC`, `OLLAMA`), every key (`GOOGLE_API_KEY`,
   `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, each an `ApiKey`), `OPENAI_BASE_URL`
-  and `OLLAMA_BASE_URL`. `api_key()` is the configured provider's key and
-  `missing_key()` the variable it lacks (None for Ollama); every keyless
-  branch asks `missing_key()`. Keys are passed to clients explicitly, since
+  and `OLLAMA_BASE_URL`. `model_provider` is the configured
+  `providers.ModelProvider`; `api_key()` and `missing_key()` (the variable it
+  lacks, None for Ollama) ask it, and every keyless branch asks
+  `missing_key()`.
+- **Nothing outside `providers.py` branches on a provider's name.** Each
+  `ModelProvider` subclass holds what differs: its key field and variable,
+  pinned models, `can_embed`, the reply cap's option name, the phrases its
+  errors use for a rejected key and a rate limit, and the methods `chat`,
+  `chat_options`, `embedder`, `embeddings_name` and `explain`. Adding a
+  provider is a subclass and an entry in `PROVIDERS`. Provider packages are
+  imported inside those methods, so importing `config` loads no LangChain.
+  Keys are passed to clients explicitly (`chat_options`), since
   pydantic-settings reads `.env` without exporting it.
 - Only Google has a pinned default model; any other provider needs
   `CHAT_MODEL` / `EMBED_MODEL`, since a guessed pin would drift. Anthropic
-  cannot embed (refused at validation). Provider packages are extras
+  cannot embed (`can_embed`, refused at validation). Provider packages are extras
   (`uv sync --extra ollama`); CI installs `--all-extras`, and the provider
   tests `importorskip` without them.
 - A **blank** key counts as no key: an unset variable does not override an
@@ -536,14 +547,15 @@ documents each one.
   full width). The text is the section's `content` prefixed with its heading
   path (`Monsters > Goblin > Actions`), because dozens of sections are
   called "Actions".
-- Google through `google-genai`; OpenAI and Ollama through LangChain's
-  embeddings classes, chosen in `embed` by `EMBED_PROVIDER`.
+- `embed` batches, retries and checks widths; the provider's `embedder`
+  makes the calls: Google through `google-genai`, OpenAI and Ollama through
+  LangChain's embeddings classes.
 - **Width is checked, never cut:** truncation is only sound for models
   trained for it (Gemini, OpenAI's `text-embedding-3`, which take the width
   as a parameter); a model returning another width fails naming it
   (`EMBED_DIMENSIONS=768` for nomic-embed-text).
-- **One file per provider:** `srd_embeddings.idx` is Google's,
-  `srd_embeddings.<provider>.idx` any other's, so switching provider never
+- **One file per provider** (`embeddings_name`): `srd_embeddings.idx` is
+  Google's, `srd_embeddings.<provider>.idx` any other's, so switching provider never
   overwrites the shared file, which costs API calls to remake. Switching
   `EMBED_PROVIDER` needs a `load`: queries are embedded by the configured
   provider, and the graph's vectors otherwise stay in the old space.
@@ -587,7 +599,8 @@ exit non-zero.
 
 A LangGraph tool-calling agent (`langchain.agents.create_agent`) on the
 configured model (`CHAT_PROVIDER`, `CHAT_MODEL`; Gemini, pinned, by
-default), built by `init_chat_model`, with four tools:
+default), built by the provider's `chat` (`init_chat_model`), with four
+tools:
 
 | Tool | Does |
 | --- | --- |
@@ -690,7 +703,8 @@ and `retry` read it, so stored conversations open without a key.
   returning their stream, so `/chat` and retry answer 503; everything else
   arrives as an `error` event. `_explain` names the common failures (no key,
   rejected key, spent quota or rate limit, Ollama not running or the model
-  not pulled) for the configured provider and truncates the rest.
+  not pulled, from the provider's phrases and `explain`) for the configured
+  provider and truncates the rest.
 - **Tool calls are announced from the finished model message** (the
   `updates` stream), not the first chunk naming them: Gemini sends a call
   whole, but OpenAI and Anthropic stream its arguments, so that chunk has

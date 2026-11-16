@@ -58,6 +58,8 @@ src/rules_lawyer/
   api.py              the FastAPI app: every package's router, plus the
                       SQLite stores for conversations
   config.py           settings from .env (paths, NEO4J_*, CHAT_*, EMBED_*)
+  providers.py        Google, OpenAI, Anthropic, Ollama: what each needs and
+                      how it builds its chat model and embeddings
 
   srd/                PDF -> JSON
     reading/          PDF pages -> lines -> styled text -> blocks
@@ -173,6 +175,14 @@ Titles are written by the model beside the first turn.
 **Configuration.** `config.py` reads `.env` and the environment; each group
 (Neo4j, chat, embeddings) is built only when first used, so parsing needs no
 database or key.
+
+**Providers.** Everything that differs between model providers is in
+`providers.py`: a `ModelProvider` base class with one subclass each for
+Google, OpenAI, Anthropic and Ollama, holding its key variable, pinned
+models, error phrasing, and how it builds its chat model and embedder. The
+rest of the code asks the configured provider (`settings.model_provider`)
+and never branches on its name, so adding one is a subclass and an entry in
+`PROVIDERS`.
 
 ### Parsing
 

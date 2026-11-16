@@ -17,7 +17,8 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 
 from rules_lawyer.chat.agent.build import build_agent
 from rules_lawyer.chat.retrieval import search
-from rules_lawyer.config import KEY_VARIABLES, Provider, get_settings
+from rules_lawyer.config import get_settings
+from rules_lawyer.providers import PROVIDERS
 
 
 def thread_config(thread_id: str, checkpoint_id: str | None = None) -> dict:
@@ -144,49 +145,31 @@ async def _until_silent(stream: AsyncIterator, seconds: float) -> AsyncIterator:
 # 600 characters), so they are cut to this.
 ERROR_CHARS = 220
 
-# Each provider as the reader knows it.
-PROVIDER_NAMES = {Provider.GOOGLE: "Google", Provider.OPENAI: "OpenAI",
-                  Provider.ANTHROPIC: "Anthropic", Provider.OLLAMA: "Ollama"}
-# How each provider words a rejected key: Google, OpenAI, Anthropic, and the
-# status code any of them may give alone.
-REJECTED_KEY = ("API_KEY_INVALID", "API key not valid", "invalid_api_key",
-                "Incorrect API key", "authentication_error", "Error code: 401")
-# A spent quota or a rate limit: Google, OpenAI, Anthropic, then the status.
-SPENT_QUOTA = ("RESOURCE_EXHAUSTED", "insufficient_quota", "rate_limit_error",
-               "429")
-# Ollama not running: from httpx when LangChain calls it, from the ollama
-# client otherwise.
-UNREACHABLE = ("Connection refused", "Failed to connect to Ollama")
-
 
 def _explain(exc: Exception) -> str:
     """An exception as a short sentence for the reader.
 
-    Missing key, rejected key, spent quota, an unreachable or unpulled
-    Ollama model and silence get fixed messages naming the configured
-    provider; anything else is truncated to ``ERROR_CHARS``.
+    Missing key, rejected key, spent quota, failures only the configured
+    provider has (``ModelProvider.explain``) and silence get fixed messages;
+    anything else is truncated to ``ERROR_CHARS``.
     """
     text = f"{type(exc).__name__}: {exc}"
     chat = get_settings().chat
-    provider = chat.provider
-    variable = KEY_VARIABLES.get(provider, "The API key")
-    missing = next((name for name in KEY_VARIABLES.values()
-                    if f"{name} is not set" in text), None)
+    provider = chat.model_provider
+    missing = next((other.key_variable for other in PROVIDERS.values()
+                    if other.key_variable
+                    and f"{other.key_variable} is not set" in text), None)
     if missing:
         return f"{missing} is not set. Add it to .env and restart the server."
-    if any(sign in text for sign in REJECTED_KEY):
-        return (f"{variable} was rejected by {PROVIDER_NAMES[provider]}. "
+    if any(sign in text for sign in provider.rejected_key):
+        return (f"{provider.key_variable} was rejected by {provider.title}. "
                 "Check the key in .env and restart the server.")
-    if any(sign in text for sign in SPENT_QUOTA):
-        return (f"The {PROVIDER_NAMES[provider]} quota is spent or the rate "
-                "limit was hit. Wait, or check the account's limits.")
-    if provider is Provider.OLLAMA and any(sign in text
-                                           for sign in UNREACHABLE):
-        return (f"Ollama is not reachable at {chat.ollama_base_url}. Start it "
-                "(`ollama serve`) or set OLLAMA_BASE_URL.")
-    if provider is Provider.OLLAMA and "not found" in text:
-        return (f"Ollama has no model {chat.model}. Run `ollama pull "
-                f"{chat.model}`.")
+    if any(sign in text for sign in provider.rate_limited):
+        return (f"The {provider.title} quota is spent or the rate limit was "
+                "hit. Wait, or check the account's limits.")
+    special = provider.explain(text, chat)
+    if special:
+        return special
     if isinstance(exc, TimeoutError):
         return (f"The model stopped responding ({exc}). Nothing arrived, so "
                 "the turn was ended rather than left hanging.")

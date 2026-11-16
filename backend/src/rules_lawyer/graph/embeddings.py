@@ -22,8 +22,9 @@ from datetime import date
 from hashlib import sha256
 from pathlib import Path
 
-from rules_lawyer.config import EmbeddingSettings, Provider
+from rules_lawyer.config import EmbeddingSettings
 from rules_lawyer.graph.model import Report
+from rules_lawyer.providers import Provider
 
 # Attempts per batch while rate limited, waiting 1, 2, 4 and 8 seconds between.
 ATTEMPTS = 5
@@ -269,46 +270,11 @@ def normalise(vector: Iterable[float]) -> list[float]:
     return [value / length for value in values] if length else values
 
 
-def _provider_embedder(
-        settings: EmbeddingSettings) -> Callable[[list[str]], list[list[float]]]:
-    """A function embedding one batch with the configured provider."""
-    if settings.provider is Provider.GOOGLE:
-        from google import genai
-        from google.genai import types
-
-        client = genai.Client(api_key=settings.api_key().get_secret_value())
-        config = types.EmbedContentConfig(
-            task_type=settings.task_type,
-            output_dimensionality=settings.dimensions)
-        return lambda chunk: [
-            item.values for item in client.models.embed_content(
-                model=settings.model, contents=chunk, config=config).embeddings]
-
-    try:
-        if settings.provider is Provider.OPENAI:
-            from langchain_openai import OpenAIEmbeddings
-
-            client = OpenAIEmbeddings(
-                model=settings.model, dimensions=settings.dimensions,
-                api_key=settings.api_key().get_secret_value(),
-                base_url=settings.openai_base_url)
-        else:
-            from langchain_ollama import OllamaEmbeddings
-
-            client = OllamaEmbeddings(model=settings.model,
-                                      base_url=settings.ollama_base_url)
-    except ImportError as exc:
-        raise MissingEmbeddings(
-            f"EMBED_PROVIDER={settings.provider} needs its package: run "
-            f"`uv sync --extra {settings.provider}` in backend/") from exc
-    return client.embed_documents
-
-
 def embed(batch: list[str], settings: EmbeddingSettings,
           report: Report = lambda _: None) -> list[list[float]]:
     """Embed texts with the configured provider.
 
-    Rate limits (429 / RESOURCE_EXHAUSTED) are retried with exponential
+    Rate limits (as the provider words them) are retried with exponential
     backoff, up to ``ATTEMPTS`` attempts per batch.  Vectors are checked
     against ``settings.dimensions``, never cut to it: only some models keep
     their meaning when truncated.
@@ -330,7 +296,13 @@ def embed(batch: list[str], settings: EmbeddingSettings,
     variable = settings.missing_key()
     if variable:  # pragma: no cover - guarded upstream
         raise MissingEmbeddings(f"{variable} is not set")
-    embed_chunk = _provider_embedder(settings)
+    provider = settings.model_provider
+    try:
+        embed_chunk = provider.embedder(settings)
+    except ImportError as exc:
+        raise MissingEmbeddings(
+            f"EMBED_PROVIDER={settings.provider} needs its package: run "
+            f"`uv sync --extra {settings.provider}` in backend/") from exc
 
     out: list[list[float]] = []
     for chunk in _chunks(batch, settings.batch):
@@ -339,7 +311,7 @@ def embed(batch: list[str], settings: EmbeddingSettings,
                 vectors = embed_chunk(chunk)
                 break
             except Exception as exc:  # each provider raises a family of these
-                if "429" not in str(exc) and "RESOURCE_EXHAUSTED" not in str(exc):
+                if not any(sign in str(exc) for sign in provider.rate_limited):
                     raise
                 if attempt == ATTEMPTS - 1:
                     raise RuntimeError(

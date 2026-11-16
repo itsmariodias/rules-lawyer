@@ -8,12 +8,12 @@ from rules_lawyer.config import (
     ChatSettings,
     EmbeddingSettings,
     Neo4jSettings,
-    Provider,
     Settings,
     anchors_path_for,
     get_settings,
     markdown_path_for,
 )
+from rules_lawyer.providers import Provider
 
 
 class TestSettingsPaths:

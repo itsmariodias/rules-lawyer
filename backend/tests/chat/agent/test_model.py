@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from rules_lawyer import providers
 from rules_lawyer.chat.agent import model
 
 
@@ -124,7 +125,7 @@ class TestModel:
         def missing(*_, **__):
             raise ImportError("No module named 'langchain_ollama'")
 
-        monkeypatch.setattr(model, "init_chat_model", missing)
+        monkeypatch.setattr(providers.Ollama, "chat", missing)
 
         # When the model is built
         # Then the failure says how to install it
