@@ -20,7 +20,8 @@ jobs:
       - uses: astral-sh/setup-uv@v10.3.3
         with:
           enable-cache: true
-      - run: uv sync --locked
+      # The extras install every provider, so their tests run rather than skip.
+      - run: uv sync --locked --all-extras
       - name: Compile
         run: uv run python -m compileall -q src tests
       - name: Lint

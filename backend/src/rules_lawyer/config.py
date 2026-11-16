@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
 from functools import cached_property, lru_cache
 from pathlib import Path
 from typing import Annotated
 
-from pydantic import BeforeValidator, Field, SecretStr
+from pydantic import BeforeValidator, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # backend/src/rules_lawyer/config.py -> repository root.
@@ -28,9 +29,66 @@ def _blank_is_absent(value: object) -> object:
     return None if isinstance(value, str) and not value.strip() else value
 
 
-# ``GOOGLE_API_KEY``, shared by the chat and the embeddings.
-ApiKey = Annotated[SecretStr | None, BeforeValidator(_blank_is_absent),
-                   Field(validation_alias="GOOGLE_API_KEY")]
+# An optional API key, blank counting as unset.
+ApiKey = Annotated[SecretStr | None, BeforeValidator(_blank_is_absent)]
+
+
+class Provider(StrEnum):
+    """Who serves a model: the chat's, or the embeddings'."""
+
+    GOOGLE = "google"
+    OPENAI = "openai"
+    ANTHROPIC = "anthropic"
+    OLLAMA = "ollama"
+
+
+# The variable holding each provider's key.  Ollama runs locally and has none.
+KEY_VARIABLES = {
+    Provider.GOOGLE: "GOOGLE_API_KEY",
+    Provider.OPENAI: "OPENAI_API_KEY",
+    Provider.ANTHROPIC: "ANTHROPIC_API_KEY",
+}
+
+
+class Credentials(BaseSettings):
+    """Every provider's key and address, shared by the chat and embeddings.
+
+    Keys are passed to clients explicitly: pydantic-settings reads ``.env``
+    without exporting it, so a client reading its own variable would not see
+    one set there.
+    """
+
+    provider: Provider = Provider.GOOGLE
+    google_api_key: ApiKey = Field(None, validation_alias="GOOGLE_API_KEY")
+    openai_api_key: ApiKey = Field(None, validation_alias="OPENAI_API_KEY")
+    anthropic_api_key: ApiKey = Field(None, validation_alias="ANTHROPIC_API_KEY")
+    # An OpenAI-compatible server (LM Studio, vLLM, OpenRouter); unset is
+    # OpenAI itself.
+    openai_base_url: str | None = Field(None, validation_alias="OPENAI_BASE_URL")
+    ollama_base_url: str = Field("http://localhost:11434",
+                                 validation_alias="OLLAMA_BASE_URL")
+
+    def api_key(self) -> SecretStr | None:
+        """The configured provider's key.
+
+        Returns:
+            The key, or None if it is unset or the provider takes none.
+        """
+        return {
+            Provider.GOOGLE: self.google_api_key,
+            Provider.OPENAI: self.openai_api_key,
+            Provider.ANTHROPIC: self.anthropic_api_key,
+        }.get(self.provider)
+
+    def missing_key(self) -> str | None:
+        """The variable the configured provider needs and lacks.
+
+        Returns:
+            Its name (``"GOOGLE_API_KEY"``), or None if the key is set or the
+            provider takes none.
+        """
+        variable = KEY_VARIABLES.get(self.provider)
+        return variable if variable and self.api_key() is None else None
 
 
 class Neo4jSettings(BaseSettings):
@@ -50,17 +108,23 @@ class Neo4jSettings(BaseSettings):
         return self.user, self.password.get_secret_value()
 
 
-class ChatSettings(BaseSettings):
-    """Agent model, retrieval limits and failure handling."""
+class ChatSettings(Credentials):
+    """Agent model, retrieval limits and failure handling.
+
+    Keys are optional so the non-chat endpoints start without one; a turn
+    without one is answered with 503.
+    """
 
     model_config = _ENV | SettingsConfigDict(env_prefix="CHAT_")
 
-    # Optional so the non-chat endpoints start without a key; a turn without
-    # one is answered with 503.
-    google_api_key: ApiKey = None
-    # Pinned: a "-latest" alias changes behaviour without a commit.
-    model: str = "gemini-3.8-flash"
-    temperature: float = 0.2
+    # Required for every provider but Google, whose default is pinned: a
+    # "-latest" alias changes behaviour without a commit.
+    model: str | None = None
+    # Blank omits it, for models that accept only their own (OpenAI's
+    # reasoning models).
+    temperature: Annotated[float | None, BeforeValidator(_blank_is_absent)] = 0.2
+    # Unset leaves the provider's default.
+    max_tokens: int | None = None
     # Candidates per search arm; the fusion cuts the union to ``top_k``.
     search_limit: int = 8
     top_k: int = 3
@@ -71,23 +135,31 @@ class ChatSettings(BaseSettings):
     cypher_timeout_seconds: float = 10
     cypher_max_rows: int = 50
 
+    @model_validator(mode="after")
+    def _pin_gemini(self) -> ChatSettings:
+        """Default ``model`` to the pinned Gemini when Google serves it."""
+        if self.model is None and self.provider is Provider.GOOGLE:
+            self.model = "gemini-3.8-flash"
+        return self
 
-class EmbeddingSettings(BaseSettings):
+
+class EmbeddingSettings(Credentials):
     """Settings for ``rules-lawyer embed``.
 
-    Model, dimensions and task type are written into the ``.idx`` header; a
-    file made under different values is discarded whole on load.
+    Provider, model, dimensions and task type are written into the ``.idx``
+    header; a file made under different values is discarded whole on load.
+    Keys are optional: a complete ``.idx`` needs none.
     """
 
     model_config = _ENV | SettingsConfigDict(env_prefix="EMBED_")
 
-    # Optional: a complete ``.idx`` needs no key.
-    google_api_key: ApiKey = None
-    # Pinned to a GA id: the shared file's vectors must stay in one space.
-    model: str = "gemini-embedding-001"
-    # Truncated from the native 3072.  The API only normalises at full width,
-    # so ``embeddings.embed`` normalises itself.
+    # Required for every provider but Google, whose default is pinned.
+    model: str | None = None
+    # Gemini's is truncated from the native 3072, and the API only normalises
+    # at full width, so ``embeddings.embed`` normalises itself.  Other models
+    # must return exactly this width.
     dimensions: int = 1536
+    # Gemini only.
     task_type: str = "RETRIEVAL_DOCUMENT"
     batch: int = 32
     # ~1500 tokens, under the model's input cap.  One SRD section exceeds it.
@@ -95,6 +167,22 @@ class EmbeddingSettings(BaseSettings):
     # Rows per transaction; lower than the loader's 1000 because each row is
     # 1536 floats.
     write_batch: int = 200
+
+    @model_validator(mode="after")
+    def _check_model(self) -> EmbeddingSettings:
+        """Default ``model`` for Google; refuse a provider that cannot embed.
+
+        Pinned to a GA id: the shared file's vectors must stay in one space.
+        """
+        if self.provider is Provider.ANTHROPIC:
+            raise ValueError("Anthropic has no embeddings API; set "
+                             "EMBED_PROVIDER to google, openai or ollama")
+        if self.model is None:
+            if self.provider is not Provider.GOOGLE:
+                raise ValueError(f"EMBED_PROVIDER={self.provider} needs "
+                                 f"EMBED_MODEL")
+            self.model = "gemini-embedding-001"
+        return self
 
 
 class Settings(BaseSettings):
@@ -160,11 +248,17 @@ class Settings(BaseSettings):
     def embeddings_path(self) -> Path:
         """Where the vectors are read from and written to.
 
-        On ``Settings`` because building ``EmbeddingSettings`` requires an API
-        key and reading the file does not.
+        Each provider but Google gets its own file
+        (``srd_embeddings.ollama.idx``), so switching provider never
+        overwrites the shared Gemini vectors, which cost API calls to remake.
         """
-        return (self.embeddings.expanduser() if self.embeddings
-                else self.output_dir / self.embeddings_name)
+        if self.embeddings:
+            return self.embeddings.expanduser()
+        name = Path(self.embeddings_name)
+        provider = self.embedding.provider
+        if provider is not Provider.GOOGLE:
+            name = name.with_suffix(f".{provider}{name.suffix}")
+        return self.output_dir / name
 
     @cached_property
     def chat(self) -> ChatSettings:

@@ -188,8 +188,9 @@ def search(text: str, limit: int = 8, types: list[str] | None = None) -> list[Pa
 # The dense arm
 
 
-# Documents are embedded as RETRIEVAL_DOCUMENT; queries need the paired type.
-# Not a setting, because it is not stored in the .idx header.
+# Gemini embeds documents as RETRIEVAL_DOCUMENT; queries need the paired type.
+# Not a setting, because it is not stored in the .idx header.  Other
+# providers ignore it.
 QUERY_TASK_TYPE = "RETRIEVAL_QUERY"
 
 
@@ -201,13 +202,15 @@ def embed_query(text: str) -> tuple[float, ...] | None:
         text: The question.
 
     Returns:
-        The vector, or None without an API key (search is then lexical only).
+        The vector, or None without the embedding provider's API key (search
+        is then lexical only).
 
     Raises:
-        Exception: Any API error, e.g. a rejected key or a spent quota.
+        Exception: Any provider error, e.g. a rejected key, a spent quota or
+            an unreachable Ollama.
     """
     settings = get_settings().embedding
-    if settings.google_api_key is None:
+    if settings.missing_key():
         return None
     asked = settings.model_copy(update={"task_type": QUERY_TASK_TYPE})
     return tuple(embeddings.embed([text], asked)[0])

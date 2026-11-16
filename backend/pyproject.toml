@@ -23,6 +23,17 @@ dependencies = [
 [project.scripts]
 rules-lawyer = "rules_lawyer.cli:main"
 
+[project.optional-dependencies]
+anthropic = [
+    "langchain-anthropic>=1.7.10",
+]
+openai = [
+    "langchain-openai>=1.8.0",
+]
+ollama = [
+    "langchain-ollama>=1.1.0",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

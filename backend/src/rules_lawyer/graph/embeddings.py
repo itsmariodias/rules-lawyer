@@ -1,7 +1,8 @@
 """One vector per section, and the ``srd_embeddings.idx`` file that carries them.
 
 The file lets a load run without an API key.  A load with neither a complete
-file nor a key raises ``MissingEmbeddings``.
+file nor a key raises ``MissingEmbeddings``.  Vectors come from Google, OpenAI
+(or a server speaking its API) or Ollama, as ``EMBED_PROVIDER`` says.
 
 File format: ``MAGIC``, a little-endian uint32 header length, a JSON header,
 then ``count * dimensions`` little-endian float32.
@@ -21,7 +22,7 @@ from datetime import date
 from hashlib import sha256
 from pathlib import Path
 
-from rules_lawyer.config import EmbeddingSettings
+from rules_lawyer.config import EmbeddingSettings, Provider
 from rules_lawyer.graph.model import Report
 
 # Attempts per batch while rate limited, waiting 1, 2, 4 and 8 seconds between.
@@ -52,6 +53,8 @@ class Vectors:
         rows: The vectors.  All three lists are parallel.
         artifact: ``pdf``, ``generated`` and ``pages`` from the document's
             meta, for provenance.
+        provider: Who made them.  Files written before providers were
+            configurable hold Gemini vectors and no provider.
     """
 
     model: str
@@ -61,6 +64,7 @@ class Vectors:
     digests: list[str]
     rows: list[list[float]]
     artifact: dict = field(default_factory=dict)
+    provider: str = Provider.GOOGLE
 
     def __len__(self) -> int:
         return len(self.keys)
@@ -81,9 +85,11 @@ class Vectors:
             settings: The embedding settings in force.
 
         Returns:
-            True if model, dimensions and task type all equal the settings'.
+            True if provider, model, dimensions and task type all equal the
+            settings'.
         """
-        return (self.model == settings.model
+        return (self.provider == settings.provider
+                and self.model == settings.model
                 and self.dimensions == settings.dimensions
                 and self.task_type == settings.task_type)
 
@@ -158,6 +164,7 @@ def write(path: Path, vectors: Vectors) -> Path:
     """
     header = json.dumps({
         "version": VERSION,
+        "provider": vectors.provider,
         "model": vectors.model,
         "dimensions": vectors.dimensions,
         "dtype": "float32",
@@ -233,7 +240,8 @@ def read(path: Path) -> Vectors:
     return Vectors(model=header["model"], dimensions=dimensions,
                    task_type=header["task_type"], keys=keys,
                    digests=list(header["digests"]), rows=rows,
-                   artifact=header.get("artifact") or {})
+                   artifact=header.get("artifact") or {},
+                   provider=header.get("provider", Provider.GOOGLE))
 
 
 # --------------------------------------------------------------------------
@@ -261,45 +269,76 @@ def normalise(vector: Iterable[float]) -> list[float]:
     return [value / length for value in values] if length else values
 
 
+def _provider_embedder(
+        settings: EmbeddingSettings) -> Callable[[list[str]], list[list[float]]]:
+    """A function embedding one batch with the configured provider."""
+    if settings.provider is Provider.GOOGLE:
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=settings.api_key().get_secret_value())
+        config = types.EmbedContentConfig(
+            task_type=settings.task_type,
+            output_dimensionality=settings.dimensions)
+        return lambda chunk: [
+            item.values for item in client.models.embed_content(
+                model=settings.model, contents=chunk, config=config).embeddings]
+
+    try:
+        if settings.provider is Provider.OPENAI:
+            from langchain_openai import OpenAIEmbeddings
+
+            client = OpenAIEmbeddings(
+                model=settings.model, dimensions=settings.dimensions,
+                api_key=settings.api_key().get_secret_value(),
+                base_url=settings.openai_base_url)
+        else:
+            from langchain_ollama import OllamaEmbeddings
+
+            client = OllamaEmbeddings(model=settings.model,
+                                      base_url=settings.ollama_base_url)
+    except ImportError as exc:
+        raise MissingEmbeddings(
+            f"EMBED_PROVIDER={settings.provider} needs its package: run "
+            f"`uv sync --extra {settings.provider}` in backend/") from exc
+    return client.embed_documents
+
+
 def embed(batch: list[str], settings: EmbeddingSettings,
           report: Report = lambda _: None) -> list[list[float]]:
-    """Embed texts with the Gemini API.
+    """Embed texts with the configured provider.
 
     Rate limits (429 / RESOURCE_EXHAUSTED) are retried with exponential
-    backoff, up to ``ATTEMPTS`` attempts per batch.
+    backoff, up to ``ATTEMPTS`` attempts per batch.  Vectors are checked
+    against ``settings.dimensions``, never cut to it: only some models keep
+    their meaning when truncated.
 
     Args:
         batch: Texts to embed.
-        settings: Model, dimensions, task type, batch size and key.
+        settings: Provider, model, dimensions, task type, batch size and key.
         report: Receives progress lines.
 
     Returns:
         One normalised vector per text, in order.
 
     Raises:
-        MissingEmbeddings: No API key.
+        MissingEmbeddings: No API key, the provider's package is not
+            installed, or the model returns vectors of another width.
         RuntimeError: Rate limited ``ATTEMPTS`` times in a row.
-        Exception: Any other SDK error, unchanged.
+        Exception: Any other provider error, unchanged.
     """
-    from google import genai
-    from google.genai import types
-
-    if settings.google_api_key is None:  # pragma: no cover - guarded upstream
-        raise MissingEmbeddings("GOOGLE_API_KEY is not set")
-
-    client = genai.Client(api_key=settings.google_api_key.get_secret_value())
-    config = types.EmbedContentConfig(
-        task_type=settings.task_type,
-        output_dimensionality=settings.dimensions)
+    variable = settings.missing_key()
+    if variable:  # pragma: no cover - guarded upstream
+        raise MissingEmbeddings(f"{variable} is not set")
+    embed_chunk = _provider_embedder(settings)
 
     out: list[list[float]] = []
-    for index, chunk in enumerate(_chunks(batch, settings.batch)):
+    for chunk in _chunks(batch, settings.batch):
         for attempt in range(ATTEMPTS):
             try:
-                response = client.models.embed_content(
-                    model=settings.model, contents=chunk, config=config)
+                vectors = embed_chunk(chunk)
                 break
-            except Exception as exc:  # the SDK raises a family of these
+            except Exception as exc:  # each provider raises a family of these
                 if "429" not in str(exc) and "RESOURCE_EXHAUSTED" not in str(exc):
                     raise
                 if attempt == ATTEMPTS - 1:
@@ -309,7 +348,13 @@ def embed(batch: list[str], settings: EmbeddingSettings,
                 wait = 2 ** attempt
                 report(f"  rate limited, retrying in {wait}s")
                 time.sleep(wait)
-        out.extend(normalise(item.values) for item in response.embeddings)
+        for vector in vectors:
+            if len(vector) != settings.dimensions:
+                raise MissingEmbeddings(
+                    f"{settings.model} returns {len(vector)} dimensions, not "
+                    f"{settings.dimensions}; set EMBED_DIMENSIONS="
+                    f"{len(vector)}")
+        out.extend(normalise(vector) for vector in vectors)
         report(f"  embedded {len(out)}/{len(batch)}")
     return out
 
@@ -350,9 +395,10 @@ def resolve(document: dict, *, path: Path, settings: EmbeddingSettings,
             report(f"embeddings: read {len(cached)} from {path}")
         else:
             report(f"embeddings: ignoring {path}, which holds "
-                   f"{stored.model} at {stored.dimensions} "
-                   f"({stored.task_type}), not {settings.model} at "
-                   f"{settings.dimensions} ({settings.task_type})")
+                   f"{stored.provider} {stored.model} at {stored.dimensions} "
+                   f"({stored.task_type}), not {settings.provider} "
+                   f"{settings.model} at {settings.dimensions} "
+                   f"({settings.task_type})")
     elif refresh:
         report("embeddings: refreshing, ignoring any cached file")
 
@@ -371,10 +417,11 @@ def resolve(document: dict, *, path: Path, settings: EmbeddingSettings,
     missing = [key for key, text in wanted.items()
                if key not in cached or cached[key][0] != digest(text)]
 
-    if missing and settings.google_api_key is None:
+    variable = settings.missing_key()
+    if missing and variable:
         raise MissingEmbeddings(
             f"{len(missing)} of {len(wanted)} sections have no embedding and "
-            f"GOOGLE_API_KEY is not set.\nEither set it and run "
+            f"{variable} is not set.\nEither set it and run "
             f"`uv run rules-lawyer embed`, or download {path.name} and point "
             f"RULES_LAWYER_EMBEDDINGS at it.")
 
@@ -386,7 +433,7 @@ def resolve(document: dict, *, path: Path, settings: EmbeddingSettings,
 
     keys = list(wanted)
     vectors = Vectors(
-        model=settings.model, dimensions=settings.dimensions,
+        provider=settings.provider, model=settings.model, dimensions=settings.dimensions,
         task_type=settings.task_type, keys=keys,
         digests=[cached[key][0] for key in keys],
         rows=[cached[key][1] for key in keys],

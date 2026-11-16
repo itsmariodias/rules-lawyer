@@ -93,6 +93,129 @@ class TestExplain:
         # Then nothing is cut from it
         assert explained == "ValueError: something odd"
 
+    def test_given_another_providers_missing_key_when_explained_then_it_is_named(
+            self):
+        # Given the error a missing Anthropic key raises
+        # When it is explained
+        explained = turn._explain(RuntimeError("ANTHROPIC_API_KEY is not set"))
+
+        # Then that variable, not Google's, is named
+        assert explained.startswith("ANTHROPIC_API_KEY is not set")
+
+    def test_given_anthropic_rejecting_a_key_when_explained_then_it_names_the_variable(
+            self, settings_env):
+        # Given Anthropic configured, and its rejection
+        settings_env(CHAT_PROVIDER="anthropic", CHAT_MODEL="claude-test")
+        error = RuntimeError("Error code: 401 - {'type': 'error', 'error': "
+                             "{'type': 'authentication_error'}}")
+
+        # When it is explained
+        # Then it says which key to check
+        assert "ANTHROPIC_API_KEY was rejected" in turn._explain(error)
+
+    def test_given_an_openai_rate_limit_when_explained_then_the_provider_is_named(
+            self, settings_env):
+        # Given OpenAI configured, and its rate limit
+        settings_env(CHAT_PROVIDER="openai", CHAT_MODEL="gpt-test")
+        error = RuntimeError("Error code: 429 - insufficient_quota")
+
+        # When it is explained
+        # Then the reader is told which account's limit was hit
+        assert "The OpenAI quota is spent" in turn._explain(error)
+
+    def test_given_ollama_not_running_when_explained_then_it_says_how_to_start_it(
+            self, settings_env):
+        # Given Ollama configured but not listening
+        settings_env(CHAT_PROVIDER="ollama", CHAT_MODEL="qwen3",
+                     OLLAMA_BASE_URL="http://localhost:11434")
+
+        # When the connection failure is explained
+        explained = turn._explain(ConnectionError("[Errno 61] Connection refused"))
+
+        # Then it names the address tried and the setting to change
+        assert "not reachable at http://localhost:11434" in explained
+        assert "OLLAMA_BASE_URL" in explained
+
+    def test_given_an_ollama_model_not_pulled_when_explained_then_it_says_to_pull_it(
+            self, settings_env):
+        # Given Ollama without the configured model
+        settings_env(CHAT_PROVIDER="ollama", CHAT_MODEL="qwen3")
+
+        # When its refusal is explained
+        explained = turn._explain(RuntimeError("model 'qwen3' not found"))
+
+        # Then it gives the command that fixes it
+        assert "ollama pull qwen3" in explained
+
+
+class TestFromMessageChunk:
+    def test_given_content_blocks_when_read_then_only_the_text_is_spoken(self):
+        # Given a chunk in Anthropic's form: text beside a tool call and a
+        # thinking block
+        from langchain_core.messages import AIMessageChunk
+
+        chunk = AIMessageChunk(content=[
+            {"type": "thinking", "thinking": "Look it up."},
+            {"type": "text", "text": "Prone means "},
+            {"type": "tool_use", "id": "c1", "name": "search_srd", "input": {}},
+        ])
+        answer: list[str] = []
+
+        # When it is read
+        events = turn._from_message_chunk(chunk, answer)
+
+        # Then the text alone is a token and part of the answer
+        assert events == [{"type": "token", "text": "Prone means "}]
+        assert answer == ["Prone means "]
+
+    def test_given_a_tool_call_chunk_when_read_then_nothing_is_announced(self):
+        # Given the first chunk of a streamed call, before its arguments
+        from langchain_core.messages import AIMessageChunk
+
+        chunk = AIMessageChunk(content="", tool_call_chunks=[
+            {"id": "c1", "name": "search_srd", "args": "", "index": 0}])
+
+        # When it is read
+        # Then no event is sent: the arguments are not known yet
+        assert turn._from_message_chunk(chunk, []) == []
+
+
+class TestToolStarts:
+    def test_given_a_finished_message_when_read_then_each_call_starts_with_its_args(
+            self):
+        # Given a model message whose two calls were streamed in pieces
+        from langchain_core.messages import AIMessage
+
+        message = AIMessage(content="", tool_calls=[
+            {"id": "c1", "name": "search_srd", "args": {"query": "Prone"}},
+            {"id": "c2", "name": "get_srd_section", "args": {"id": "11.2.114"}},
+        ])
+
+        # When the calls are announced
+        events = turn._tool_starts([message], set())
+
+        # Then each arrives whole, in order
+        assert events == [
+            {"type": "tool_start", "id": "c1", "name": "search_srd",
+             "args": {"query": "Prone"}},
+            {"type": "tool_start", "id": "c2", "name": "get_srd_section",
+             "args": {"id": "11.2.114"}},
+        ]
+
+    def test_given_a_call_already_announced_when_read_again_then_it_is_skipped(
+            self):
+        # Given a call announced once
+        from langchain_core.messages import AIMessage
+
+        message = AIMessage(content="", tool_calls=[
+            {"id": "c1", "name": "search_srd", "args": {"query": "Prone"}}])
+        announced: set[str] = set()
+        turn._tool_starts([message], announced)
+
+        # When the same message is read again
+        # Then nothing is sent twice
+        assert turn._tool_starts([message], announced) == []
+
 
 class TestFromUpdate:
     @staticmethod

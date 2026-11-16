@@ -71,7 +71,8 @@ backend/src/rules_lawyer/
     routes.py        /graph/health, /graph/load
   chat/              stage 3
     agent/           the model and everything built on it
-      model.py       the chat model factory (Gemini) and NoApiKey
+      model.py       the chat model factory (CHAT_PROVIDER) and
+                     ModelUnavailable
       build.py       LangGraph agent: system prompt, compiled and cached
       tools.py       the four agent tools
       titles.py      conversation titles
@@ -150,15 +151,30 @@ GRAPH.md             reference for every label and relationship type
   `cached_property`s built on first access, so `parse` needs no
   `NEO4J_PASSWORD` and neither pipeline needs `GOOGLE_API_KEY`.
 - Paths a keyless process must know (`checkpoint_name`, `store_name`,
-  `embeddings_path`) live on `Settings`, because building `ChatSettings` or
-  `EmbeddingSettings` is where the key matters.
+  `embeddings_path`) live on `Settings`. `embeddings_path` reads
+  `EMBED_PROVIDER` from `.embedding`, which builds without a key.
 - Paths are resolved inside `build()`/`load()`, not as import-time defaults,
   so environment overrides take effect.
-- `GOOGLE_API_KEY` is shared by chat and embeddings (the `ApiKey` type). A
-  **blank** value counts as no key: an unset variable does not override an
+- **Providers.** `ChatSettings` and `EmbeddingSettings` share `Credentials`:
+  a `provider` (`CHAT_PROVIDER`, `EMBED_PROVIDER`: `Provider.GOOGLE`,
+  `OPENAI`, `ANTHROPIC`, `OLLAMA`), every key (`GOOGLE_API_KEY`,
+  `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, each an `ApiKey`), `OPENAI_BASE_URL`
+  and `OLLAMA_BASE_URL`. `api_key()` is the configured provider's key and
+  `missing_key()` the variable it lacks (None for Ollama); every keyless
+  branch asks `missing_key()`. Keys are passed to clients explicitly, since
+  pydantic-settings reads `.env` without exporting it.
+- Only Google has a pinned default model; any other provider needs
+  `CHAT_MODEL` / `EMBED_MODEL`, since a guessed pin would drift. Anthropic
+  cannot embed (refused at validation). Provider packages are extras
+  (`uv sync --extra ollama`); CI installs `--all-extras`, and the provider
+  tests `importorskip` without them.
+- A **blank** key counts as no key: an unset variable does not override an
   `.env` that sets one, so `GOOGLE_API_KEY=` is how to force the keyless path.
-- Embedding settings: `EMBED_MODEL`, `EMBED_DIMENSIONS`, `EMBED_TASK_TYPE`,
-  `EMBED_BATCH`, `EMBED_MAX_CHARS`, `EMBED_WRITE_BATCH`.
+  A blank `CHAT_TEMPERATURE` sends none (OpenAI's reasoning models refuse
+  any).
+- Embedding settings: `EMBED_PROVIDER`, `EMBED_MODEL`, `EMBED_DIMENSIONS`,
+  `EMBED_TASK_TYPE` (Gemini only), `EMBED_BATCH`, `EMBED_MAX_CHARS`,
+  `EMBED_WRITE_BATCH`.
 - `get_settings()` is cached; tests change the environment through the
   `settings_env` fixture, which clears it either side.
 
@@ -208,7 +224,8 @@ GET  /graph/health                    reachability and counts; 503 if down
 POST /graph/load                      {"input", "reset", "skip_verify",
                                       "embeddings", "refresh_embeddings"};
                                       404 no artifact, 409 no vectors and no key
-POST /chat                            {"message", "thread_id"} -> SSE; 503 no key
+POST /chat                            {"message", "thread_id"} -> SSE; 503 if no
+                                      model can be built
 GET  /chat/threads                    pinned first, then newest
 GET  /chat/threads/{id}               one conversation's turns
 GET  /chat/threads/{id}/lookups/{call_id}  one tool call's stored result
@@ -519,17 +536,29 @@ documents each one.
   full width). The text is the section's `content` prefixed with its heading
   path (`Monsters > Goblin > Actions`), because dozens of sections are
   called "Actions".
+- Google through `google-genai`; OpenAI and Ollama through LangChain's
+  embeddings classes, chosen in `embed` by `EMBED_PROVIDER`.
+- **Width is checked, never cut:** truncation is only sound for models
+  trained for it (Gemini, OpenAI's `text-embedding-3`, which take the width
+  as a parameter); a model returning another width fails naming it
+  (`EMBED_DIMENSIONS=768` for nomic-embed-text).
+- **One file per provider:** `srd_embeddings.idx` is Google's,
+  `srd_embeddings.<provider>.idx` any other's, so switching provider never
+  overwrites the shared file, which costs API calls to remake. Switching
+  `EMBED_PROVIDER` needs a `load`: queries are embedded by the configured
+  provider, and the graph's vectors otherwise stay in the old space.
 - **Required.** A load with neither a complete `.idx` nor a key raises
   `MissingEmbeddings` before opening a session, leaving the previous graph
   standing. The message names both ways out.
 - **`.idx` format:** magic `DNDEMB\0`, a uint32 header length, a JSON header
-  (model, dimensions, task type, keys, per-section text digests), then raw
-  little-endian float32. Standard library only (`array`), no numpy or FAISS.
+  (provider, model, dimensions, task type, keys, per-section text digests),
+  then raw little-endian float32. A header without `provider` predates it and
+  holds Gemini vectors. Standard library only (`array`), no numpy or FAISS.
 - **The header makes it a cache.** Digests mean a re-parse re-embeds only the
   changed sections, matched by digest under any id, since ids are positional
   and one new section renumbers its later siblings. A file made under
-  another model, width or task type is discarded whole: two vector spaces in
-  one index rank nonsense silently. Truncation (`EMBED_MAX_CHARS`) happens
+  another provider, model, width or task type is discarded whole: two
+  vector spaces in one index rank nonsense silently. Truncation (`EMBED_MAX_CHARS`) happens
   before the digest. Re-embedding costs API calls.
 - Vectors are written in their own pass (`EMBEDDING_QUERY`), so `mapping`
   stays pure and `clean()` never walks 1536 floats per row.
@@ -556,8 +585,9 @@ exit non-zero.
 
 ## Stage 3: the chat
 
-A LangGraph tool-calling agent (`langchain.agents.create_agent`) on Gemini
-(`CHAT_MODEL`, pinned) with four tools:
+A LangGraph tool-calling agent (`langchain.agents.create_agent`) on the
+configured model (`CHAT_PROVIDER`, `CHAT_MODEL`; Gemini, pinned, by
+default), built by `init_chat_model`, with four tools:
 
 | Tool | Does |
 | --- | --- |
@@ -583,9 +613,10 @@ and `retry` read it, so stored conversations open without a key.
 - **Fused by rank** (reciprocal rank fusion, k=60), not score: BM25 is
   unbounded, cosine is in [-1, 1]. `Passage.found_by` records which arms
   returned each passage.
-- **Queries are embedded live** under `RETRIEVAL_QUERY` (documents use
-  `RETRIEVAL_DOCUMENT`), cached on the text. Without a key `embed_query`
-  returns `None` and search is lexical only. That is the only degradation;
+- **Queries are embedded live** by the embedding provider, Gemini's under
+  `RETRIEVAL_QUERY` (documents use `RETRIEVAL_DOCUMENT`), cached on the text.
+  Without the provider's key `embed_query` returns `None` and search is
+  lexical only. That is the only degradation;
   any other API failure is an error.
 - A dense index always has a nearest neighbour, so search does not say
   "nothing matched" unless both arms are empty. Judging relevance is the
@@ -654,10 +685,21 @@ and `retry` read it, so stored conversations open without a key.
   Phantasmal Killer) against a graph that was right; answering from the
   tools alone was not enough to stop that.
 - **The model is required, and a failure is the reply.** No fallback answer.
-  A missing key is knowable before the stream starts: `ask` and `retry`
-  build the model before returning their stream, so `/chat` and retry
-  answer 503; everything else arrives as an `error` event. `_explain` names the common
-  failures (no key, rejected key, spent quota) and truncates the rest.
+  A missing key, model or provider package is knowable before the stream
+  starts (`ModelUnavailable`): `ask` and `retry` build the model before
+  returning their stream, so `/chat` and retry answer 503; everything else
+  arrives as an `error` event. `_explain` names the common failures (no key,
+  rejected key, spent quota or rate limit, Ollama not running or the model
+  not pulled) for the configured provider and truncates the rest.
+- **Tool calls are announced from the finished model message** (the
+  `updates` stream), not the first chunk naming them: Gemini sends a call
+  whole, but OpenAI and Anthropic stream its arguments, so that chunk has
+  none. The message is finished before its tools run, so `tool_start` still
+  precedes `tool_end`. Text tokens still come from chunks, whose content may
+  be a string or a list of blocks (Anthropic's), non-text blocks skipped.
+- **A thread keeps its old provider's messages.** Switching `CHAT_PROVIDER`
+  mid-thread replays them to the new one; LangChain converts standard tool
+  calls, but provider-specific content may be refused.
 - **A stall is not an error by itself,** so `_until_silent` fails a turn
   after `CHAT_TIMEOUT_SECONDS` of silence, reset by every token and tool
   result.

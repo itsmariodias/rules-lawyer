@@ -17,7 +17,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 
 from rules_lawyer.chat.agent.build import build_agent
 from rules_lawyer.chat.retrieval import search
-from rules_lawyer.config import get_settings
+from rules_lawyer.config import KEY_VARIABLES, Provider, get_settings
 
 
 def thread_config(thread_id: str, checkpoint_id: str | None = None) -> dict:
@@ -97,10 +97,13 @@ async def stream_turn(message: str, thread_id: str,
                 stream, get_settings().chat.timeout_seconds):
             if mode == "messages":
                 chunk, _ = payload
-                for event in _from_message_chunk(chunk, answer, announced):
+                for event in _from_message_chunk(chunk, answer):
                     yield event
             elif mode == "updates":
-                spoken.extend(_model_messages(payload))
+                finished = _model_messages(payload)
+                spoken.extend(finished)
+                for event in _tool_starts(finished, announced):
+                    yield event
                 for event in _from_update(payload):
                     yield event
     except Exception as exc:  # noqa: BLE001 - never raises: a failure is the reply
@@ -137,27 +140,53 @@ async def _until_silent(stream: AsyncIterator, seconds: float) -> AsyncIterator:
                 f"the model sent nothing for {seconds:g}s") from exc
 
 
-# Unrecognised provider errors are JSON blobs (the invalid-key one is 600
-# characters), so they are cut to this.
+# Unrecognised provider errors are JSON blobs (Gemini's invalid-key one is
+# 600 characters), so they are cut to this.
 ERROR_CHARS = 220
+
+# Each provider as the reader knows it.
+PROVIDER_NAMES = {Provider.GOOGLE: "Google", Provider.OPENAI: "OpenAI",
+                  Provider.ANTHROPIC: "Anthropic", Provider.OLLAMA: "Ollama"}
+# How each provider words a rejected key: Google, OpenAI, Anthropic, and the
+# status code any of them may give alone.
+REJECTED_KEY = ("API_KEY_INVALID", "API key not valid", "invalid_api_key",
+                "Incorrect API key", "authentication_error", "Error code: 401")
+# A spent quota or a rate limit: Google, OpenAI, Anthropic, then the status.
+SPENT_QUOTA = ("RESOURCE_EXHAUSTED", "insufficient_quota", "rate_limit_error",
+               "429")
+# Ollama not running: from httpx when LangChain calls it, from the ollama
+# client otherwise.
+UNREACHABLE = ("Connection refused", "Failed to connect to Ollama")
 
 
 def _explain(exc: Exception) -> str:
     """An exception as a short sentence for the reader.
 
-    Missing key, rejected key, spent quota and silence get fixed messages;
-    anything else is truncated to ``ERROR_CHARS``.
+    Missing key, rejected key, spent quota, an unreachable or unpulled
+    Ollama model and silence get fixed messages naming the configured
+    provider; anything else is truncated to ``ERROR_CHARS``.
     """
     text = f"{type(exc).__name__}: {exc}"
-    if "GOOGLE_API_KEY" in text:
-        return ("GOOGLE_API_KEY is not set. Add it to .env and restart "
-                "the server.")
-    if "API_KEY_INVALID" in text or "API key not valid" in text:
-        return ("GOOGLE_API_KEY was rejected by Google. Check the key in "
-                ".env and restart the server.")
-    if "RESOURCE_EXHAUSTED" in text or "429" in text:
-        return ("The Gemini quota is spent — the free tier allows a limited "
-                "number of requests per day, per model.")
+    chat = get_settings().chat
+    provider = chat.provider
+    variable = KEY_VARIABLES.get(provider, "The API key")
+    missing = next((name for name in KEY_VARIABLES.values()
+                    if f"{name} is not set" in text), None)
+    if missing:
+        return f"{missing} is not set. Add it to .env and restart the server."
+    if any(sign in text for sign in REJECTED_KEY):
+        return (f"{variable} was rejected by {PROVIDER_NAMES[provider]}. "
+                "Check the key in .env and restart the server.")
+    if any(sign in text for sign in SPENT_QUOTA):
+        return (f"The {PROVIDER_NAMES[provider]} quota is spent or the rate "
+                "limit was hit. Wait, or check the account's limits.")
+    if provider is Provider.OLLAMA and any(sign in text
+                                           for sign in UNREACHABLE):
+        return (f"Ollama is not reachable at {chat.ollama_base_url}. Start it "
+                "(`ollama serve`) or set OLLAMA_BASE_URL.")
+    if provider is Provider.OLLAMA and "not found" in text:
+        return (f"Ollama has no model {chat.model}. Run `ollama pull "
+                f"{chat.model}`.")
     if isinstance(exc, TimeoutError):
         return (f"The model stopped responding ({exc}). Nothing arrived, so "
                 "the turn was ended rather than left hanging.")
@@ -166,28 +195,38 @@ def _explain(exc: Exception) -> str:
     return text[:ERROR_CHARS].rsplit(" ", 1)[0] + "…"
 
 
-def _from_message_chunk(chunk: Any, answer: list[str],
-                        announced: set[str]) -> list[dict]:
-    """``token`` events for text, and one ``tool_start`` per tool call.
+def _from_message_chunk(chunk: Any, answer: list[str]) -> list[dict]:
+    """A ``token`` event for a chunk's text, which is also appended to
+    ``answer``.
 
-    A call is announced once it has both ``id`` and ``name``; ``announced``
-    dedupes across chunks.  Text is also appended to ``answer``.
+    Tool calls are announced from the finished message instead
+    (``_tool_starts``): most providers stream a call's arguments over several
+    chunks, so the first chunk naming a call has none of them yet.
     """
     if not isinstance(chunk, AIMessageChunk):
         return []
-
-    events: list[dict] = []
-    for call in chunk.tool_calls or []:
-        call_id = call.get("id")
-        if call_id and call_id not in announced and call.get("name"):
-            announced.add(call_id)
-            events.append({"type": "tool_start", "id": call_id,
-                           "name": call["name"], "args": call.get("args") or {}})
-
     text = _text_of(chunk)
-    if text:
-        answer.append(text)
-        events.append({"type": "token", "text": text})
+    if not text:
+        return []
+    answer.append(text)
+    return [{"type": "token", "text": text}]
+
+
+def _tool_starts(messages: list[AIMessage], announced: set[str]) -> list[dict]:
+    """One ``tool_start`` per tool call in finished model messages.
+
+    The model's message is finished before its tools run, so each start
+    precedes its ``tool_end``; ``announced`` dedupes across updates.
+    """
+    events: list[dict] = []
+    for message in messages:
+        for call in message.tool_calls:
+            call_id = call.get("id")
+            if call_id and call_id not in announced:
+                announced.add(call_id)
+                events.append({"type": "tool_start", "id": call_id,
+                               "name": call["name"],
+                               "args": call.get("args") or {}})
     return events
 
 

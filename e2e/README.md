@@ -45,7 +45,7 @@ search, answer, cite) rather than whatever happens to be in your local graph.
 
 **No API key, no model.** The API is served by `backend/tests/e2e_app.py`,
 which builds the app with a fake chat model (`backend/tests/fakes.py`) in
-place of Gemini. It
+place of a real one. It
 calls the real `search_srd` tool against the real graph and cites the first
 result, so every event a real turn sends still crosses the wire; only the
 answer's wording is canned. With no key, search is full-text only.
