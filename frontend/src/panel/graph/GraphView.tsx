@@ -25,6 +25,9 @@ const CENTRING = 0.012
 
 const COOL = 0.992
 const COLD = 0.004
+// What a drag puts back: enough for neighbours to follow the node, well short
+// of the 1 a new layout starts from, so the rest of the picture holds still.
+const STIR = 0.3
 
 const ZOOM_RANGE = [0.25, 3] as const
 /**
@@ -125,10 +128,10 @@ export function GraphView({ sectionId, depth, onOpenPage }: Props) {
     }
   }, [])
 
-  useSimulation(graph, bodies.current, size, setPlaces, setView, framed,
-                reserved)
+  const wake = useSimulation(graph, bodies.current, size, setPlaces, setView,
+                             framed, reserved)
 
-  const drag = useDrag(bodies.current, camera, box, claim)
+  const drag = useDrag(bodies.current, camera, box, claim, wake)
   const pan = usePan(setView, camera, box, claim)
 
   // Null until the simulation has published positions.
@@ -393,6 +396,9 @@ function place(graph: Neighbourhood, bodies: Map<string, Body>,
 /**
  * Pairwise repulsion, edge springs, centring and friction, until `alpha`
  * drops below `COLD`.  O(n²) is fine: the server caps the graph's size.
+ * Returns a ref to `wake`, which restarts a cooled simulation at `STIR`:
+ * positions are drawn only by its frames, so a node moved while it is
+ * stopped would not move on screen.
  */
 function useSimulation(graph: Neighbourhood | null, bodies: Map<string, Body>,
                        size: { width: number; height: number },
@@ -400,6 +406,8 @@ function useSimulation(graph: Neighbourhood | null, bodies: Map<string, Body>,
                        fitView: (view: View) => void,
                        framed: React.RefObject<boolean>,
                        reserved: number) {
+  const wake = useRef(() => {})
+
   useEffect(() => {
     if (!graph || !size.width) return
     place(graph, bodies, size)
@@ -462,19 +470,29 @@ function useSimulation(graph: Neighbourhood | null, bodies: Map<string, Body>,
         [...bodies].map(([uid, at]) => [uid, { x: at.x, y: at.y }])))
       // Fit every frame so the view follows the layout as it settles.
       if (!framed.current) fitView(fit(points, size, reserved))
-      if (alpha > COLD) frame = requestAnimationFrame(tick)
+      frame = alpha > COLD ? requestAnimationFrame(tick) : 0
     }
 
     frame = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(frame)
+    wake.current = () => {
+      alpha = Math.max(alpha, STIR)
+      if (!frame) frame = requestAnimationFrame(tick)
+    }
+    return () => {
+      cancelAnimationFrame(frame)
+      wake.current = () => {}
+    }
   }, [graph, bodies, size, publish, fitView, framed, reserved])
+
+  return wake
 }
 
-/** Drag a node, pinned while held. */
+/** Drag a node, pinned while held, waking the simulation as it moves. */
 function useDrag(bodies: Map<string, Body>,
                  camera: React.RefObject<View>,
                  box: React.RefObject<HTMLDivElement | null>,
-                 claim: () => void) {
+                 claim: () => void,
+                 wake: React.RefObject<() => void>) {
   return useCallback((uid: string, event: React.PointerEvent) => {
     const point = bodies.get(uid)
     const frame = box.current?.getBoundingClientRect()
@@ -490,8 +508,9 @@ function useDrag(bodies: Map<string, Body>,
       point.y = (moved.clientY - frame.top - view.y) / view.k
       point.vx = 0
       point.vy = 0
+      wake.current()
     }, () => { point.pinned = wasPinned })
-  }, [bodies, camera, box, claim])
+  }, [bodies, camera, box, claim, wake])
 }
 
 /** Wheel to zoom about the pointer, drag the background to pan. */
