@@ -100,7 +100,10 @@ export const clip = (name: string | null) =>
 
 /**
  * Add an expansion's nodes, edges and truncations to the current graph.
- * Existing nodes keep their depth; `root` stays the original seed.
+ * Existing nodes keep their depth; `root` stays the original seed.  The
+ * expansion's truncations replace every earlier one for the node it
+ * expanded, since the server lists only groups still cut: a group it now
+ * sends whole has no entry, and an old one would claim edges are missing.
  */
 export function merge(current: Neighbourhood,
                       more: Neighbourhood): Neighbourhood {
@@ -110,7 +113,9 @@ export function merge(current: Neighbourhood,
   for (const edge of more.edges) edges.set(edge.uid, edge)
   // The newer truncation entry for a group replaces the older one.
   const truncated = new Map(
-    current.truncated.map((t) => [`${t.uid}|${t.type}|${t.direction}`, t]))
+    current.truncated
+      .filter((t) => t.uid !== more.root)
+      .map((t) => [`${t.uid}|${t.type}|${t.direction}`, t]))
   for (const t of more.truncated) {
     truncated.set(`${t.uid}|${t.type}|${t.direction}`, t)
   }
