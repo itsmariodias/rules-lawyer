@@ -6,14 +6,14 @@
 
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { loadSource, type SourceExcerpt } from '../api'
-import { useStored } from '../useStored'
-import { GraphView } from './GraphView'
+import { useStored } from '../shared/useStored'
+import { GraphView } from './graph/GraphView'
 
 // pdf.js is most of the bundle; load it when the panel first needs it.
 const PdfPage = lazy(() =>
-  import('./PdfPage').then((module) => ({ default: module.PdfPage })))
+  import('./page/PdfPage').then((module) => ({ default: module.PdfPage })))
 const PdfBook = lazy(() =>
-  import('./PdfPage').then((module) => ({ default: module.PdfBook })))
+  import('./page/PdfPage').then((module) => ({ default: module.PdfBook })))
 
 const ZOOMS = [1, 1.5, 2]
 const DEFAULT_ZOOM = 1
@@ -42,9 +42,14 @@ export function SidePanel({ sectionId, tab, onTab, onClose, onNavigate }: Props)
 
   useEffect(() => {
     if (!sectionId) { setExcerpt(null); setError(null); return }
+    // A source that answers after a later citation's is dropped.
+    let live = true
     setExcerpt(null)
     setError(null)
-    loadSource(sectionId).then(setExcerpt).catch((e) => setError(String(e)))
+    loadSource(sectionId)
+      .then((found) => { if (live) setExcerpt(found) })
+      .catch((problem) => { if (live) setError(String(problem)) })
+    return () => { live = false }
   }, [sectionId])
 
   return (

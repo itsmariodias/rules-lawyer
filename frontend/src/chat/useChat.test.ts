@@ -1,11 +1,11 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { ChatEvent } from './api'
+import type { ChatEvent } from '../api'
 import { useChat } from './useChat'
 
-vi.mock('./api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('./api')>()),
+vi.mock('../api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api')>()),
   listThreads: vi.fn(() => Promise.resolve([])),
   loadThread: vi.fn(() => Promise.resolve([])),
   pinThread: vi.fn(() => Promise.resolve()),
@@ -14,7 +14,7 @@ vi.mock('./api', async (importOriginal) => ({
   retryChat: vi.fn(() => Promise.resolve()),
 }))
 
-const api = await import('./api')
+const api = await import('../api')
 
 /** Make `streamChat` deliver these events, then finish. */
 function replying(...events: ChatEvent[]) {
@@ -170,6 +170,38 @@ describe('apply', () => {
     expect(result.current.messages[1].error).toContain('quota')
     expect(result.current.messages[1].content).toBe('')
   })
+
+  it('given a request that fails, when sent, then the failure is the answer', async () => {
+    // Given a server that refuses the turn before it starts
+    vi.mocked(api.streamChat).mockRejectedValueOnce(
+      new Error('GOOGLE_API_KEY is not set'))
+    const { result } = renderHook(() => useChat())
+
+    // When a question is sent
+    await act(() => result.current.send('Prone?'))
+
+    // Then the reason is where the answer would be, and the turn is over
+    expect(result.current.messages[1].error).toContain('GOOGLE_API_KEY is not set')
+    expect(result.current.streaming).toBe(false)
+  })
+
+  it('given a turn in flight, when stopped, then no error is shown', async () => {
+    // Given a turn that runs until it is aborted, as fetch does
+    vi.mocked(api.streamChat).mockImplementationOnce(
+      (_message, _threadId, _onEvent, signal) => new Promise((_, reject) =>
+        signal!.addEventListener('abort', () =>
+          reject(new DOMException('The user aborted a request.', 'AbortError')))))
+    const { result } = renderHook(() => useChat())
+    let sent: Promise<void> = Promise.resolve()
+    act(() => { sent = result.current.send('Prone?') })
+
+    // When the reader stops it
+    await act(async () => { result.current.stop(); await sent })
+
+    // Then stopping is not reported as a failure
+    expect(result.current.messages[1].error).toBeUndefined()
+    expect(result.current.streaming).toBe(false)
+  })
 })
 
 describe('open', () => {
@@ -188,6 +220,23 @@ describe('open', () => {
     expect(api.loadThread).toHaveBeenCalledWith('stored')
     expect(result.current.threadId).toBe('stored')
     expect(result.current.messages).toHaveLength(2)
+  })
+
+  it('given a thread that will not load, when opened, then the next question stays put', async () => {
+    // Given a conversation on screen, and another that has gone
+    const { result } = renderHook(() => useChat())
+    await answered(result)
+    vi.mocked(api.loadThread).mockRejectedValueOnce(new Error("no thread 'gone'"))
+    vi.mocked(api.listThreads).mockClear()
+
+    // When the gone one is opened
+    await act(() => result.current.open('gone'))
+
+    // Then the screen and the thread a question would join still agree
+    expect(result.current.threadId).toBe('held')
+    expect(result.current.messages[1].content).toBe('The first answer.')
+    // And the list is refetched, so the gone thread leaves it
+    expect(api.listThreads).toHaveBeenCalled()
   })
 })
 

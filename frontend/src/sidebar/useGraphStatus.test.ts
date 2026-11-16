@@ -1,10 +1,10 @@
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import * as api from './api'
+import * as api from '../api'
 import { RETRY_MS, useGraphStatus } from './useGraphStatus'
 
-vi.mock('./api', () => ({ graphStatus: vi.fn() }))
+vi.mock('../api', () => ({ graphStatus: vi.fn() }))
 
 beforeEach(() => {
   vi.useFakeTimers()

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { GraphEdge, GraphNode, Neighbourhood } from '../api'
+import type { GraphEdge, GraphNode, Neighbourhood } from '../../api'
 import {
   clip, connections, countHidden, fit, kindOf, labelled, merge, radiusOf,
   restLength,
@@ -187,6 +187,37 @@ describe('merge', () => {
     expect(merged.truncated).toEqual([
       { uid: 'a', type: 'REFERENCES_SPELL', direction: 'out', total: 121,
         shown: 16 }])
+  })
+
+  it('given a group fetched whole, when merged, then it is no longer cut', () => {
+    // Given a group cut before, and an expansion that drew all of it, which
+    // the server reports by leaving the group out of `truncated`
+    const drawn = graph({
+      truncated: [{ uid: 'a', type: 'REFERENCES_SPELL', direction: 'out',
+                    total: 9, shown: 8 }] })
+    const more: Neighbourhood = { root: 'a', nodes: [], edges: [],
+                                  truncated: [] }
+
+    // When they are merged
+    const merged = merge(drawn, more)
+
+    // Then nothing claims edges are still missing
+    expect(merged.truncated).toEqual([])
+  })
+
+  it('given another node cut, when one is expanded, then the other stays cut', () => {
+    // Given two nodes cut, and an expansion of only one of them
+    const other = { uid: 'root', type: 'HAS_SUBSECTION', direction: 'out' as const,
+                    total: 30, shown: 8 }
+    const drawn = graph({
+      truncated: [other, { uid: 'a', type: 'REFERENCES_SPELL', direction: 'out',
+                           total: 9, shown: 8 }] })
+    const more: Neighbourhood = { root: 'a', nodes: [], edges: [],
+                                  truncated: [] }
+
+    // When they are merged
+    // Then only the expanded node's count is replaced
+    expect(merge(drawn, more).truncated).toEqual([other])
   })
 
   it('given an edge already drawn, when merged, then it is not duplicated', () => {

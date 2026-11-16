@@ -8,11 +8,17 @@ import type { SourceExcerpt } from '../api'
 import { SidePanel } from './SidePanel'
 
 vi.mock('../api', () => ({ loadSource: vi.fn() }))
-vi.mock('./GraphView', () => ({
-  GraphView: ({ sectionId, depth }: { sectionId: string | null; depth: number }) =>
-    <div data-testid="graph">{`${sectionId ?? 'none'} at ${depth}`}</div>,
+vi.mock('./graph/GraphView', () => ({
+  GraphView: ({ sectionId, depth, onOpenPage }: {
+    sectionId: string | null; depth: number; onOpenPage: (id: string) => void
+  }) => (
+    <div data-testid="graph">
+      {`${sectionId ?? 'none'} at ${depth}`}
+      <button onClick={() => onOpenPage('11.2.120')}>Open page</button>
+    </div>
+  ),
 }))
-vi.mock('./PdfPage', () => ({
+vi.mock('./page/PdfPage', () => ({
   PdfPage: ({ zoom }: { zoom: number }) =>
     <div data-testid="pdf-page">{`page at ${zoom}`}</div>,
   PdfBook: ({ jumpTo }: { jumpTo: { page: number } | null }) =>
@@ -210,6 +216,29 @@ describe('SidePanel', () => {
     expect(props.onTab).toHaveBeenCalledWith('graph')
   })
 
+  it('given the graph tab, when Page is pressed, then the shell is told', async () => {
+    // Given the panel on the graph tab
+    const { props } = panel({ tab: 'graph' })
+
+    // When the page tab is pressed
+    await userEvent.click(screen.getByRole('button', { name: 'Page' }))
+
+    // Then the choice goes up
+    expect(props.onTab).toHaveBeenCalledWith('page')
+  })
+
+  it('given a node in the graph, when its page is opened, then the panel turns to it', async () => {
+    // Given the graph tab
+    const { props } = panel({ tab: 'graph' })
+
+    // When a node's page is opened from the graph
+    await userEvent.click(screen.getByRole('button', { name: 'Open page' }))
+
+    // Then the citation moves to that section, shown on the page tab
+    expect(props.onNavigate).toHaveBeenCalledWith('11.2.120')
+    expect(props.onTab).toHaveBeenCalledWith('page')
+  })
+
   it('given the panel, when closed, then the shell is told', async () => {
     // Given an open panel
     const { props } = panel()
@@ -253,5 +282,46 @@ describe('SidePanel', () => {
     await waitFor(() =>
       expect(screen.getByRole('heading', { name: 'Restrained' }))
         .toBeInTheDocument())
+  })
+
+  it('given two citations in quick succession, when the first answers last, then the second stays', async () => {
+    // Given a first citation whose source is slow to arrive
+    let first: (value: SourceExcerpt) => void = () => {}
+    vi.mocked(api.loadSource).mockReturnValueOnce(
+      new Promise((r) => { first = r }))
+    const { rerender } = panel()
+
+    // When a second citation is opened and answers before the first
+    vi.mocked(api.loadSource).mockResolvedValueOnce(
+      excerpt({ section_id: '11.2.120', heading: 'Restrained' }))
+    rerender(<SidePanel sectionId="11.2.120" tab="page" onTab={vi.fn()}
+                        onClose={vi.fn()} onNavigate={vi.fn()} />)
+    await screen.findByRole('heading', { name: 'Restrained' })
+    first(excerpt())
+
+    // Then the late first answer does not replace the passage being read
+    await new Promise((r) => setTimeout(r, 0))
+    expect(screen.getByRole('heading', { name: 'Restrained' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Prone [Condition]' })).toBeNull()
+  })
+
+  it('given a citation that fails after a newer one opened, when it fails, then no error is shown', async () => {
+    // Given a first citation whose source will fail late
+    let fail: (reason: Error) => void = () => {}
+    vi.mocked(api.loadSource).mockReturnValueOnce(
+      new Promise((_, reject) => { fail = reject }))
+    const { rerender } = panel()
+
+    // When a second citation loads, then the first fails
+    vi.mocked(api.loadSource).mockResolvedValueOnce(
+      excerpt({ section_id: '11.2.120', heading: 'Restrained' }))
+    rerender(<SidePanel sectionId="11.2.120" tab="page" onTab={vi.fn()}
+                        onClose={vi.fn()} onNavigate={vi.fn()} />)
+    await screen.findByRole('heading', { name: 'Restrained' })
+    fail(new Error('503 unavailable'))
+    await new Promise((r) => setTimeout(r, 0))
+
+    // Then the passage being read is not covered by an old failure
+    expect(screen.queryByText(/503 unavailable/)).toBeNull()
   })
 })

@@ -1,6 +1,7 @@
 /** The drag handle between the conversation and the side panel. */
 
 import { useCallback } from 'react'
+import { followPointer } from '../shared/pointer'
 
 /** Thread list width; fixed. */
 export const SIDEBAR = 260
@@ -30,17 +31,10 @@ type Props = {
 export function Resizer({ width, sidebar, onResize }: Props) {
   const start = useCallback((event: React.PointerEvent) => {
     event.preventDefault()
-    // On the window: the pointer leaves the 13px handle mid-drag.
-    const move = (moved: PointerEvent) =>
-      onResize(clampWidth(window.innerWidth - moved.clientX, sidebar))
-    const stop = () => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', stop)
-      document.body.classList.remove('resizing')
-    }
     document.body.classList.add('resizing')
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', stop)
+    followPointer(
+      (moved) => onResize(clampWidth(window.innerWidth - moved.clientX, sidebar)),
+      () => document.body.classList.remove('resizing'))
   }, [sidebar, onResize])
 
   return (

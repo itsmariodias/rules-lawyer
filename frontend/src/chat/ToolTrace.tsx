@@ -4,9 +4,8 @@
  * conversations start collapsed.
  */
 
-import { useCallback, useState } from 'react'
-import { loadLookup } from '../api'
-import type { ToolCall } from '../api'
+import { useState } from 'react'
+import { loadLookup, type ToolCall } from '../api'
 
 const LABELS: Record<string, string> = {
   search_srd: 'Searched the SRD',
@@ -113,7 +112,7 @@ export function ToolTrace(
   // Cached per trace; stored results never change.
   const [results, setResults] = useState<Record<string, Fetched>>({})
 
-  const reveal = useCallback(async (call: ToolCall) => {
+  const reveal = async (call: ToolCall) => {
     if (shown === call.id) {
       setShown(null)
       return
@@ -142,7 +141,7 @@ export function ToolTrace(
         },
       }))
     }
-  }, [shown, threadId, results])
+  }
 
   if (tools.length === 0) return null
 

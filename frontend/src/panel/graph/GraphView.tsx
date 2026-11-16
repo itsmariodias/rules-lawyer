@@ -11,7 +11,8 @@ import {
   type GraphEdge,
   type GraphNode,
   type Neighbourhood,
-} from '../api'
+} from '../../api'
+import { followPointer } from '../../shared/pointer'
 import {
   clip, connections, countHidden, fit, kindOf, labelled, merge, radiusOf,
   restLength, type Body, type Places, type View,
@@ -24,6 +25,9 @@ const CENTRING = 0.012
 
 const COOL = 0.992
 const COLD = 0.004
+// What a drag puts back: enough for neighbours to follow the node, well short
+// of the 1 a new layout starts from, so the rest of the picture holds still.
+const STIR = 0.3
 
 const ZOOM_RANGE = [0.25, 3] as const
 /**
@@ -57,6 +61,12 @@ export function GraphView({ sectionId, depth, onOpenPage }: Props) {
   // Measured height of the details card, which overlays the canvas.
   const [reserved, setReserved] = useState(0)
   const card = useRef<HTMLElement>(null)
+  // Mirror of `view` for pointer handlers that outlive their render.
+  const camera = useRef(view)
+  useEffect(() => { camera.current = view }, [view])
+  // Set once the user pans, zooms or drags; auto-fitting then stops.
+  const framed = useRef(false)
+  const claim = useCallback(() => { framed.current = true }, [])
 
   useEffect(() => {
     const element = box.current
@@ -118,17 +128,10 @@ export function GraphView({ sectionId, depth, onOpenPage }: Props) {
     }
   }, [])
 
-  // Mirror of `view` for pointer handlers that outlive their render.
-  const camera = useRef(view)
-  useEffect(() => { camera.current = view }, [view])
-  // Set once the user pans, zooms or drags; auto-fitting then stops.
-  const framed = useRef(false)
-  const claim = useCallback(() => { framed.current = true }, [])
+  const wake = useSimulation(graph, bodies.current, size, setPlaces, setView,
+                             framed, reserved)
 
-  useSimulation(graph, bodies.current, size, setPlaces, setView, framed,
-                reserved)
-
-  const drag = useDrag(bodies.current, camera, box, claim)
+  const drag = useDrag(bodies.current, camera, box, claim, wake)
   const pan = usePan(setView, camera, box, claim)
 
   // Null until the simulation has published positions.
@@ -393,13 +396,18 @@ function place(graph: Neighbourhood, bodies: Map<string, Body>,
 /**
  * Pairwise repulsion, edge springs, centring and friction, until `alpha`
  * drops below `COLD`.  O(n²) is fine: the server caps the graph's size.
+ * Returns a ref to `wake`, which restarts a cooled simulation at `STIR`:
+ * positions are drawn only by its frames, so a node moved while it is
+ * stopped would not move on screen.
  */
 function useSimulation(graph: Neighbourhood | null, bodies: Map<string, Body>,
                        size: { width: number; height: number },
                        publish: (places: Places) => void,
-                       frame_: (view: View) => void,
+                       fitView: (view: View) => void,
                        framed: React.RefObject<boolean>,
                        reserved: number) {
+  const wake = useRef(() => {})
+
   useEffect(() => {
     if (!graph || !size.width) return
     place(graph, bodies, size)
@@ -461,23 +469,30 @@ function useSimulation(graph: Neighbourhood | null, bodies: Map<string, Body>,
       publish(Object.fromEntries(
         [...bodies].map(([uid, at]) => [uid, { x: at.x, y: at.y }])))
       // Fit every frame so the view follows the layout as it settles.
-      if (!framed.current) frame_(fit(points, size, reserved))
-      if (alpha > COLD) frame = requestAnimationFrame(tick)
+      if (!framed.current) fitView(fit(points, size, reserved))
+      frame = alpha > COLD ? requestAnimationFrame(tick) : 0
     }
 
     frame = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(frame)
-  }, [graph, bodies, size, publish, frame_, framed, reserved])
+    wake.current = () => {
+      alpha = Math.max(alpha, STIR)
+      if (!frame) frame = requestAnimationFrame(tick)
+    }
+    return () => {
+      cancelAnimationFrame(frame)
+      wake.current = () => {}
+    }
+  }, [graph, bodies, size, publish, fitView, framed, reserved])
+
+  return wake
 }
 
-/**
- * Drag a node, pinned while held.  Listeners are on the window so leaving
- * the circle mid-drag does not end it.
- */
+/** Drag a node, pinned while held, waking the simulation as it moves. */
 function useDrag(bodies: Map<string, Body>,
                  camera: React.RefObject<View>,
                  box: React.RefObject<HTMLDivElement | null>,
-                 claim: () => void) {
+                 claim: () => void,
+                 wake: React.RefObject<() => void>) {
   return useCallback((uid: string, event: React.PointerEvent) => {
     const point = bodies.get(uid)
     const frame = box.current?.getBoundingClientRect()
@@ -487,21 +502,15 @@ function useDrag(bodies: Map<string, Body>,
     point.pinned = true
     claim()
 
-    const move = (moved: PointerEvent) => {
+    followPointer((moved) => {
       const view = camera.current
       point.x = (moved.clientX - frame.left - view.x) / view.k
       point.y = (moved.clientY - frame.top - view.y) / view.k
       point.vx = 0
       point.vy = 0
-    }
-    const up = () => {
-      point.pinned = wasPinned
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', up)
-    }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', up)
-  }, [bodies, camera, box, claim])
+      wake.current()
+    }, () => { point.pinned = wasPinned })
+  }, [bodies, camera, box, claim, wake])
 }
 
 /** Wheel to zoom about the pointer, drag the background to pan. */
@@ -532,17 +541,11 @@ function usePan(setView: React.Dispatch<React.SetStateAction<View>>,
     const startY = event.clientY
     const origin = { x: camera.current.x, y: camera.current.y }
 
-    const move = (moved: PointerEvent) => {
+    followPointer((moved) => {
       setView((current) => ({ ...current,
                               x: origin.x + (moved.clientX - startX),
                               y: origin.y + (moved.clientY - startY) }))
-    }
-    const up = () => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', up)
-    }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', up)
+    })
   }, [setView, camera, claim])
 
   return { onWheel, onPointerDown }

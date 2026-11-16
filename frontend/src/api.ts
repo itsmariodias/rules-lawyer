@@ -138,9 +138,24 @@ export type Neighbourhood = {
   truncated: GraphTruncation[]
 }
 
+/**
+ * The error for a refused request: the server's `detail` when it sent one
+ * (FastAPI's shape, and where the chat explains a missing key), else the
+ * status line.
+ */
+async function failure(response: Response): Promise<Error> {
+  try {
+    const body = await response.json() as { detail?: unknown } | null
+    if (typeof body?.detail === 'string') return new Error(body.detail)
+  } catch {
+    // No JSON body, as from a proxy's error page.
+  }
+  return new Error(`${response.status} ${response.statusText}`)
+}
+
 async function getJSON<T>(path: string): Promise<T> {
   const response = await fetch(`/api${path}`)
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
+  if (!response.ok) throw await failure(response)
   return response.json() as Promise<T>
 }
 
@@ -183,12 +198,12 @@ export async function pinThread(id: string, pinned: boolean): Promise<void> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ pinned }),
   })
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
+  if (!response.ok) throw await failure(response)
 }
 
 export async function deleteThread(id: string): Promise<void> {
   const response = await fetch(`/api/chat/threads/${id}`, { method: 'DELETE' })
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
+  if (!response.ok) throw await failure(response)
 }
 
 export const loadSource = (sectionId: string, context = 0) =>
@@ -228,9 +243,7 @@ async function stream(
     body: JSON.stringify(body),
     signal,
   })
-  if (!response.ok || !response.body) {
-    throw new Error(`${response.status} ${response.statusText}`)
-  }
+  if (!response.ok || !response.body) throw await failure(response)
 
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
