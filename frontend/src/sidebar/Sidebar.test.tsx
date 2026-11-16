@@ -1,6 +1,6 @@
 /** `useGraphStatus` is mocked; it has its own tests. */
 
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -119,6 +119,19 @@ describe('the thread list', () => {
     expect(screen.queryByRole('menu')).toBeNull()
   })
 
+  it('given an open menu, when the pointer goes down elsewhere, then it closes', async () => {
+    // Given an open menu
+    sidebar()
+    await openMenu()
+
+    // When the reader presses somewhere else, once the opening click is past
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    fireEvent.pointerDown(document.body)
+
+    // Then it is dismissed
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
   it('given the list, when it is collapsed, then the shell is told', async () => {
     // Given the full list
     const { props } = sidebar()
@@ -187,6 +200,42 @@ describe('deleting a conversation', () => {
                               { name: 'Delete this conversation?' })).toBeNull()
   })
 
+  it('given the dialog, when Escape is pressed, then nothing is deleted', async () => {
+    // Given the dialog
+    const { props } = await armDelete()
+
+    // When the browser cancels it, as Escape does
+    fireEvent(screen.getByRole('dialog'), new Event('cancel', { cancelable: true }))
+
+    // Then it closes through the same path as Cancel
+    expect(props.onForget).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('given the dialog, when the backdrop is clicked, then nothing is deleted', async () => {
+    // Given the dialog
+    const { props } = await armDelete()
+
+    // When the click lands on the dialog itself, which only the backdrop
+    // can be, since its contents sit in an inner element
+    fireEvent.click(screen.getByRole('dialog'))
+
+    // Then it is dismissed
+    expect(props.onForget).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('given the dialog, when its contents are clicked, then it stays', async () => {
+    // Given the dialog
+    await armDelete()
+
+    // When the heading inside it is clicked
+    fireEvent.click(screen.getByRole('heading', { name: 'Delete this conversation?' }))
+
+    // Then it is still asking
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
   it('given a delete that fails, when confirmed, then the dialog stays open', async () => {
     // Given a server that refuses the delete
     await armDelete({ onForget: vi.fn(async () => { throw new Error('503') }) })
@@ -198,6 +247,33 @@ describe('deleting a conversation', () => {
     expect(await screen.findByText(/503/)).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Delete this conversation?' }))
       .toBeInTheDocument()
+  })
+})
+
+describe('the footer', () => {
+  it('given the theme switch, when Dark is chosen, then the page goes dark and it is shown as chosen', async () => {
+    // Given the sidebar on the system theme
+    sidebar()
+
+    // When Dark is chosen
+    await userEvent.click(screen.getByRole('button', { name: 'Dark' }))
+
+    // Then the document carries the theme, and the switch says which is on
+    expect(document.documentElement.dataset.theme).toBe('dark')
+    expect(screen.getByRole('button', { name: 'Dark' }))
+      .toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Match the system' }))
+      .toHaveAttribute('aria-pressed', 'false')
+    delete document.documentElement.dataset.theme
+  })
+
+  it('given a graph status, when shown, then it is said in words', () => {
+    // Given a connected graph
+    // When the footer is read
+    sidebar()
+
+    // Then the word carries the meaning, not only the dot's colour
+    expect(screen.getByText('graph connected')).toBeInTheDocument()
   })
 })
 

@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import {
-  deleteThread, graphStatus, listThreads, loadNeighbourhood, loadSource,
-  loadThread, pinThread, retryChat, streamChat, type ChatEvent,
+  deleteThread, graphStatus, listThreads, loadLookup, loadNeighbourhood,
+  loadSource, loadThread, pinThread, retryChat, streamChat, type ChatEvent,
 } from './api'
 
 /** A `fetch` answering one JSON body. */
@@ -148,6 +148,21 @@ describe('deleteThread', () => {
     // Then it is addressed by id, with no body
     expect(stub).toHaveBeenCalledWith('/api/chat/threads/abc',
                                       { method: 'DELETE' })
+  })
+})
+
+describe('loadLookup', () => {
+  it('given a tool call, when its result is fetched, then the call id is escaped', async () => {
+    // Given a stored result, under a provider's call id with a slash in it
+    const stub = answering({ id: 'call/1', name: 'search_srd',
+                             content: 'Prone…', truncated: false })
+
+    // When it is fetched
+    const found = await loadLookup('t1', 'call/1')
+
+    // Then the id stays one path segment, and the result comes back whole
+    expect(stub).toHaveBeenCalledWith('/api/chat/threads/t1/lookups/call%2F1')
+    expect(found.content).toBe('Prone…')
   })
 })
 

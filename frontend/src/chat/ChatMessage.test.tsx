@@ -86,6 +86,21 @@ describe('ChatMessage', () => {
       .toBeInTheDocument()
   })
 
+  it('given a clipboard that refuses, when copied, then no success is claimed', async () => {
+    // Given a browser that denies the clipboard write
+    vi.stubGlobal('navigator', { ...navigator, clipboard: {
+      writeText: () => Promise.reject(new Error('NotAllowedError')) } })
+    message({ message: { role: 'assistant', content: 'A Prone creature.' } })
+
+    // When the answer is copied
+    fireEvent.click(screen.getByRole('button', { name: 'Copy this answer' }))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    // Then the button still offers to copy rather than saying it did
+    expect(screen.getByRole('button', { name: 'Copy this answer' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Copied' })).toBeNull()
+  })
+
   it('given an answer with no content yet, when rendered, then it says it is thinking', () => {
     // Given a turn that has started but said nothing
     // When it is rendered

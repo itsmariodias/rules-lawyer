@@ -170,6 +170,38 @@ describe('apply', () => {
     expect(result.current.messages[1].error).toContain('quota')
     expect(result.current.messages[1].content).toBe('')
   })
+
+  it('given a request that fails, when sent, then the failure is the answer', async () => {
+    // Given a server that refuses the turn before it starts
+    vi.mocked(api.streamChat).mockRejectedValueOnce(
+      new Error('GOOGLE_API_KEY is not set'))
+    const { result } = renderHook(() => useChat())
+
+    // When a question is sent
+    await act(() => result.current.send('Prone?'))
+
+    // Then the reason is where the answer would be, and the turn is over
+    expect(result.current.messages[1].error).toContain('GOOGLE_API_KEY is not set')
+    expect(result.current.streaming).toBe(false)
+  })
+
+  it('given a turn in flight, when stopped, then no error is shown', async () => {
+    // Given a turn that runs until it is aborted, as fetch does
+    vi.mocked(api.streamChat).mockImplementationOnce(
+      (_message, _threadId, _onEvent, signal) => new Promise((_, reject) =>
+        signal!.addEventListener('abort', () =>
+          reject(new DOMException('The user aborted a request.', 'AbortError')))))
+    const { result } = renderHook(() => useChat())
+    let sent: Promise<void> = Promise.resolve()
+    act(() => { sent = result.current.send('Prone?') })
+
+    // When the reader stops it
+    await act(async () => { result.current.stop(); await sent })
+
+    // Then stopping is not reported as a failure
+    expect(result.current.messages[1].error).toBeUndefined()
+    expect(result.current.streaming).toBe(false)
+  })
 })
 
 describe('open', () => {

@@ -94,6 +94,19 @@ describe('the composer', () => {
     expect(box).toHaveValue('')
   })
 
+  it('given a question, when Send is pressed, then it is sent', async () => {
+    // Given a typed question
+    render(<App />)
+    await userEvent.type(screen.getByPlaceholderText('Ask a rules question…'),
+                         'Prone?')
+
+    // When Send is pressed
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }))
+
+    // Then it is asked
+    expect(chat.send).toHaveBeenCalledWith('Prone?')
+  })
+
   it('given a question, when Shift+Enter is pressed, then it is a newline', async () => {
     // Given a typed question
     render(<App />)
@@ -317,6 +330,50 @@ describe('the toolbar', () => {
 
     // Then the reader keeps their tab, on the new passage
     expect(screen.getByTestId('panel')).toHaveTextContent('graph:11.2.114')
+  })
+})
+
+describe('the thread list', () => {
+  // The list's own behaviour is in Sidebar.test.tsx; these check it
+  // reaches the conversation.
+  beforeEach(() => {
+    chat.threads = [{ thread_id: 't1', title: 'Prone condition',
+                      updated_at: '2026-01-01', messages: 2, pinned: false }]
+  })
+
+  it('given a row, when pressed, then that conversation is opened', async () => {
+    // Given a stored conversation in the list
+    render(<App />)
+
+    // When its row is pressed
+    await userEvent.click(screen.getByRole('button', { name: 'Prone condition' }))
+
+    // Then the conversation state opens it
+    expect(chat.open).toHaveBeenCalledWith('t1')
+  })
+
+  it('given a row, when pinned from its menu, then the conversation is pinned', async () => {
+    // Given a stored conversation in the list
+    render(<App />)
+
+    // When it is pinned
+    await userEvent.click(screen.getByRole(
+      'button', { name: 'Options for conversation: Prone condition' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: /Pin/ }))
+
+    // Then the conversation state pins it
+    expect(chat.pin).toHaveBeenCalledWith('t1', true)
+  })
+
+  it('given New conversation, when pressed, then the conversation is reset', async () => {
+    // Given the list
+    render(<App />)
+
+    // When a new conversation is started
+    await userEvent.click(screen.getByRole('button', { name: 'New conversation' }))
+
+    // Then the conversation state starts afresh
+    expect(chat.reset).toHaveBeenCalled()
   })
 })
 

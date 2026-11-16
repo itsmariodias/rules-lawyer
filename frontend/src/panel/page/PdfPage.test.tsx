@@ -163,6 +163,39 @@ describe('PdfPage', () => {
     expect(screen.getAllByText(/^p\. \d+$/)).toHaveLength(5)
   })
 
+  it('given a page further down, when it is scrolled near, then it renders', async () => {
+    // Given a section across two pages, the second waiting to be scrolled to
+    let reportNear: IntersectionObserverCallback = () => {}
+    vi.stubGlobal('IntersectionObserver', class {
+      constructor(callback: IntersectionObserverCallback) { reportNear = callback }
+      observe() {}
+      disconnect() {}
+    })
+    render(<PdfPage zoom={1} excerpt={excerpt({
+      pages: [186, 187],
+      boxes: [{ page: 186, x0: 57, y0: 100, x1: 300, y1: 112 }],
+    })} />)
+    await waitFor(() => expect(renders).toHaveBeenCalledTimes(1))
+
+    // When the second page comes near the viewport
+    act(() => reportNear([{ isIntersecting: true } as IntersectionObserverEntry],
+                         {} as IntersectionObserver))
+
+    // Then it is drawn too
+    await waitFor(() => expect(renders).toHaveBeenCalledTimes(2))
+  })
+
+  it('given a page pdf.js cannot draw, when rendered, then the reason is shown', async () => {
+    // Given a page whose render fails
+    renders.mockImplementationOnce(() => { throw new Error('Invalid page') })
+
+    // When it is drawn
+    render(<PdfPage excerpt={excerpt()} zoom={1} />)
+
+    // Then the reader is told, rather than left with a blank page
+    expect(await screen.findByText(/Invalid page/)).toBeInTheDocument()
+  })
+
   it('given a rendered page, when the text layer is built, then it gets the right variable', async () => {
     /** Regression: setting --scale-factor gave every span font-size 0. */
     // Given a page rendered at 1×

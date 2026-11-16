@@ -9,8 +9,14 @@ import { SidePanel } from './SidePanel'
 
 vi.mock('../api', () => ({ loadSource: vi.fn() }))
 vi.mock('./graph/GraphView', () => ({
-  GraphView: ({ sectionId, depth }: { sectionId: string | null; depth: number }) =>
-    <div data-testid="graph">{`${sectionId ?? 'none'} at ${depth}`}</div>,
+  GraphView: ({ sectionId, depth, onOpenPage }: {
+    sectionId: string | null; depth: number; onOpenPage: (id: string) => void
+  }) => (
+    <div data-testid="graph">
+      {`${sectionId ?? 'none'} at ${depth}`}
+      <button onClick={() => onOpenPage('11.2.120')}>Open page</button>
+    </div>
+  ),
 }))
 vi.mock('./page/PdfPage', () => ({
   PdfPage: ({ zoom }: { zoom: number }) =>
@@ -208,6 +214,29 @@ describe('SidePanel', () => {
 
     // Then the choice goes up rather than being kept here
     expect(props.onTab).toHaveBeenCalledWith('graph')
+  })
+
+  it('given the graph tab, when Page is pressed, then the shell is told', async () => {
+    // Given the panel on the graph tab
+    const { props } = panel({ tab: 'graph' })
+
+    // When the page tab is pressed
+    await userEvent.click(screen.getByRole('button', { name: 'Page' }))
+
+    // Then the choice goes up
+    expect(props.onTab).toHaveBeenCalledWith('page')
+  })
+
+  it('given a node in the graph, when its page is opened, then the panel turns to it', async () => {
+    // Given the graph tab
+    const { props } = panel({ tab: 'graph' })
+
+    // When a node's page is opened from the graph
+    await userEvent.click(screen.getByRole('button', { name: 'Open page' }))
+
+    // Then the citation moves to that section, shown on the page tab
+    expect(props.onNavigate).toHaveBeenCalledWith('11.2.120')
+    expect(props.onTab).toHaveBeenCalledWith('page')
   })
 
   it('given the panel, when closed, then the shell is told', async () => {
