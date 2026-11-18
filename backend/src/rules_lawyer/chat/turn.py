@@ -50,9 +50,9 @@ def resolve_citations(text: str) -> list[dict]:
         appearance.  Ids that match no section are dropped.
     """
     seen: list[str] = []
-    for match in search.CITATION.findall(text):
-        if match not in seen:
-            seen.append(match)
+    for section_id in search.cited_ids(text):
+        if section_id not in seen:
+            seen.append(section_id)
 
     citations = []
     for section_id in seen:

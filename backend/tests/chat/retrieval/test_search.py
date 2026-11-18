@@ -24,16 +24,34 @@ class TestEscapeLucene:
         assert search.escape_lucene("  prone  ") == "prone"
 
 
-class TestCitation:
-    def test_given_a_mix_of_brackets_when_matched_then_only_dotted_ids_count(self):
+class TestCitedIds:
+    def test_given_a_mix_of_brackets_when_read_then_only_dotted_ids_count(self):
         # Given an answer carrying both kinds of bracket
         text = "Prone [11.2.114] and see [below] and [3] and [4.8.2.3]."
 
-        # When the citations are found
-        found = search.CITATION.findall(text)
+        # When the cited ids are read
+        found = search.cited_ids(text)
 
         # Then only the dotted ids are citations
         assert found == ["11.2.114", "4.8.2.3"]
+
+    def test_given_several_ids_in_one_bracket_when_read_then_each_is_cited(self):
+        # Given a claim resting on two sections, cited together, then a
+        # semicolon-separated pair and a pair cited one after the other
+        text = ("Servants [9.7.6, 9.7.7]; staff [9.7.7;9.7.8]; "
+                "or [9.7.6] [9.7.7].")
+
+        # When the cited ids are read
+        found = search.cited_ids(text)
+
+        # Then each id counts, in order, however the brackets were written
+        assert found == ["9.7.6", "9.7.7", "9.7.7", "9.7.8", "9.7.6", "9.7.7"]
+
+    def test_given_plain_numbers_in_one_bracket_when_read_then_nothing_is_cited(self):
+        # Given a bracket of undotted numbers, as in a list of page numbers
+        # When the cited ids are read
+        # Then it is not taken for a citation
+        assert search.cited_ids("See pages [1, 2] and [3.1, 4].") == []
 
 
 class TestPassage:

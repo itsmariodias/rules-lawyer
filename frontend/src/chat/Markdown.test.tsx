@@ -22,6 +22,15 @@ describe('numbering', () => {
     expect([...order]).toEqual([['11.2.114', 1], ['7.1.44', 2]])
   })
 
+  it('given ids sharing a bracket mid-stream, when numbered, then each gets a number', () => {
+    // Given an answer mid-stream citing two sections in one bracket
+    const order = numbering('servants [9.7.6, 9.7.7] and staff [9.7.7]')
+
+    // When the numbers are read
+    // Then the bracket counts as two citations, in the order written
+    expect([...order]).toEqual([['9.7.6', 1], ['9.7.7', 2]])
+  })
+
   it('given no citations yet, when numbered, then the text decides', () => {
     // Given an answer mid-stream, citing one section twice
     const order = numbering('a [11.2.114] b [7.1.44] c [11.2.114]')
@@ -83,6 +92,34 @@ describe('Markdown', () => {
     // written rather than silently deleted
     expect(screen.getAllByRole('button')).toHaveLength(1)
     expect(screen.getByText(/invented \[99\.99\.99\]/)).toBeInTheDocument()
+  })
+
+  it('given several ids in one bracket, when rendered, then each is its own button', async () => {
+    /** Regression: "[9.7.6, 9.7.7]" matched nothing and stayed plain text. */
+    // Given a claim resting on two sections, cited together
+    const onCite = vi.fn()
+    render(<Markdown text="Wealthy households keep servants [9.7.6, 9.7.7]."
+                     citations={cited('9.7.6', '9.7.7')} onCite={onCite} />)
+
+    // When the second is pressed
+    await userEvent.click(screen.getByRole('button', { name: '2' }))
+
+    // Then both are numbered buttons, and each opens its own section
+    expect(screen.getByRole('button', { name: '1' }))
+      .toHaveAttribute('title', 'Section 9.7.6 (9.7.6)')
+    expect(onCite).toHaveBeenCalledWith('9.7.7')
+    expect(screen.queryByText(/9\.7\.6, 9\.7\.7/)).toBeNull()
+  })
+
+  it('given a bracket mixing a real id and an invented one, when rendered, then only the real one is a button', () => {
+    // Given one bracket citing a resolved section and an id that resolved to nothing
+    render(<Markdown text="Servants [9.7.6; 99.99.99]."
+                     citations={cited('9.7.6')} onCite={() => {}} />)
+
+    // When the buttons are counted
+    // Then the real id is pressable and the invented one is left as written
+    expect(screen.getAllByRole('button')).toHaveLength(1)
+    expect(screen.getByText(/\[99\.99\.99\]/)).toBeInTheDocument()
   })
 
   it('given an answer still streaming, when rendered, then it is already numbered', () => {

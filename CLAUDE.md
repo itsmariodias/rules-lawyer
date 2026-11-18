@@ -735,10 +735,14 @@ and `retry` read it, so stored conversations open without a key.
   so conversations stay untitled. e2e serves `tests/e2e_app.py`, the app with that override, so
   no production code knows a fake exists.
 - **Citations come from the answer.** The prompt asks for `[11.2.114]` after
-  each claim; `resolve_citations` resolves the ids in the finished text, in
-  order of first appearance, dropping invented ones. The pattern is
+  each claim, and a bracket per id for a claim on several sections
+  (`[9.7.6] [9.7.7]`). The prompt names one form, and the parser accepts
+  the other as a fallback: a grouped `[9.7.6, 9.7.7]`, which the model
+  wrote before the prompt said anything, is split by `search.cited_ids`.
+  `resolve_citations` resolves the ids in the finished text, in order of
+  first appearance, dropping invented ones. The pattern is
   `search.CITATION`; `Markdown.tsx` has a copy that `test_docs.py` holds
-  against it.
+  against it, and draws a button per id.
 - **The id is what the model writes; a number is what the reader sees.**
   `Markdown` numbers resolved citations `[1]`, `[2]` and the list below is the
   legend; the id is in the title. Unresolved ids stay as written, unlinked.

@@ -31,10 +31,29 @@ def escape_lucene(query: str) -> str:
     return _LUCENE_SPECIAL.sub(r"\\\1", query).strip()
 
 
-# A cited section id as the model writes it, e.g. [11.2.114]; "[see below]"
-# does not match.  ``frontend/src/chat/Markdown.tsx`` has a copy, which
+# A citation as the model writes it: one dotted section id, or several in
+# one bracket, e.g. [11.2.114] or [9.7.6, 9.7.7]; "[see below]" and "[3]" do
+# not match.  ``frontend/src/chat/Markdown.tsx`` has a copy, which
 # ``tests/test_docs.py`` holds against this one.
-CITATION = re.compile(r"\[(\d+(?:\.\d+)+)\]")
+CITATION = re.compile(r"\[(\d+(?:\.\d+)+(?:\s*[,;]\s*\d+(?:\.\d+)+)*)\]")
+
+# Between the ids of one citation.
+_CITED_ID_SEPARATOR = re.compile(r"\s*[,;]\s*")
+
+
+def cited_ids(text: str) -> list[str]:
+    """Every section id cited in a text, in order, repeats included.
+
+    Args:
+        text: An answer, or anything else carrying ``CITATION``s.
+
+    Returns:
+        One entry per id: ``[9.7.6, 9.7.7]`` gives both ids.
+    """
+    ids = []
+    for citation in CITATION.findall(text):
+        ids.extend(_CITED_ID_SEPARATOR.split(citation))
+    return ids
 
 
 @lru_cache(maxsize=1)

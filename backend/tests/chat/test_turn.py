@@ -33,6 +33,16 @@ class TestResolveCitations:
         # Then only what resolves survives, once
         assert [c["section_id"] for c in citations] == ["11.2.114"]
 
+    def test_given_ids_cited_together_when_resolved_then_each_resolves(self, graph):
+        # Given a claim citing two sections in one bracket, one of them invented
+        text = "Servants [9.7.6, 99.99.99, 9.7.7], and the first again [9.7.6]."
+
+        # When the citations are resolved
+        citations = turn.resolve_citations(text)
+
+        # Then each real id is a citation of its own, in order, once
+        assert [c["section_id"] for c in citations] == ["9.7.6", "9.7.7"]
+
     def test_given_no_citations_at_all_when_resolved_then_the_list_is_empty(
             self, graph):
         # Given an answer citing nothing
