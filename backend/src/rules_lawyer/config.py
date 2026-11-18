@@ -103,9 +103,8 @@ class ChatSettings(Credentials):
 
     # Unset is the provider's pinned model; only Google has one.
     model: str | None = None
-    # Blank omits it, for models that accept only their own (OpenAI's
-    # reasoning models).
-    temperature: Annotated[float | None, BeforeValidator(_blank_is_absent)] = 0.2
+    # Unset or blank is the provider's (``ModelProvider.temperature``).
+    temperature: Annotated[float | None, BeforeValidator(_blank_is_absent)] = None
     # Unset leaves the provider's default.
     max_tokens: int | None = None
     # Candidates per search arm; the fusion cuts the union to ``top_k``.
@@ -119,13 +118,16 @@ class ChatSettings(Credentials):
     cypher_max_rows: int = 50
 
     @model_validator(mode="after")
-    def _pin_model(self) -> ChatSettings:
-        """Default ``model`` to the provider's pinned one, if it has one.
+    def _provider_defaults(self) -> ChatSettings:
+        """Default ``model`` to the provider's pinned one, if it has one, and
+        ``temperature`` to the provider's.
 
-        Without either, building the model fails, naming ``CHAT_MODEL``:
-        raising here would fail every endpoint that reads these settings.
+        Without a model, building it fails, naming ``CHAT_MODEL``: raising
+        here would fail every endpoint that reads these settings.
         """
         self.model = self.model or self.model_provider.chat_model
+        if self.temperature is None:
+            self.temperature = self.model_provider.temperature
         return self
 
 

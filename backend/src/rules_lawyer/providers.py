@@ -49,6 +49,8 @@ class ModelProvider:
         embedding_model: Its pinned embedding model, likewise.
         can_embed: Whether it has an embeddings API.
         max_tokens_option: Its chat model's name for the reply cap.
+        temperature: The temperature sent when ``CHAT_TEMPERATURE`` is unset;
+            None sends none, leaving the model its own.
         rejected_key: Phrases in its errors that mean the key was refused.
         rate_limited: Phrases in its errors that mean a spent quota or a rate
             limit.
@@ -63,6 +65,9 @@ class ModelProvider:
     embedding_model: str | None = None
     can_embed: bool = True
     max_tokens_option: str = "max_tokens"
+    # None for the hosted providers, whose current models deprecate
+    # temperature: ignored by some, refused by others.
+    temperature: float | None = None
     rejected_key: tuple[str, ...] = ()
     rate_limited: tuple[str, ...] = ()
 
@@ -240,6 +245,8 @@ class Ollama(ModelProvider):
     title = "Ollama"
     langchain_name = "ollama"
     max_tokens_option = "num_predict"
+    # Below Ollama's own 0.8, for steadier tool calls from small local models.
+    temperature = 0.2
     # From httpx when LangChain calls it, from the ollama client otherwise.
     unreachable = ("Connection refused", "Failed to connect to Ollama")
 

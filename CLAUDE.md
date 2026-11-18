@@ -174,8 +174,9 @@ GRAPH.md             reference for every label and relationship type
   `missing_key()`.
 - **Nothing outside `providers.py` branches on a provider's name.** Each
   `ModelProvider` subclass holds what differs: its key field and variable,
-  pinned models, `can_embed`, the reply cap's option name, the phrases its
-  errors use for a rejected key and a rate limit, and the methods `chat`,
+  pinned models, its default temperature, `can_embed`, the reply cap's
+  option name, the phrases its errors use for a rejected key and a rate
+  limit, and the methods `chat`,
   `chat_options`, `embedder`, `embeddings_name` and `explain`. Adding a
   provider is a subclass and an entry in `PROVIDERS`. Provider packages are
   imported inside those methods, so importing `config` loads no LangChain.
@@ -188,8 +189,12 @@ GRAPH.md             reference for every label and relationship type
   tests `importorskip` without them.
 - A **blank** key counts as no key: an unset variable does not override an
   `.env` that sets one, so `GOOGLE_API_KEY=` is how to force the keyless path.
-  A blank `CHAT_TEMPERATURE` sends none (OpenAI's reasoning models refuse
-  any).
+  An unset or blank `CHAT_TEMPERATURE` is the provider's
+  (`ModelProvider.temperature`): none for Google, OpenAI and Anthropic, whose
+  current models deprecate temperature, and 0.2 for Ollama. LangChain also
+  drops its own 0.7 for Gemini 3 when none is passed. A temperature set for
+  a provider whose default is none is still sent, with a warning at startup
+  (`lifespan`).
 - Embedding settings: `EMBED_PROVIDER`, `EMBED_MODEL`, `EMBED_DIMENSIONS`,
   `EMBED_TASK_TYPE` (Gemini only), `EMBED_BATCH`, `EMBED_MAX_CHARS`,
   `EMBED_WRITE_BATCH`.

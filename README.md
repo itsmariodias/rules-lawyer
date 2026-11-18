@@ -80,7 +80,7 @@ listed commented out in the file; uncomment any of them to override:
 | `OPENAI_BASE_URL` / `OLLAMA_BASE_URL` | OpenAI / `http://localhost:11434` | Where the server is: an OpenAI-compatible one, or Ollama |
 | `CHAT_PROVIDER` / `EMBED_PROVIDER` | `google` | Who answers and who embeds: `google`, `openai`, `anthropic` (chat only) or `ollama` |
 | `CHAT_MODEL` / `EMBED_MODEL` | `gemini-3.8-flash` / `gemini-embedding-001` | Required for any provider but `google` |
-| `CHAT_TEMPERATURE` / `CHAT_MAX_TOKENS` | `0.2` / the provider's | A blank temperature sends none |
+| `CHAT_TEMPERATURE` / `CHAT_MAX_TOKENS` | the provider's | Defaults to `0.2` for Ollama, `None` for everything else |
 | `CHAT_TIMEOUT_SECONDS` | `60` | How long the model may stay silent before a turn fails |
 | `EMBED_DIMENSIONS` | `1536` | Must match the model unless it can be truncated. Changing it means regenerating the embeddings |
 

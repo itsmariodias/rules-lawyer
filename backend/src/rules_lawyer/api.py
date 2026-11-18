@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -12,18 +13,22 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.store.sqlite.aio import AsyncSqliteStore
+from pydantic import ValidationError
 
 from rules_lawyer.chat import routes as chat_routes
 from rules_lawyer.config import get_settings
 from rules_lawyer.graph import routes as graph_routes
 from rules_lawyer.srd import routes as srd_routes
 
+log = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Open the checkpointer and the pin/title store for the process lifetime.
 
-    Routes reach them through ``request.app.state``.
+    Routes reach them through ``request.app.state``.  Also warns when
+    ``CHAT_TEMPERATURE`` is set for a provider whose models deprecate it.
 
     Args:
         app: The application whose ``state`` receives both.
@@ -32,6 +37,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         Control to the running server, with both connections open.
     """
     settings = get_settings()
+    # An invalid chat setting is left to fail where it is used, so the
+    # endpoints that need none still start.
+    try:
+        chat = settings.chat
+    except ValidationError:
+        chat = None
+    if chat and chat.temperature is not None and chat.model_provider.temperature is None:
+        log.warning(
+            "CHAT_TEMPERATURE=%s is set, but temperature is deprecated for %s "
+            "models: it may be ignored or refused. Unset it.",
+            chat.temperature, chat.model_provider.title)
+
     settings.chat_dir.mkdir(parents=True, exist_ok=True)
     async with AsyncSqliteSaver.from_conn_string(
             str(settings.checkpoint_path)) as checkpointer, \

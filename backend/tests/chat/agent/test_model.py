@@ -32,6 +32,18 @@ class TestModel:
         assert built.model.endswith(settings.chat.model)
         assert built.temperature == settings.chat.temperature
 
+    def test_given_no_temperature_when_gemini_is_built_then_none_is_sent(
+            self, settings_env, monkeypatch):
+        # Given Gemini, which deprecates temperature, with none set
+        monkeypatch.setenv("GOOGLE_API_KEY", "not-a-real-key")
+        settings_env(CHAT_PROVIDER="google", CHAT_TEMPERATURE="")
+
+        # When the model is built
+        built = model.model()
+
+        # Then none is sent, rather than LangChain's own default
+        assert built.temperature is None
+
     def test_given_a_blank_key_when_built_then_it_counts_as_no_key_at_all(
             self, settings_env, monkeypatch):
         # Given a key blanked out rather than removed
@@ -93,7 +105,7 @@ class TestModel:
 
     def test_given_a_blank_temperature_when_built_then_the_providers_own_is_kept(
             self, settings_env):
-        # Given a model that accepts only its own temperature
+        # Given an OpenAI model, which may accept only its own temperature
         pytest.importorskip("langchain_openai")
         settings_env(CHAT_PROVIDER="openai", CHAT_MODEL="gpt-test",
                      OPENAI_API_KEY="not-a-real-key", CHAT_TEMPERATURE="")

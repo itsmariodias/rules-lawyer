@@ -68,15 +68,25 @@ class TestChatOptions:
         # Then the key is passed explicitly, beside the temperature and cap
         assert options == {"api_key": "a", "temperature": 0.2, "max_tokens": 512}
 
-    def test_given_no_temperature_when_built_then_none_is_sent(self):
-        # Given a blank temperature
-        settings = chat(Provider.ANTHROPIC, anthropic_api_key="a",
-                        temperature=None)
+    def test_given_no_temperature_when_built_then_each_provider_sends_its_own(self):
+        # Given no temperature set, for each provider
+        # When each one's options are read
+        sent = {name: provider.chat_options(chat(name, temperature=None))
+                .get("temperature", "none")
+                for name, provider in PROVIDERS.items()}
+
+        # Then the hosted models, which deprecate it, get none; Ollama gets 0.2
+        assert sent == {Provider.GOOGLE: "none", Provider.OPENAI: "none",
+                        Provider.ANTHROPIC: "none", Provider.OLLAMA: 0.2}
+
+    def test_given_a_temperature_when_built_then_it_is_sent_whatever_the_provider(
+            self):
+        # Given a temperature set for a provider whose default sends none
+        settings = chat(Provider.GOOGLE, temperature=0.5)
 
         # When its options are read
-        # Then the model keeps its own
-        assert "temperature" not in PROVIDERS[Provider.ANTHROPIC].chat_options(
-            settings)
+        # Then the setting wins over the provider's default
+        assert PROVIDERS[Provider.GOOGLE].chat_options(settings)["temperature"] == 0.5
 
     def test_given_openai_when_built_then_usage_is_streamed_from_the_given_server(
             self):

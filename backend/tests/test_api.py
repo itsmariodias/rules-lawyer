@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import subprocess
 import sys
 
@@ -107,6 +108,50 @@ class TestLifespan:
 
         # Then the directory the stores need was made rather than demanded
         assert (tmp_path / "chat").is_dir()
+
+    @pytest.mark.parametrize("provider", ["google", "openai", "anthropic"])
+    def test_given_a_temperature_for_a_hosted_provider_when_started_then_it_warns(
+            self, isolated, settings_env, tmp_path, caplog, provider):
+        # Given a temperature set for a provider whose models deprecate it
+        settings_env(RULES_LAWYER_DATA=str(tmp_path), CHAT_PROVIDER=provider,
+                     CHAT_MODEL="test-model", CHAT_TEMPERATURE="0.5")
+
+        # When the app starts
+        with caplog.at_level(logging.WARNING, logger="rules_lawyer.api"), \
+                TestClient(app):
+            pass
+
+        # Then the log says the setting is deprecated, and what to do
+        assert "CHAT_TEMPERATURE=0.5 is set, but temperature is deprecated" in caplog.text
+        assert "Unset it." in caplog.text
+
+    @pytest.mark.parametrize("environment", [
+        {"CHAT_PROVIDER": "google", "CHAT_TEMPERATURE": ""},
+        {"CHAT_PROVIDER": "ollama", "CHAT_MODEL": "qwen3", "CHAT_TEMPERATURE": "0.5"},
+    ], ids=["google-unset", "ollama-set"])
+    def test_given_no_temperature_to_question_when_started_then_nothing_is_logged(
+            self, isolated, settings_env, tmp_path, caplog, environment):
+        # Given no temperature for a hosted provider, or one for Ollama, which
+        # has a default of its own
+        settings_env(RULES_LAWYER_DATA=str(tmp_path), **environment)
+
+        # When the app starts
+        with caplog.at_level(logging.WARNING, logger="rules_lawyer.api"), \
+                TestClient(app):
+            pass
+
+        # Then there is nothing to warn about
+        assert "CHAT_TEMPERATURE" not in caplog.text
+
+    def test_given_an_invalid_chat_setting_when_started_then_the_app_still_starts(
+            self, isolated, settings_env, tmp_path):
+        # Given a chat provider that does not exist
+        settings_env(RULES_LAWYER_DATA=str(tmp_path), CHAT_PROVIDER="nobody")
+
+        # When the app starts
+        with TestClient(app) as client:
+            # Then the endpoints that need no model still answer
+            assert client.get("/chat/threads").status_code == 200
 
     def test_given_the_lifespan_ran_when_a_thread_is_listed_then_it_answers_empty(
             self, isolated):
