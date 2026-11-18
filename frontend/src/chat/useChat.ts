@@ -86,13 +86,15 @@ export function useChat() {
   ) => {
     const started = Date.now()
     setStreaming(true)
-    abort.current = new AbortController()
+    const controller = new AbortController()
+    abort.current = controller
     try {
-      await ask(apply, abort.current.signal)
+      await ask(apply, controller.signal)
     } catch (error) {
-      if (!abort.current.signal.aborted) {
-        patchLast((m) => ({ ...m, error: String(error) }))
-      }
+      const stopped = controller.signal.aborted
+      patchLast((m) => stopped
+        ? { ...m, stopped: true }
+        : { ...m, error: String(error) })
     } finally {
       // Client-side, so it is the wait the reader actually saw.
       patchLast((m) => ({ ...m, ms: Date.now() - started }))

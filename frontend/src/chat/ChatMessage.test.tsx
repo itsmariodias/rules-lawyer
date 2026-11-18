@@ -134,6 +134,32 @@ describe('ChatMessage', () => {
     expect(container.querySelectorAll('.thinking .dots i')).toHaveLength(3)
   })
 
+  it('given a turn stopped before any text, when rendered, then it says Stopped', () => {
+    // Given a turn the reader stopped while a lookup was still running
+    // When it is rendered
+    const { container } = message({ message: {
+      role: 'assistant', content: '', stopped: true, ms: 3200,
+      tools: [{ id: 'c1', name: 'search_srd', args: { query: 'Prone' }, done: false }],
+    } })
+
+    // Then the thinking line is gone, the turn says it was stopped, and the
+    // running lookup is marked as no longer waiting
+    expect(screen.queryByText(/Thinking/)).toBeNull()
+    expect(screen.getByText('Stopped')).toBeInTheDocument()
+    expect(container.querySelector('.timing .took')?.textContent).toBe('3.2s')
+    expect(container.querySelector('article.stopped .trace .running')).not.toBeNull()
+  })
+
+  it('given a turn stopped mid-answer, when rendered, then the partial answer stays', () => {
+    // Given an answer the reader stopped partway
+    // When it is rendered
+    message({ message: { role: 'assistant', content: 'A Prone creature', stopped: true } })
+
+    // Then what arrived is kept, marked as cut short
+    expect(screen.getByText('A Prone creature')).toBeInTheDocument()
+    expect(screen.getByText('Stopped')).toBeInTheDocument()
+  })
+
   it('given a turn in flight, when rendered, then the wait is counted up', () => {
     // Given an answer that has been streaming for a few seconds
     // When it is rendered

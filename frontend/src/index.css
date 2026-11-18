@@ -456,6 +456,14 @@ code { font-family: var(--mono); font-size: 0.87em; }
   gap: 2px;
 }
 
+.stopped-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-style: italic;
+}
+/* A lookup cut off by Stop never ends, so its marker stops waiting. */
+.message.stopped .trace .running .mark { animation: none; opacity: 0.5; }
+
 /* Animated ellipsis: three elements, since animating `content` is not
    portable. */
 .thinking .dots { display: inline-flex; font-style: normal; }

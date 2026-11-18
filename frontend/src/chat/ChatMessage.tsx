@@ -1,7 +1,8 @@
 /**
  * One message in the conversation.  A question shows its time; an answer
  * shows its lookups, its markdown (or "Thinking" while nothing has arrived),
- * any error, its citations, and a row of time, cost, copy and retry.
+ * any error, "Stopped" if the reader stopped it, its citations, and a row of
+ * time, cost, copy and retry.
  */
 
 import { memo, useEffect, useState } from 'react'
@@ -48,7 +49,7 @@ export const ChatMessage = memo(function ChatMessage(
   }
 
   return (
-    <article className="message assistant">
+    <article className={`message assistant${message.stopped ? ' stopped' : ''}`}>
       <ToolTrace tools={message.tools ?? []}
                  threadId={threadId}
                  replayed={message.replayed} />
@@ -56,12 +57,13 @@ export const ChatMessage = memo(function ChatMessage(
         ? <Markdown text={message.content}
                     citations={message.citations}
                     onCite={onCite} />
-        : !message.error && (
+        : !message.error && !message.stopped && (
           <p className="thinking">
             Thinking<Dots />
             {since !== null && <Elapsed since={since} />}
           </p>
         )}
+      {message.stopped && <p className="stopped-note">Stopped</p>}
       {message.error && (
         <div className="failed">
           <p className="error">{message.error}</p>
@@ -70,7 +72,7 @@ export const ChatMessage = memo(function ChatMessage(
       )}
       <Citations citations={message.citations ?? []} onCite={onCite} />
       {/* Hidden while thinking; the elapsed counter shows instead. */}
-      {(message.content || message.error) && (
+      {(message.content || message.error || message.stopped) && (
         <p className="timing">
           <Clock at={message.at} />
           {message.ms !== undefined && (

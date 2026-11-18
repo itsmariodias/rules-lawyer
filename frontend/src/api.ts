@@ -55,6 +55,8 @@ export type Message = {
   at?: string
   /** Send-to-done duration in ms; live turns only. */
   ms?: number
+  /** The reader stopped the turn before it finished; live turns only. */
+  stopped?: boolean
   /** Null when the stored turn carries no counts. */
   usage?: Usage | null
   citations?: Citation[]

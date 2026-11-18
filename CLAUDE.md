@@ -815,6 +815,9 @@ browser stays on one origin and the SSE stream shares it.
   animating `content` is not portable), a pulsing marker on running lookups,
   and an elapsed counter (tenths under 10s). All stop under
   `prefers-reduced-motion`.
+- **Stop** aborts the stream and marks the answer `stopped` (client-side, not
+  stored): "Thinking" gives way to "Stopped", text that arrived stays, and a
+  lookup cut off mid-run stops pulsing.
 - **The trace** gives each tool its own marker, puts the outcome in a
   right-aligned column, and replaces a dotted id with the heading the server
   resolved. Replayed conversations start collapsed.

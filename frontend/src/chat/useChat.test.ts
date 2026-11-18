@@ -198,8 +198,9 @@ describe('apply', () => {
     // When the reader stops it
     await act(async () => { result.current.stop(); await sent })
 
-    // Then stopping is not reported as a failure
+    // Then the answer is marked stopped, not failed
     expect(result.current.messages[1].error).toBeUndefined()
+    expect(result.current.messages[1].stopped).toBe(true)
     expect(result.current.streaming).toBe(false)
   })
 })
