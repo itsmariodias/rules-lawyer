@@ -99,6 +99,67 @@ class TestAsk:
         # Then the title is stored for the list
         assert await titles.titled(store) == {"titled": "Prone condition effects"}
 
+    @pytest.mark.neo4j
+    @pytest.mark.asyncio
+    async def test_given_an_opening_turn_when_titled_then_the_title_is_sent_before_done(
+            self, graph, service, monkeypatch):
+        # Given a model that titles the question
+        async def summarise(question, model):
+            return "Prone condition effects"
+
+        monkeypatch.setattr(titles, "summarise", summarise)
+
+        # When a thread's first turn runs
+        events = [event async for event in await service.ask("Prone condition", "titled")]
+
+        # Then the title is one event, sent while the turn is still open
+        kinds = [event["type"] for event in events]
+        assert kinds.count("title") == 1
+        assert kinds.index("title") < kinds.index("done") == len(kinds) - 1
+        assert events[kinds.index("title")] == {
+            "type": "title", "thread_id": "titled", "title": "Prone condition effects"}
+
+    @pytest.mark.neo4j
+    @pytest.mark.asyncio
+    async def test_given_no_title_from_the_model_when_asked_then_the_cut_question_is_sent(
+            self, graph, service, store, monkeypatch):
+        # Given a model that fails to title the question
+        async def summarise(question, model):
+            return None
+
+        monkeypatch.setattr(titles, "summarise", summarise)
+
+        # When a thread's first turn runs
+        events = [event async for event in await service.ask(
+            "What exactly happens to a creature that has the Prone condition?", "cut")]
+
+        # Then the question, cut as the list cuts it, is sent before done
+        kinds = [event["type"] for event in events]
+        assert kinds.index("title") < kinds.index("done")
+        assert events[kinds.index("title")]["title"] == (
+            "What exactly happens to a creature that has the Prone…")
+
+        # And nothing is stored, so the list keeps falling back to the question
+        assert await titles.titled(store) == {}
+
+    @pytest.mark.neo4j
+    @pytest.mark.asyncio
+    async def test_given_a_later_turn_when_asked_then_no_title_is_sent(
+            self, graph, service, monkeypatch):
+        # Given a thread already answered once, and a model that titles anything
+        await answer(service, "later")
+
+        async def summarise(question, model):
+            return "Restrained condition effects"
+
+        monkeypatch.setattr(titles, "summarise", summarise)
+
+        # When a second question is asked in it
+        events = [event async for event in await service.ask("Restrained condition", "later")]
+
+        # Then the thread keeps its title
+        assert "title" not in [event["type"] for event in events]
+
 
 class TestRetry:
     @pytest.mark.neo4j

@@ -4,13 +4,13 @@
  * Collapsed, it is a rail of expand and new-conversation only.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import type { Thread } from '../api'
 import { useGraphStatus } from './useGraphStatus'
 import { useTheme, type Theme } from '../shared/useStored'
 import {
   AutoIcon, LogoIcon, MoonIcon, MoreIcon, PaneIcon, PinIcon, PlusIcon,
-  SunIcon, TrashIcon,
+  SpinnerIcon, SunIcon, TrashIcon,
 } from '../shared/icons'
 
 type Props = {
@@ -129,7 +129,7 @@ export function Sidebar({ threads, activeId, expanded, onExpand, onOpen, onNew,
       {/* Outside the nav, which narrow windows hide with display: none. */}
       {arming && (
         <ConfirmDelete
-          title={threads.find((t) => t.thread_id === arming)?.title ?? ''}
+          title={threads.find((t) => t.thread_id === arming)?.title || UNTITLED}
           failed={failed}
           onCancel={() => { setArming(null); setFailed(null) }}
           onDelete={() => {
@@ -155,11 +155,11 @@ function ThreadRow({ thread, active, menuOpen, onOpen, onMenu }: {
     <li className={`thread ${active ? 'on' : ''} ${menuOpen ? 'menu-open' : ''}`}>
       <button className="thread-open" onClick={onOpen}>
         {thread.pinned && <PinIcon />}
-        {thread.title}
+        <ThreadTitle title={thread.title} />
       </button>
       <button className="more" aria-haspopup="menu" aria-expanded={menuOpen}
-              title={`Options for “${thread.title}”`}
-              aria-label={`Options for conversation: ${thread.title}`}
+              title={`Options for “${thread.title || UNTITLED}”`}
+              aria-label={`Options for conversation: ${thread.title || UNTITLED}`}
               onClick={(event) => {
                 const box = event.currentTarget.getBoundingClientRect()
                 onMenu({ x: box.right, y: box.bottom + 4,
@@ -168,6 +168,29 @@ function ThreadRow({ thread, active, menuOpen, onOpen, onMenu }: {
         <MoreIcon />
       </button>
     </li>
+  )
+}
+
+const UNTITLED = 'New chat'
+
+/**
+ * A thread's title.  A row listed before its title exists shows a spinner,
+ * and types the title in when it arrives.
+ */
+function ThreadTitle({ title }: { title: string }) {
+  const [typesIn] = useState(title === '')
+  if (!title) {
+    return (
+      <span className="thread-untitled" role="img" aria-label={UNTITLED}>
+        <SpinnerIcon />
+      </span>
+    )
+  }
+  return (
+    <span className={typesIn ? 'thread-typed' : undefined}
+          style={typesIn ? { '--chars': title.length } as CSSProperties : undefined}>
+      {title}
+    </span>
   )
 }
 

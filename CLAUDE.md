@@ -620,7 +620,8 @@ tools:
 checkpointer and the store. Its `model` is a `cached_property`: only `ask`
 and `retry` read it, so stored conversations open without a key.
 `turn.stream_turn` flattens LangGraph's stream into events: `start`,
-`token`, `tool_start`, `tool_end`, `usage`, `citations`, `error`, `done`.
+`token`, `tool_start`, `tool_end`, `usage`, `citations`, `error`, `done`;
+`ask` adds `title` on a thread's first turn.
 `routes.py` encodes them as SSE; tests iterate them directly.
 
 ### Retrieval
@@ -764,10 +765,19 @@ and `retry` read it, so stored conversations open without a key.
   deletes its pin and title. Store reads pass an explicit `limit`:
   `asearch` defaults to 10, which silently unpinned an eleventh thread.
 - **Titles:** the opening turn asks the model for at most five words, in a
-  task running beside the turn (the first token waits for nothing), stored
-  before the stream ends. Any failure means no title, and the list falls
-  back to the cut question. Whether a turn is the opening one is asked of the
-  checkpointer, since a client may mint its own id.
+  task running beside the turn (the first token waits for nothing). The
+  answer streams from a task of its own into a queue the title shares, so
+  the title is stored and sent as a `title` event the moment it exists,
+  before `done` at the latest. Any failure means no stored title: the
+  event carries the cut question at once (unstored), and the list falls
+  back to the same cut. Whether a turn is the opening one is
+  asked of the checkpointer, since a client may mint its own id.
+- **A new thread is listed as it starts,** before the server can list it
+  (its turn is not yet stored): `start` adds an untitled row, shown as a
+  spinner (named "New chat" for screen readers and in its menu), and the
+  `title` event types the title (or the cut question) in, a
+  `steps()` clip one step per character. The refetch at the stream's end
+  replaces the row with the server's.
 - **Retry is a rewind, not a second question.** The checkpointer cannot drop
   one checkpoint, so `ChatService.retry` finds the newest checkpoint without
   the last question and the retry branches from it; later checkpoints stay on disk,

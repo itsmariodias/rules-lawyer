@@ -59,14 +59,17 @@ class ChatService:
         The model is built before the stream is returned, so a missing key
         fails the request rather than the stream.  The title is asked for
         beside the turn, so the first token waits for nothing, and is stored
-        before the stream ends.
+        and sent as soon as the model gives it, before ``done`` at the latest.
 
         Args:
             message: The user's question.
             thread_id: The thread to add it to; omitted to start one.
 
         Returns:
-            ``{"type": "start", "thread_id"}``, then ``stream_turn``'s events.
+            ``{"type": "start", "thread_id"}``, then ``stream_turn``'s events,
+            with ``{"type": "title", "thread_id", "title"}`` among them on a
+            thread's first turn: the model's title, or the cut question if
+            it gave none.
 
         Raises:
             ModelUnavailable: No model can be built (no key, model or
@@ -78,18 +81,39 @@ class ChatService:
         opening = await self.checkpointer.aget_tuple(
             thread_config(thread_id)) is None
 
-        async def events() -> AsyncIterator[dict]:
-            titling = (asyncio.create_task(titles.summarise(message, model))
-                       if opening else None)
+        # Both tasks feed one queue, so the title is sent between whichever
+        # events it falls; None marks the end of the turn.
+        queue: asyncio.Queue[dict | None] = asyncio.Queue()
+
+        async def title() -> None:
+            named = await titles.summarise(message, model)
+            if named:
+                await titles.remember(self.store, thread_id, named)
+            # Unstored without a title: the list falls back to the same cut.
+            queue.put_nowait({"type": "title", "thread_id": thread_id,
+                              "title": named or threads.short_title(message)})
+
+        async def answer(titling: asyncio.Task | None) -> None:
             try:
-                yield {"type": "start", "thread_id": thread_id}
                 async for event in stream_turn(
                         message, thread_id, self.checkpointer, model):
-                    yield event
-                if titling is not None and (title := await titling):
-                    await titles.remember(self.store, thread_id, title)
+                    if event["type"] == "done" and titling is not None:
+                        await titling
+                    queue.put_nowait(event)
             finally:
-                # The client disconnected; nothing will read the title.
+                queue.put_nowait(None)
+
+        async def events() -> AsyncIterator[dict]:
+            titling = asyncio.create_task(title()) if opening else None
+            answering = asyncio.create_task(answer(titling))
+            try:
+                yield {"type": "start", "thread_id": thread_id}
+                while (event := await queue.get()) is not None:
+                    yield event
+                await answering
+            finally:
+                # The client disconnected; nothing will read the rest.
+                answering.cancel()
                 if titling is not None:
                     titling.cancel()
 

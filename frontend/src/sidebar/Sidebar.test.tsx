@@ -81,6 +81,41 @@ describe('the thread list', () => {
     expect(screen.queryByRole('heading', { name: 'Pinned' })).toBeNull()
   })
 
+  it('given a conversation not yet titled, when listed, then it shows a spinner named New chat', () => {
+    // Given a conversation whose first turn has only just started
+    // When the list is rendered
+    sidebar({ threads: [thread({ title: '' })] })
+
+    // Then it shows a spinner, read aloud as a new chat
+    const row = screen.getByRole('button', { name: 'New chat' })
+    expect(row.querySelector('.thread-untitled .spinner')).not.toBeNull()
+    expect(row.textContent).toBe('')
+    expect(screen.getByRole('button', { name: 'Options for conversation: New chat' }))
+      .toBeTruthy()
+  })
+
+  it('given a new chat, when its title arrives, then the title types itself in', () => {
+    // Given a listed conversation not yet titled
+    const { rerender, props } = sidebar({ threads: [thread({ title: '' })] })
+
+    // When its title arrives
+    rerender(<Sidebar {...props} threads={[thread({ title: 'Prone' })]} />)
+
+    // Then the title is typed in, a step per character
+    const title = screen.getByText('Prone')
+    expect(title.className).toBe('thread-typed')
+    expect(title.style.getPropertyValue('--chars')).toBe('5')
+  })
+
+  it('given a titled conversation, when listed, then its title is simply shown', () => {
+    // Given a conversation titled before it was listed
+    // When the list is rendered
+    sidebar()
+
+    // Then nothing animates
+    expect(screen.getByText('Prone condition').className).toBe('')
+  })
+
   it('given a row, when its menu is opened, then pin and delete are offered', async () => {
     // Given a conversation
     sidebar()

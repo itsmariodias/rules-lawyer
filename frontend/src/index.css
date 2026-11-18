@@ -281,6 +281,28 @@ code { font-family: var(--mono); font-size: 0.87em; }
   white-space: nowrap;
 }
 
+/* A new thread's row, listed before its title exists, spins; the title then types
+   itself in, one step per character (--chars). */
+.thread-untitled .spinner {
+  vertical-align: -2px;
+  opacity: 0.7;
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin { to { transform: rotate(1turn); } }
+.thread-typed {
+  animation: type-in calc(var(--chars) * 30ms) steps(var(--chars)) both;
+}
+/* Both ends are inset(): from inset() to the implicit `none` is not
+   interpolable, so the title would appear at once halfway through. */
+@keyframes type-in {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thread-untitled .spinner, .thread-typed { animation: none; }
+}
+
 .thread-open .pin {
   flex: none;
   margin-right: 5px;

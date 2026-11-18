@@ -315,6 +315,64 @@ describe('threads', () => {
     // Then the conversation still works, with an empty sidebar
     await waitFor(() => expect(result.current.threads).toEqual([]))
   })
+
+  it('given a new conversation, when its turn starts, then it is listed untitled at once', async () => {
+    // Given a turn that starts and never finishes
+    vi.mocked(api.streamChat).mockImplementation(async (_m, _t, onEvent) => {
+      onEvent({ type: 'start', thread_id: 'minted' })
+      await new Promise(() => {})
+    })
+    const { result } = renderHook(() => useChat())
+    await waitFor(() => expect(api.listThreads).toHaveBeenCalled())
+
+    // When a question is sent
+    act(() => void result.current.send('Can a Prone creature stand?'))
+
+    // Then the thread is listed while the answer is still streaming
+    await waitFor(() => expect(result.current.threads).toHaveLength(1))
+    expect(result.current.threads[0]).toMatchObject(
+      { thread_id: 'minted', title: '', pinned: false })
+    expect(result.current.streaming).toBe(true)
+  })
+
+  it('given a new conversation, when its title arrives, then the row takes it mid-turn', async () => {
+    // Given a turn that starts, is titled, and never finishes
+    vi.mocked(api.streamChat).mockImplementation(async (_m, _t, onEvent) => {
+      onEvent({ type: 'start', thread_id: 'minted' })
+      onEvent({ type: 'title', thread_id: 'minted', title: 'Standing from Prone' })
+      await new Promise(() => {})
+    })
+    const { result } = renderHook(() => useChat())
+    await waitFor(() => expect(api.listThreads).toHaveBeenCalled())
+
+    // When a question is sent
+    act(() => void result.current.send('Can a Prone creature stand?'))
+
+    // Then the row is titled before the answer ends
+    await waitFor(() =>
+      expect(result.current.threads[0]?.title).toBe('Standing from Prone'))
+    expect(result.current.streaming).toBe(true)
+  })
+
+  it('given a listed conversation, when another turn starts, then it is not listed twice', async () => {
+    // Given a thread the server already lists
+    const listed = { thread_id: 'held', title: 'Prone rules', pinned: false,
+                     updated_at: null, messages: 1 }
+    vi.mocked(api.listThreads).mockResolvedValue([listed])
+    vi.mocked(api.streamChat).mockImplementation(async (_m, _t, onEvent) => {
+      onEvent({ type: 'start', thread_id: 'held' })
+      await new Promise(() => {})
+    })
+    const { result } = renderHook(() => useChat())
+    await waitFor(() => expect(result.current.threads).toEqual([listed]))
+
+    // When a follow-up starts
+    act(() => void result.current.send('And standing up?'))
+    await waitFor(() => expect(result.current.threadId).toBe('held'))
+
+    // Then the list keeps the server's row as it was
+    expect(result.current.threads).toEqual([listed])
+  })
 })
 
 describe('retry', () => {

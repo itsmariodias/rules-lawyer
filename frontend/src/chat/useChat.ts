@@ -31,6 +31,20 @@ export function useChat() {
     switch (event.type) {
       case 'start':
         setThreadId(event.thread_id)
+        // The server lists a thread only once its turn is stored; until then
+        // it is listed here, untitled.
+        setThreads((current) =>
+          current.some((thread) => thread.thread_id === event.thread_id)
+            ? current
+            : [{ thread_id: event.thread_id, title: '', pinned: false,
+                 updated_at: new Date().toISOString(), messages: 1 },
+               ...current])
+        break
+      case 'title':
+        setThreads((current) => current.map((thread) =>
+          thread.thread_id === event.thread_id
+            ? { ...thread, title: event.title }
+            : thread))
         break
       case 'token':
         patchLast((m) => ({ ...m, content: m.content + event.text }))

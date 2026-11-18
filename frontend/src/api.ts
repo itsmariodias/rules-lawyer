@@ -27,6 +27,8 @@ export type ToolCall = {
 
 export type ChatEvent =
   | { type: 'start'; thread_id: string }
+  /** A new thread's title (the model's, or the cut question) once known. */
+  | { type: 'title'; thread_id: string; title: string }
   | { type: 'token'; text: string }
   | { type: 'tool_start'; id: string; name: string; args: Record<string, unknown> }
   | { type: 'tool_end'; id: string; name: string; result_chars: number;
@@ -62,6 +64,7 @@ export type Message = {
 
 export type Thread = {
   thread_id: string
+  /** Empty while a new thread waits for its first turn to be stored. */
   title: string
   updated_at: string | null
   messages: number
