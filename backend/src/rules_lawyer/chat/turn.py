@@ -14,6 +14,7 @@ from typing import Any
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 from langgraph.checkpoint.base import BaseCheckpointSaver
+from neo4j.exceptions import ServiceUnavailable
 
 from rules_lawyer.chat.agent.build import build_agent
 from rules_lawyer.chat.retrieval import search
@@ -150,8 +151,8 @@ def _explain(exc: Exception) -> str:
     """An exception as a short sentence for the reader.
 
     Missing key, rejected key, spent quota, failures only the configured
-    provider has (``ModelProvider.explain``) and silence get fixed messages;
-    anything else is truncated to ``ERROR_CHARS``.
+    provider has (``ModelProvider.explain``), silence and an unreachable
+    graph get fixed messages; anything else is truncated to ``ERROR_CHARS``.
     """
     text = f"{type(exc).__name__}: {exc}"
     chat = get_settings().chat
@@ -173,6 +174,10 @@ def _explain(exc: Exception) -> str:
     if isinstance(exc, TimeoutError):
         return (f"The model stopped responding ({exc}). Nothing arrived, so "
                 "the turn was ended rather than left hanging.")
+    if isinstance(exc, ServiceUnavailable):
+        return (f"The rules graph is not reachable at {get_settings().neo4j.uri}, "
+                "so the SRD could not be searched. Start Neo4j (docker compose "
+                "up -d neo4j) and try again.")
     if len(text) <= ERROR_CHARS:
         return text
     return text[:ERROR_CHARS].rsplit(" ", 1)[0] + "…"

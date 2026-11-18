@@ -711,7 +711,8 @@ and `retry` read it, so stored conversations open without a key.
   arrives as an `error` event. `_explain` names the common failures (no key,
   rejected key, spent quota or rate limit, Ollama not running or the model
   not pulled, from the provider's phrases and `explain`) for the configured
-  provider and truncates the rest.
+  provider, and an unreachable graph (Neo4j's `ServiceUnavailable`, with the
+  command that starts it), and truncates the rest.
 - **Tool calls are announced from the finished model message** (the
   `updates` stream), not the first chunk naming them: Gemini sends a call
   whole, but OpenAI and Anthropic stream its arguments, so that chunk has

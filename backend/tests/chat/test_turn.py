@@ -76,6 +76,21 @@ class TestExplain:
         # Then it says why the turn was ended rather than left hanging
         assert "stopped responding" in explained
 
+    def test_given_the_graph_down_when_explained_then_it_says_to_start_it(self):
+        # Given the error the driver raises with nothing on the port
+        from neo4j.exceptions import ServiceUnavailable
+
+        error = ServiceUnavailable("Couldn't connect to localhost:7687 (resolved "
+                                   "to ('127.0.0.1:7687',)): [Errno 61] refused")
+
+        # When it is explained
+        explained = turn._explain(error)
+
+        # Then it names the database and how to start it, not the socket
+        assert "graph is not reachable" in explained
+        assert "docker compose up -d neo4j" in explained
+        assert "Errno" not in explained
+
     def test_given_an_error_nobody_anticipated_when_explained_then_it_stays_readable(self):
         # Given an enormous unrecognised error
         # When it is explained
