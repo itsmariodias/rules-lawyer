@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SourceExcerpt } from '../api'
 import { SidePanel } from './SidePanel'
 
-vi.mock('../api', () => ({ loadSource: vi.fn() }))
+vi.mock('../api', () => ({ loadSource: vi.fn(), loadNeighbourhood: vi.fn() }))
 vi.mock('./graph/GraphView', () => ({
   GraphView: ({ sectionId, depth, onOpenPage }: {
     sectionId: string | null; depth: number; onOpenPage: (id: string) => void
@@ -19,10 +19,15 @@ vi.mock('./graph/GraphView', () => ({
   ),
 }))
 vi.mock('./page/PdfPage', () => ({
-  PdfPage: ({ zoom }: { zoom: number }) =>
-    <div data-testid="pdf-page">{`page at ${zoom}`}</div>,
-  PdfBook: ({ jumpTo }: { jumpTo: { page: number } | null }) =>
-    <div data-testid="pdf-book">{jumpTo ? `book at ${jumpTo.page}` : 'book'}</div>,
+  PdfBook: ({ zoom, excerpt, visit, jumpTo }: {
+    zoom: number; excerpt: SourceExcerpt | null; visit: number
+    jumpTo: { page: number } | null
+  }) => (
+    <div data-testid="pdf-book">
+      {`book at ${zoom}, boxing ${excerpt?.section_id ?? 'nothing'}, ` +
+       `visit ${visit}${jumpTo ? `, page ${jumpTo.page}` : ''}`}
+    </div>
+  ),
 }))
 
 const api = await import('../api')
@@ -37,50 +42,140 @@ const excerpt = (overrides: Partial<SourceExcerpt> = {}): SourceExcerpt => ({
   ...overrides,
 })
 
-function panel(props: Partial<Parameters<typeof SidePanel>[0]> = {}) {
-  const merged = {
-    sectionId: '11.2.114' as string | null, tab: 'page' as const,
+type PanelProps = Parameters<typeof SidePanel>[0]
+
+function panel(props: Partial<PanelProps> = {}) {
+  const merged: PanelProps = {
+    sectionId: '11.2.114', visit: 1, tab: 'page',
     onTab: vi.fn(), onClose: vi.fn(), onNavigate: vi.fn(), ...props,
   }
   return { ...render(<SidePanel {...merged} />), props: merged }
 }
 
-beforeEach(() => vi.mocked(api.loadSource).mockResolvedValue(excerpt()))
+/** The book seed's neighbourhood: the seed, then its roots out of order. */
+const book = {
+  root: 'book', edges: [], truncated: [],
+  nodes: [
+    { uid: 'book', name: 'System Reference Document 5.2.1', section_id: null, depth: 0 },
+    { uid: 'b', name: 'Playing the Game', section_id: '2', depth: 1 },
+    { uid: 'k', name: 'Rules Glossary', section_id: '11', depth: 1 },
+    { uid: 'a', name: 'Legal Information', section_id: '1', depth: 1 },
+  ],
+} as unknown as Awaited<ReturnType<typeof api.loadNeighbourhood>>
+
+const tree = () => screen.getByRole('navigation', { name: 'Location in the book' })
+const current = () => within(tree()).getByText(
+  (_, element) => element?.getAttribute('aria-current') === 'location')
+
+beforeEach(() => {
+  Element.prototype.scrollIntoView = vi.fn()
+  vi.mocked(api.loadSource).mockResolvedValue(excerpt())
+  vi.mocked(api.loadNeighbourhood).mockResolvedValue(book)
+})
 
 describe('SidePanel', () => {
-  it('given a citation, when opened, then its heading and id are shown', async () => {
+  it('given a citation, when opened, then the book boxes it under its path', async () => {
     // Given a cited section
     panel()
 
     // When the panel loads it
-    // Then it says which passage this is
-    expect(await screen.findByRole('heading', { name: 'Prone [Condition]' }))
+    // Then the whole book is drawn with its lines boxed, and the tree says
+    // where it is
+    await waitFor(() => expect(screen.getByTestId('pdf-book'))
+      .toHaveTextContent('boxing 11.2.114, visit 1'))
+    expect(current()).toHaveTextContent('Prone [Condition]')
+    expect(within(tree()).getByRole('button', { name: 'Rules Glossary' }))
       .toBeInTheDocument()
-    expect(screen.getByText('11.2.114')).toBeInTheDocument()
   })
 
-  it('given a citation, when opened, then the page facsimile is drawn', async () => {
-    // Given a cited section
-    panel()
-
-    // When it loads
-    // Then the printed page is what is shown
-    expect(await screen.findByTestId('pdf-page')).toBeInTheDocument()
-  })
-
-  it('given nothing cited, when the page tab is open, then the whole book is browsable', async () => {
+  it('given nothing cited, when the page tab is open, then the book and its sections are listed', async () => {
     // Given a panel opened with no citation
     panel({ sectionId: null })
 
     // When the page tab is shown
-    // Then it is the book from page one, with a way to type a page number
-    expect(await screen.findByTestId('pdf-book')).toBeInTheDocument()
+    // Then it is the book with nothing boxed, a way to type a page number,
+    // and the top-level sections in book order
+    expect(await screen.findByTestId('pdf-book')).toHaveTextContent('boxing nothing')
     expect(screen.getByLabelText('Page')).toBeInTheDocument()
+    await userEvent.click(await screen.findByRole('button', { name: 'Sections (3)' }))
+    expect(screen.getAllByRole('menuitem').map((entry) => entry.textContent))
+      .toEqual(['Legal Information', 'Playing the Game', 'Rules Glossary'])
+    expect(api.loadNeighbourhood).toHaveBeenCalledWith(null, 1)
+  })
+
+  it('given the sections listed once, when the book is reopened, then they are not fetched again', async () => {
+    // Given the top-level sections already shown
+    const { rerender, props } = panel({ sectionId: null })
+    await within(tree()).findByRole('button', { name: 'Sections (3)' })
+
+    // When a section is cited and then cleared
+    rerender(<SidePanel {...props} sectionId="11.2.114" />)
+    await waitFor(() => expect(current()).toHaveTextContent('Prone [Condition]'))
+    rerender(<SidePanel {...props} sectionId={null} />)
+
+    // Then the list comes back without another request
+    expect(await within(tree()).findByRole('button', { name: 'Sections (3)' }))
+      .toBeInTheDocument()
+    expect(api.loadNeighbourhood).toHaveBeenCalledTimes(1)
+  })
+
+  it('given the sections fail to load, when the book is open, then the reason is shown', async () => {
+    // Given a graph that cannot answer
+    vi.mocked(api.loadNeighbourhood).mockRejectedValue(new Error('503 unavailable'))
+
+    // When the book opens
+    panel({ sectionId: null })
+
+    // Then the tree says why it is empty
+    expect(await within(tree()).findByText(/503 unavailable/)).toBeInTheDocument()
+  })
+
+  it('given a section in the tree, when pressed, then the panel navigates to it', async () => {
+    // Given a nested citation
+    const { props } = panel()
+    await waitFor(() => expect(current()).toHaveTextContent('Prone [Condition]'))
+
+    // When its top-level section is pressed
+    await userEvent.click(within(tree()).getByRole('button', { name: 'Rules Glossary' }))
+
+    // Then the panel is asked to open it
+    expect(props.onNavigate).toHaveBeenCalledWith('11')
+  })
+
+  it('given a citation, when SRD is pressed, then the citation clears and the book goes to page 1', async () => {
+    // Given a nested citation
+    const { props } = panel()
+    await waitFor(() => expect(current()).toHaveTextContent('Prone [Condition]'))
+
+    // When the first crumb, the book itself, is pressed
+    await userEvent.click(within(tree()).getByRole('button', { name: 'SRD' }))
+
+    // Then the shell is asked for the whole book, which scrolls to its start
+    expect(props.onNavigate).toHaveBeenCalledWith(null)
+    expect(screen.getByTestId('pdf-book')).toHaveTextContent('page 1')
+  })
+
+  it('given a citation, when another is opened, then the book is not drawn again', async () => {
+    // Given one citation open
+    const { rerender, props } = panel()
+    await waitFor(() => expect(screen.getByTestId('pdf-book'))
+      .toHaveTextContent('boxing 11.2.114'))
+    const drawn = screen.getByTestId('pdf-book')
+
+    // When a second citation is opened
+    vi.mocked(api.loadSource).mockResolvedValue(
+      excerpt({ section_id: '11.2.120', heading: 'Restrained' }))
+    rerender(<SidePanel {...props} sectionId="11.2.120" visit={2} />)
+
+    // Then the same book moves its boxes rather than being rebuilt
+    await waitFor(() => expect(screen.getByTestId('pdf-book'))
+      .toHaveTextContent('boxing 11.2.120, visit 2'))
+    expect(screen.getByTestId('pdf-book')).toBe(drawn)
   })
 
   it('given a page number, when submitted, then the book jumps to it', async () => {
-    // Given the book with nothing cited
-    panel({ sectionId: null })
+    // Given a citation open
+    panel()
     await screen.findByTestId('pdf-book')
 
     // When a page is typed and submitted
@@ -88,7 +183,7 @@ describe('SidePanel', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Go' }))
 
     // Then the reader is taken there
-    expect(screen.getByTestId('pdf-book')).toHaveTextContent('book at 186')
+    expect(screen.getByTestId('pdf-book')).toHaveTextContent('page 186')
   })
 
   it('given an empty page box, when read, then there is nothing to submit', () => {
@@ -136,73 +231,15 @@ describe('SidePanel', () => {
   it('given a zoom, when chosen, then the page is drawn at it and it is remembered', async () => {
     // Given a cited page
     const { unmount } = panel()
-    await screen.findByTestId('pdf-page')
+    await screen.findByTestId('pdf-book')
 
     // When a closer look is chosen and the panel is reopened
     await userEvent.click(screen.getByRole('button', { name: '2×' }))
     unmount()
     panel()
 
-    // Then the page comes back at the same zoom
-    expect(await screen.findByTestId('pdf-page')).toHaveTextContent('page at 2')
-  })
-
-  it('given a nested citation, when shown, then its path runs from the top of the book', async () => {
-    // Given a citation two levels below a top-level section
-    panel()
-
-    // When the panel shows it
-    const crumbs = await screen.findByRole('navigation',
-                                           { name: 'Location in the book' })
-
-    // Then every ancestor is listed in order, ending on the cited section
-    expect(within(crumbs).getAllByRole('listitem').map((item) => item.textContent))
-      .toEqual(['Rules Glossary', 'Rules Definitions', 'Prone [Condition]'])
-    expect(within(crumbs).getByText('Prone [Condition]'))
-      .toHaveAttribute('aria-current', 'location')
-  })
-
-  it('given any ancestor, when it is pressed, then the panel navigates to it', async () => {
-    // Given a nested citation
-    const { props } = panel()
-    const crumbs = await screen.findByRole('navigation',
-                                           { name: 'Location in the book' })
-
-    // When the top-level section is pressed
-    await userEvent.click(within(crumbs).getByRole('button',
-                                                   { name: 'Rules Glossary' }))
-
-    // Then the panel is asked to open it
-    expect(props.onNavigate).toHaveBeenCalledWith('11')
-  })
-
-  it('given a top-level section, when shown, then there is no path to draw', async () => {
-    // Given a citation of a top-level section
-    vi.mocked(api.loadSource).mockResolvedValue(
-      excerpt({ section_id: '11', heading: 'Rules Glossary', ancestors: [],
-                parent: null }))
-    panel({ sectionId: '11' })
-
-    // When the panel shows it
-    await screen.findByRole('heading', { name: 'Rules Glossary' })
-
-    // Then no breadcrumb is drawn
-    expect(screen.queryByRole('navigation', { name: 'Location in the book' }))
-      .toBeNull()
-  })
-
-  it('given subsections, when one is pressed, then the panel navigates to it', async () => {
-    // Given a citation with children
-    vi.mocked(api.loadSource).mockResolvedValue(excerpt({
-      children: [{ id: '11.2.115', heading: 'Restrained [Condition]' }] }))
-    const { props } = panel()
-
-    // When a subsection is pressed
-    await userEvent.click(await screen.findByRole(
-      'button', { name: 'Restrained [Condition]' }))
-
-    // Then it becomes the open passage
-    expect(props.onNavigate).toHaveBeenCalledWith('11.2.115')
+    // Then the book comes back at the same zoom
+    expect(await screen.findByTestId('pdf-book')).toHaveTextContent('book at 2')
   })
 
   it('given the tabs, when one is pressed, then the shell is told', async () => {
@@ -265,23 +302,21 @@ describe('SidePanel', () => {
 
   it('given a new citation, when it replaces the last, then the old one is cleared first', async () => {
     // Given one citation open
-    const { rerender } = panel()
-    await screen.findByRole('heading', { name: 'Prone [Condition]' })
+    const { rerender, props } = panel()
+    await waitFor(() => expect(current()).toHaveTextContent('Prone [Condition]'))
 
     // When a second citation is opened
     let resolve: (value: SourceExcerpt) => void = () => {}
     vi.mocked(api.loadSource).mockReturnValue(
       new Promise((r) => { resolve = r }))
-    rerender(<SidePanel sectionId="11.2.120" tab="page" onTab={vi.fn()}
-                        onClose={vi.fn()} onNavigate={vi.fn()} />)
+    rerender(<SidePanel {...props} sectionId="11.2.120" />)
 
-    // Then the previous passage is not left up under the new id
-    expect(screen.queryByRole('heading', { name: 'Prone [Condition]' }))
-      .toBeNull()
+    // Then the previous passage is not left boxed under the new id
+    expect(within(tree()).queryByText('Prone [Condition]')).toBeNull()
+    expect(screen.getByTestId('pdf-book')).toHaveTextContent('boxing nothing')
+    expect(within(tree()).getByText('Loading…')).toBeInTheDocument()
     resolve(excerpt({ section_id: '11.2.120', heading: 'Restrained' }))
-    await waitFor(() =>
-      expect(screen.getByRole('heading', { name: 'Restrained' }))
-        .toBeInTheDocument())
+    await waitFor(() => expect(current()).toHaveTextContent('Restrained'))
   })
 
   it('given two citations in quick succession, when the first answers last, then the second stays', async () => {
@@ -289,20 +324,19 @@ describe('SidePanel', () => {
     let first: (value: SourceExcerpt) => void = () => {}
     vi.mocked(api.loadSource).mockReturnValueOnce(
       new Promise((r) => { first = r }))
-    const { rerender } = panel()
+    const { rerender, props } = panel()
 
     // When a second citation is opened and answers before the first
     vi.mocked(api.loadSource).mockResolvedValueOnce(
       excerpt({ section_id: '11.2.120', heading: 'Restrained' }))
-    rerender(<SidePanel sectionId="11.2.120" tab="page" onTab={vi.fn()}
-                        onClose={vi.fn()} onNavigate={vi.fn()} />)
-    await screen.findByRole('heading', { name: 'Restrained' })
+    rerender(<SidePanel {...props} sectionId="11.2.120" />)
+    await waitFor(() => expect(current()).toHaveTextContent('Restrained'))
     first(excerpt())
 
     // Then the late first answer does not replace the passage being read
     await new Promise((r) => setTimeout(r, 0))
-    expect(screen.getByRole('heading', { name: 'Restrained' })).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: 'Prone [Condition]' })).toBeNull()
+    expect(current()).toHaveTextContent('Restrained')
+    expect(screen.getByTestId('pdf-book')).toHaveTextContent('boxing 11.2.120')
   })
 
   it('given a citation that fails after a newer one opened, when it fails, then no error is shown', async () => {
@@ -310,14 +344,13 @@ describe('SidePanel', () => {
     let fail: (reason: Error) => void = () => {}
     vi.mocked(api.loadSource).mockReturnValueOnce(
       new Promise((_, reject) => { fail = reject }))
-    const { rerender } = panel()
+    const { rerender, props } = panel()
 
     // When a second citation loads, then the first fails
     vi.mocked(api.loadSource).mockResolvedValueOnce(
       excerpt({ section_id: '11.2.120', heading: 'Restrained' }))
-    rerender(<SidePanel sectionId="11.2.120" tab="page" onTab={vi.fn()}
-                        onClose={vi.fn()} onNavigate={vi.fn()} />)
-    await screen.findByRole('heading', { name: 'Restrained' })
+    rerender(<SidePanel {...props} sectionId="11.2.120" />)
+    await waitFor(() => expect(current()).toHaveTextContent('Restrained'))
     fail(new Error('503 unavailable'))
     await new Promise((r) => setTimeout(r, 0))
 

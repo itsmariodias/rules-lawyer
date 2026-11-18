@@ -48,3 +48,11 @@ export async function ask(page: Page, question: string) {
 
 /** The side panel, whichever tab is showing. */
 export const panel = (page: Page) => page.locator('aside.panel')
+
+/** The Page tab's section tree, above the book. */
+export const tree = (page: Page) =>
+  panel(page).getByRole('navigation', { name: 'Location in the book' })
+
+/** The tree's row for the open section; its title is the dotted id. */
+export const openSection = (page: Page) =>
+  tree(page).locator('[aria-current="location"]')

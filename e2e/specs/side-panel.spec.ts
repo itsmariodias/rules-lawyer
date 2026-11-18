@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test'
 
-import { ask, expect, panel, test } from '../fixtures'
+import { ask, expect, openSection, panel, test, tree } from '../fixtures'
 
 /** Open the first citation of an answered question. */
 async function citation(page: Page) {
@@ -9,15 +9,18 @@ async function citation(page: Page) {
   await expect(panel(page)).toBeVisible()
 }
 
+/** The page holding the cited passage's first box, among the whole book. */
+const cited = (page: Page) => page.locator('.pdf-page:has(.pdf-boxes span)').first()
+
 /**
- * Wait for the page to finish rendering.  The canvas exists at placeholder
- * size from the start; the text layer's first span appears only after the
- * scale is final.
+ * Wait for the cited page to finish rendering.  The canvas exists at
+ * placeholder size from the start; the text layer's first span appears only
+ * after the scale is final.
  */
 async function rendered(page: Page) {
-  await expect(page.locator('.pdf-page canvas').first())
+  await expect(cited(page).locator('canvas'))
     .toBeVisible({ timeout: 30_000 })
-  await expect(page.locator('.textLayer span').first())
+  await expect(cited(page).locator('.textLayer span').first())
     .toBeAttached({ timeout: 30_000 })
 }
 
@@ -30,9 +33,11 @@ test.describe('the page panel', () => {
     // When the panel draws it
     await rendered(app)
 
-    // Then it is a rendered page of the PDF, captioned with its number
-    await expect(app.locator('.pdf-page figcaption').first())
-      .toHaveText(/^p\. \d+$/)
+    // Then it is a rendered page of the PDF, captioned with its number,
+    // scrolled into view with the rest of the book around it
+    await expect(cited(app).locator('figcaption')).toHaveText(/^p\. \d+$/)
+    await expect(cited(app)).toBeInViewport({ ratio: 0.1 })
+    await expect(app.locator('.pdf-page').first()).toHaveAttribute('data-page', '1')
   })
 
   test('given a rendered page, when the citation is marked, then boxes are drawn',
@@ -54,7 +59,7 @@ test.describe('the page panel', () => {
     // Given a drawn page and its boxes
     await citation(app)
     await rendered(app)
-    const page_ = await app.locator('.pdf-page canvas').first().boundingBox()
+    const page_ = await cited(app).locator('canvas').boundingBox()
     const box = await app.locator('.pdf-boxes span').first().boundingBox()
 
     // When the two rectangles are compared
@@ -86,7 +91,7 @@ test.describe('the page panel', () => {
     await rendered(app)
 
     // When the text layer is measured
-    const size = await app.locator('.textLayer span').first().evaluate(
+    const size = await cited(app).locator('.textLayer span').first().evaluate(
       (element) => parseFloat(getComputedStyle(element).fontSize))
 
     // Then its glyphs have a size, so a reader can select them
@@ -97,19 +102,35 @@ test.describe('the page panel', () => {
        async ({ app }) => {
     // Given a cited passage, with its path through the book above the page
     await citation(app)
-    const crumbs = panel(app).getByRole('navigation',
-                                        { name: 'Location in the book' })
-    const cited = await panel(app).locator('h2').innerText()
-    await expect(crumbs.locator('[aria-current]')).toHaveText(cited)
-    const top = crumbs.getByRole('button').first()
+    await expect(openSection(app)).toBeVisible()
+    // (the first crumb is SRD; the second is the top-level section)
+    const top = tree(app).getByRole('listitem').nth(1).getByRole('button')
     const heading = await top.innerText()
 
     // When the top of that path is followed
     await top.click()
 
-    // Then the panel is showing that section, which has no path above it
-    await expect(panel(app).locator('h2')).toHaveText(heading)
-    await expect(crumbs).toHaveCount(0)
+    // Then that section is the open one, right after SRD, and boxed
+    await expect(tree(app).getByRole('listitem').nth(1)
+      .locator('[aria-current="location"]')).toContainText(heading)
+    await expect(app.locator('.pdf-boxes span').first()).toBeAttached()
+  })
+
+  test('given a citation, when the book is chosen in the path, then the boxes go and it returns to page 1',
+       async ({ app }) => {
+    // Given a cited passage, boxed
+    await citation(app)
+    await expect(app.locator('.pdf-boxes span').first()).toBeAttached()
+
+    // When SRD, the first crumb of the path, is chosen
+    await tree(app).getByRole('button', { name: 'SRD' }).click()
+
+    // Then nothing is boxed, the book is back at page 1, and the top-level
+    // sections are a dropdown away
+    await expect(app.locator('.pdf-boxes span')).toHaveCount(0)
+    await expect(app.locator('[data-page="1"]')).toBeInViewport({ ratio: 0.1 })
+    await tree(app).getByRole('button', { name: 'Sections (16)' }).click()
+    await expect(tree(app).getByRole('menuitem')).toHaveCount(16)
   })
 
   test('given a citation, when the panel is closed and reopened, then it is the whole book',

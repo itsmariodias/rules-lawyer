@@ -47,7 +47,8 @@ src/
   panel/                the side panel
     SidePanel.tsx       the Page and Graph tabs
     Resizer.tsx         the drag handle that sizes it
-    page/PdfPage.tsx    a PDF page drawn with pdf.js, cited lines boxed
+    page/PdfPage.tsx    the book drawn with pdf.js, cited lines boxed
+    page/SectionTree.tsx  the breadcrumb to the open section, above the book
     graph/GraphView.tsx the graph around the cited section
     graph/graph-layout.ts  the graph's pure maths: spring length, fit, colours, merging
 
@@ -98,11 +99,14 @@ fetches its full result from `/chat/threads/{id}/lookups/{call_id}`.
    section's heading, its pages, and `boxes`: one rectangle per printed line
    of the section, in PDF points with the origin top-left. The backend
    recorded those rectangles while parsing the PDF, so they match the print
-   exactly. It also returns `ancestors` and `children`, shown as a
-   breadcrumb above the page and a list of subsections below it.
-3. **The page.** `PdfPage.tsx` loads the SRD once per session from `/pdf`
-   (pdf.js fetches it in byte ranges) and, for each page the section is on,
-   stacks three layers:
+   exactly. It also returns `ancestors` and `children`, which
+   `SectionTree.tsx` draws above the book: a breadcrumb (SRD ›
+   Classes › Rogue) ending in a dropdown of subsections, every entry
+   clickable. With nothing cited the dropdown lists the book's top-level
+   sections.
+3. **The page.** The Page tab is always the whole book. `PdfPage.tsx` loads
+   the SRD once per session from `/pdf` (pdf.js fetches it in byte ranges)
+   and, for each page, stacks three layers:
    - a `<canvas>` with the page drawn by pdf.js, at the device's pixel ratio
      so text stays sharp;
    - pdf.js's text layer, invisible spans over the glyphs, so text can be
@@ -110,19 +114,19 @@ fetches its full result from `/chat/threads/{id}/lookups/{call_id}`.
    - the highlight boxes, scaled from points to pixels and blended with
      `mix-blend-mode: multiply`, so the paper takes the tint and the ink
      stays black.
-4. **Long sections.** A section's boxes cover everything under it (Monsters
-   A-Z spans 87 pages), so only the first boxed page renders straight away
-   and scrolls itself into view. The rest are placeholders sized from page
-   1's aspect ratio, rendered by an `IntersectionObserver` as they come
-   within 900px of the viewport.
+4. **Citing.** A citation only moves the boxes and scrolls: the pages stay
+   mounted, so nothing already drawn is redrawn. A section's boxes cover
+   everything under it (Monsters A-Z spans 87 pages), so only the first
+   boxed page renders straight away and scrolls to its first line. The
+   rest are placeholders sized from page 1, rendered by an
+   `IntersectionObserver` as they come within 900px of the viewport.
 5. **Resizing and zoom.** The page's displayed size follows the panel's
    width on every frame (a `ResizeObserver`), but the bitmap is only redrawn
    once the width has been still for 150ms, off screen, then copied in, since
    resizing a visible canvas clears it. Zoom is Fit, 1.5x or 2x; above Fit,
    Space+drag or middle-drag pans, because a plain drag selects text.
 
-With nothing cited, the Page tab shows the whole book, every page lazily
-rendered the same way, with a box to jump to a page. The text layer's CSS is
+A box in the toolbar jumps to a page. The text layer's CSS is
 our own (under `.pdf-stack` in `index.css`): pdf.js's `pdf_viewer.css` would
 add the whole viewer's global styles to the app.
 

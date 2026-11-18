@@ -3,7 +3,7 @@
  * everything else is live.
  */
 
-import { ask, expect, test } from '../fixtures'
+import { ask, expect, openSection, test } from '../fixtures'
 
 test.describe('asking a question', () => {
   test('given the welcome screen, when an example is pressed, then it is asked',
@@ -93,7 +93,7 @@ test.describe('asking a question', () => {
 
     // Then the panel opens on exactly that section
     await expect(app.locator('aside.panel')).toBeVisible()
-    await expect(app.locator('aside.panel .meta code')).toHaveText(id!)
+    await expect(openSection(app)).toHaveAttribute('title', id!)
   })
 
   test('given a citation in the prose, when pressed, then it opens the same way',
@@ -114,7 +114,7 @@ test.describe('asking a question', () => {
     await cite.click()
 
     // Then the panel opens on exactly that section
-    await expect(app.locator('aside.panel .meta code')).toHaveText(id!)
+    await expect(openSection(app)).toHaveAttribute('title', id!)
   })
 
   test('given a first question, when a second is asked, then both turns remain',

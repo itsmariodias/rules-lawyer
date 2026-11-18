@@ -1,17 +1,16 @@
 /**
- * The right-hand panel.  Page tab: the whole PDF with nothing cited, or the
- * cited page with its lines boxed.  Graph tab: the cited node's
- * neighbourhood, or the book's with nothing cited.
+ * The right-hand panel.  Page tab: the whole PDF, under a folder path to the
+ * cited section, whose lines are boxed in place.  Graph tab: the cited
+ * node's neighbourhood, or the book's with nothing cited.
  */
 
 import { lazy, Suspense, useEffect, useState } from 'react'
-import { loadSource, type SourceExcerpt } from '../api'
+import { loadNeighbourhood, loadSource, type SourceExcerpt } from '../api'
 import { useStored } from '../shared/useStored'
 import { GraphView } from './graph/GraphView'
+import { SectionTree } from './page/SectionTree'
 
 // pdf.js is most of the bundle; load it when the panel first needs it.
-const PdfPage = lazy(() =>
-  import('./page/PdfPage').then((module) => ({ default: module.PdfPage })))
 const PdfBook = lazy(() =>
   import('./page/PdfPage').then((module) => ({ default: module.PdfBook })))
 
@@ -26,19 +25,26 @@ export type Tab = 'page' | 'graph'
 
 type Props = {
   sectionId: string | null
+  /** Changes on every citation, so citing the open section again scrolls. */
+  visit: number
   tab: Tab
   onTab: (tab: Tab) => void
   onClose: () => void
-  onNavigate: (sectionId: string) => void
+  /** A section id, or null for the whole book. */
+  onNavigate: (sectionId: string | null) => void
 }
 
-export function SidePanel({ sectionId, tab, onTab, onClose, onNavigate }: Props) {
+export function SidePanel({ sectionId, visit, tab, onTab, onClose, onNavigate }: Props) {
   const [excerpt, setExcerpt] = useState<SourceExcerpt | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [roots, setRoots] = useState<{ id: string; heading: string }[] | null>(null)
+  const [rootsError, setRootsError] = useState<string | null>(null)
   const [zoom, setZoom] = useStored('page-zoom', DEFAULT_ZOOM)
   const [depth, setDepth] = useStored('graph-depth', DEFAULT_DEPTH)
   // `nth` changes on every jump so repeating a page number still scrolls.
   const [jump, setJump] = useState<{ page: number; nth: number } | null>(null)
+  const jumpTo = (page: number) =>
+    setJump((last) => ({ page, nth: (last?.nth ?? 0) + 1 }))
 
   useEffect(() => {
     if (!sectionId) { setExcerpt(null); setError(null); return }
@@ -52,6 +58,23 @@ export function SidePanel({ sectionId, tab, onTab, onClose, onNavigate }: Props)
     return () => { live = false }
   }, [sectionId])
 
+  // The top-level sections are the book seed's first ring in the graph.
+  const needsRoots = tab === 'page' && !sectionId && roots === null
+  useEffect(() => {
+    if (!needsRoots) return
+    let live = true
+    loadNeighbourhood(null, 1)
+      .then((book) => {
+        if (!live) return
+        setRoots(book.nodes
+          .filter((node) => node.depth === 1 && node.section_id)
+          .map((node) => ({ id: node.section_id!, heading: node.name ?? node.section_id! }))
+          .sort((a, b) => Number(a.id) - Number(b.id)))
+      })
+      .catch((problem) => { if (live) setRootsError(String(problem)) })
+    return () => { live = false }
+  }, [needsRoots])
+
   return (
     <aside className="panel">
       <header className="panel-head">
@@ -61,9 +84,8 @@ export function SidePanel({ sectionId, tab, onTab, onClose, onNavigate }: Props)
           <button className={tab === 'graph' ? 'on' : ''}
                   onClick={() => onTab('graph')}>Graph</button>
         </div>
-        {tab === 'page' && !sectionId && (
-          <PageJump onJump={(page) =>
-            setJump((last) => ({ page, nth: (last?.nth ?? 0) + 1 }))} />
+        {tab === 'page' && (
+          <PageJump onJump={jumpTo} />
         )}
         {tab === 'page' && (
           <div className="zooms">
@@ -93,73 +115,27 @@ export function SidePanel({ sectionId, tab, onTab, onClose, onNavigate }: Props)
           <GraphView sectionId={sectionId} depth={depth}
                      onOpenPage={(id) => { onNavigate(id); onTab('page') }} />
         </div>
-      ) : !sectionId ? (
-        <div className="panel-body">
-          <Suspense fallback={<p className="muted">Loading the book…</p>}>
-            <PdfBook zoom={zoom} jumpTo={jump} />
-          </Suspense>
-        </div>
       ) : (
-        <div className="panel-body">
-          {error && <p className="error">{error}</p>}
-          {!excerpt && !error && <p className="muted">Loading…</p>}
-          {excerpt && (
-            <>
-              <h2>{excerpt.heading ?? excerpt.section_id}</h2>
-              <p className="meta">
-                <code>{excerpt.section_id}</code>
-                {excerpt.entity_type && <span> · {excerpt.entity_type}</span>}
-              </p>
-              <Breadcrumb excerpt={excerpt} onNavigate={onNavigate} />
-              <Suspense fallback={<p className="muted">Loading the page…</p>}>
-                <PdfPage excerpt={excerpt} zoom={zoom} />
-              </Suspense>
-              {excerpt.children.length > 0 && (
-                <nav className="children">
-                  <h3>Subsections</h3>
-                  <ul>
-                    {excerpt.children.map((child) => (
-                      <li key={child.id}>
-                        <button className="link"
-                                onClick={() => onNavigate(child.id)}>
-                          {child.heading}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </nav>
-              )}
-            </>
-          )}
-        </div>
+        <>
+          <SectionTree sectionId={sectionId} excerpt={excerpt} roots={roots ?? []}
+                       loading={sectionId ? !excerpt && !error : roots === null && !rootsError}
+                       error={sectionId ? error : rootsError}
+                       onNavigate={(id) => {
+                         onNavigate(id)
+                         // Every other crumb scrolls to its section; the
+                         // book's starts on page 1.
+                         if (id === null) jumpTo(1)
+                       }} />
+          {/* The same element with or without a citation, so citing never
+              remounts the book's 364 pages. */}
+          <div className="panel-body">
+            <Suspense fallback={<p className="muted">Loading the book…</p>}>
+              <PdfBook zoom={zoom} excerpt={excerpt} visit={visit} jumpTo={jump} />
+            </Suspense>
+          </div>
+        </>
       )}
     </aside>
-  )
-}
-
-/** The cited section's path from its top-level section, ancestors clickable. */
-function Breadcrumb({ excerpt, onNavigate }: {
-  excerpt: SourceExcerpt
-  onNavigate: (sectionId: string) => void
-}) {
-  const ancestors = excerpt.ancestors ?? []
-  if (ancestors.length === 0) return null
-  return (
-    <nav className="crumbs" aria-label="Location in the book">
-      <ol>
-        {ancestors.map((ancestor) => (
-          <li key={ancestor.id}>
-            <button className="link" title={ancestor.id}
-                    onClick={() => onNavigate(ancestor.id)}>
-              {ancestor.heading}
-            </button>
-          </li>
-        ))}
-        <li aria-current="location">
-          {excerpt.heading ?? excerpt.section_id}
-        </li>
-      </ol>
-    </nav>
   )
 }
 

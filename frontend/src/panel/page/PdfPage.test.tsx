@@ -4,7 +4,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { SourceExcerpt } from '../../api'
-import { PdfBook, PdfPage, verticalScroller } from './PdfPage'
+import { PdfBook, verticalScroller } from './PdfPage'
 
 const textLayer = vi.fn()
 const renders = vi.fn()
@@ -57,127 +57,202 @@ beforeEach(() => {
   document.body.className = ''
 })
 
-/** Render a page inside a scrolling container, as the panel does. */
+type BookProps = Parameters<typeof PdfBook>[0]
+
+const book = (props: Partial<BookProps> = {}) =>
+  <PdfBook zoom={1} excerpt={excerpt()} visit={1} jumpTo={null} {...props} />
+
+/** Render the book inside a scrolling container, as the panel does. */
 function inAPane(zoom = 2) {
   const pane = document.createElement('div')
   pane.style.overflowY = 'auto'
   document.body.append(pane)
-  const view = render(<PdfPage excerpt={excerpt()} zoom={zoom} />,
-                      { container: pane })
+  const view = render(book({ zoom }), { container: pane })
   return { pane, ...view }
 }
 
-const figureOf = (container: HTMLElement) =>
-  container.querySelector('.pdf-page') as HTMLElement
+const pageOf = (container: HTMLElement, page = 186) =>
+  container.querySelector(`[data-page="${page}"]`) as HTMLElement
 
-describe('PdfPage', () => {
-  it('given a citation, when drawn, then the page it was printed on is shown', async () => {
+/** Every ResizeObserver's callback, so a test can resize all the pages. */
+function observeResizes() {
+  const callbacks: (() => void)[] = []
+  vi.stubGlobal('ResizeObserver', class {
+    constructor(callback: () => void) { callbacks.push(callback) }
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  })
+  return () => act(() => callbacks.forEach((callback) => callback()))
+}
+
+describe('PdfBook', () => {
+  it('given no citation, when opened, then every page of the book is listed', async () => {
+    // Given the book with nothing cited
+    const { container } = render(book({ excerpt: null }))
+
+    // When it opens
+    // Then the whole book is there to scroll, from page one, with nothing boxed
+    expect(await screen.findByText('p. 1')).toBeInTheDocument()
+    expect(screen.getByText('p. 364')).toBeInTheDocument()
+    expect(container.querySelector('.pdf-boxes span')).toBeNull()
+  })
+
+  it('given a citation, when drawn, then its lines are boxed on its page among the rest', async () => {
     // Given a citation on page 186
-    render(<PdfPage excerpt={excerpt()} zoom={1} />)
+    const { container } = render(book())
 
     // When it is drawn
-    // Then the page is captioned by its own number
-    expect(await screen.findByText('p. 186')).toBeInTheDocument()
+    await screen.findByText('p. 186')
+
+    // Then the whole book is still there, and only that page has a box
+    expect(screen.getByText('p. 1')).toBeInTheDocument()
+    expect(screen.getByText('p. 364')).toBeInTheDocument()
+    expect(container.querySelectorAll('.pdf-boxes span')).toHaveLength(1)
+    expect(pageOf(container).querySelector('.pdf-boxes span')).not.toBeNull()
   })
 
-  it('given a citation across two pages, when drawn, then both are shown', async () => {
+  it('given a citation across two pages, when drawn, then both are boxed', async () => {
     // Given a citation whose lines fall on two pages
-    render(<PdfPage excerpt={excerpt({ pages: [186, 187] })} zoom={1} />)
+    const { container } = render(book({ excerpt: excerpt({
+      pages: [186, 187],
+      boxes: [{ page: 186, x0: 57, y0: 600, x1: 300, y1: 612 },
+              { page: 187, x0: 57, y0: 100, x1: 300, y1: 112 }],
+    }) }))
 
     // When it is drawn
+    await screen.findByText('p. 186')
+
     // Then neither half is dropped
-    expect(await screen.findByText('p. 186')).toBeInTheDocument()
-    expect(screen.getByText('p. 187')).toBeInTheDocument()
-  })
-
-  it('given no page list, when drawn, then the section’s own page is used', async () => {
-    // Given an excerpt with geometry but no page list
-    render(<PdfPage excerpt={excerpt({ pages: [], boxes: [] })} zoom={1} />)
-
-    // When it is drawn
-    // Then the citation still opens on its page
-    expect(await screen.findByText('p. 186')).toBeInTheDocument()
+    expect(pageOf(container, 186).querySelector('.pdf-boxes span')).not.toBeNull()
+    expect(pageOf(container, 187).querySelector('.pdf-boxes span')).not.toBeNull()
   })
 
   it('given rectangles, when drawn, then they are scaled by the viewport', async () => {
     // Given a citation whose lines are boxed
-    const { container } = render(<PdfPage excerpt={excerpt()} zoom={2} />)
+    const { container } = render(book({ zoom: 2 }))
 
-    // When the page is drawn at 2×
+    // When the book is drawn at 2×
     await screen.findByText('p. 186')
 
     // Then each box is the rectangle in points, times the scale
     await waitFor(() => {
-      const box = container.querySelector('.pdf-boxes span') as HTMLElement
+      const box = pageOf(container).querySelector('.pdf-boxes span') as HTMLElement
       expect(box.style.left).toBe('114px')
       expect(box.style.width).toBe('486px')
       expect(box.style.height).toBe('24px')
     })
   })
 
-  it('given a rectangle, when drawn, then the panel scrolls to the first one', async () => {
-    // Given a citation partway down a page
-    render(<PdfPage excerpt={excerpt()} zoom={1} />)
+  it('given a rectangle, when drawn, then the book scrolls to it and nowhere else', async () => {
+    /** Regression: every page scrolled itself, so the last to render won. */
+    // Given a passage boxed on two pages
+    const { container } = render(book({ excerpt: excerpt({
+      pages: [186, 187],
+      boxes: [{ page: 186, x0: 57, y0: 600, x1: 300, y1: 612 },
+              { page: 187, x0: 57, y0: 100, x1: 300, y1: 112 }],
+    }) }))
+
+    // When it is drawn
+    await screen.findByText('p. 187')
+    await waitFor(() => expect(Element.prototype.scrollIntoView)
+      .toHaveBeenCalledWith({ block: 'center' }))
+
+    // Then the reader is taken to the passage's first line, not to a page
+    const scrolled = vi.mocked(Element.prototype.scrollIntoView).mock.contexts
+    expect(scrolled).toEqual([pageOf(container, 186).querySelector('.pdf-boxes span')])
+  })
+
+  it('given a section with no rectangles, when drawn, then its page is scrolled to', async () => {
+    // Given a section with a page but no geometry
+    const { container } = render(book({ excerpt: excerpt({ pages: [], boxes: [] }) }))
 
     // When it is drawn
     await screen.findByText('p. 186')
 
-    // Then the reader is taken to the passage rather than to the page
+    // Then the book still opens at it
+    await waitFor(() => expect(vi.mocked(Element.prototype.scrollIntoView).mock.contexts)
+      .toEqual([pageOf(container)]))
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ block: 'start' })
+  })
+
+  it('given the same citation, when cited again, then it scrolls back to it', async () => {
+    // Given a citation already scrolled to
+    const { rerender } = render(book())
+    await waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalled())
+    vi.mocked(Element.prototype.scrollIntoView).mockClear()
+
+    // When it is cited again, under a new visit
+    rerender(book({ visit: 2 }))
+
+    // Then the reader is taken back to it
     await waitFor(() => expect(Element.prototype.scrollIntoView)
       .toHaveBeenCalledWith({ block: 'center' }))
   })
 
-  it('given a passage across two pages, when drawn, then only the first page scrolls into view', async () => {
-    /** Regression: every page scrolled itself, so the last to render won. */
-    // Given a passage boxed on two pages
-    const { container } = render(<PdfPage zoom={1} excerpt={excerpt({
-      pages: [186, 187],
-      boxes: [{ page: 186, x0: 57, y0: 600, x1: 300, y1: 612 },
-              { page: 187, x0: 57, y0: 100, x1: 300, y1: 112 }],
-    })} />)
-
-    // When both pages are drawn
-    await screen.findByText('p. 187')
+  it('given a citation scrolled to, when the panel is resized, then the reader is left where they are', async () => {
+    // Given a citation already scrolled to
+    const resize = observeResizes()
+    render(book())
     await waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalled())
+    vi.mocked(Element.prototype.scrollIntoView).mockClear()
 
-    // Then the only box scrolled to is the first one, on the first page
-    const scrolled = vi.mocked(Element.prototype.scrollIntoView).mock.contexts
-    const first = container.querySelector('[data-page="186"] .pdf-boxes span')
-    expect(scrolled).toEqual([first])
+    // When the panel is dragged wider
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth',
+                          { value: 918, configurable: true })
+    resize()
+
+    // Then the book is not pulled back to the citation
+    expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled()
   })
 
   it('given a section across many pages, when drawn, then only its first page renders at once', async () => {
     // Given a section boxed across five pages
     const pages = [176, 177, 178, 179, 180]
-    render(<PdfPage zoom={1} excerpt={excerpt({
+    render(book({ excerpt: excerpt({
       pages,
       boxes: pages.map((page) => ({ page, x0: 57, y0: 100, x1: 300, y1: 112 })),
-    })} />)
+    }) }))
 
     // When it is drawn
     await screen.findByText('p. 180')
 
-    // Then every page has its place, but only the first is rendered; the
-    // rest wait until they are scrolled near
+    // Then only the first is rendered; the rest wait until they are scrolled near
     await waitFor(() => expect(renders).toHaveBeenCalledTimes(1))
-    expect(screen.getAllByText(/^p\. \d+$/)).toHaveLength(5)
+  })
+
+  it('given a new citation, when it opens, then the pages already drawn stay as they are', async () => {
+    // Given one citation drawn
+    const { container, rerender } = render(book())
+    await waitFor(() => expect(renders).toHaveBeenCalledTimes(1))
+    const canvas = pageOf(container).querySelector('canvas')
+
+    // When another section, on the next page, is cited
+    rerender(book({ visit: 2, excerpt: excerpt({
+      section_id: '11.2.115', heading: 'Restrained [Condition]', page: 187,
+      pages: [187], boxes: [{ page: 187, x0: 57, y0: 100, x1: 300, y1: 112 }],
+    }) }))
+
+    // Then its page is drawn, the first page keeps its canvas unredrawn,
+    // and only the old boxes go
+    await waitFor(() => expect(renders).toHaveBeenCalledTimes(2))
+    expect(pageOf(container).querySelector('canvas')).toBe(canvas)
+    expect(pageOf(container).querySelector('.pdf-boxes span')).toBeNull()
+    expect(pageOf(container, 187).querySelector('.pdf-boxes span')).not.toBeNull()
   })
 
   it('given a page further down, when it is scrolled near, then it renders', async () => {
-    // Given a section across two pages, the second waiting to be scrolled to
+    // Given the book drawn at its citation, another page waiting to be scrolled to
     let reportNear: IntersectionObserverCallback = () => {}
     vi.stubGlobal('IntersectionObserver', class {
       constructor(callback: IntersectionObserverCallback) { reportNear = callback }
       observe() {}
       disconnect() {}
     })
-    render(<PdfPage zoom={1} excerpt={excerpt({
-      pages: [186, 187],
-      boxes: [{ page: 186, x0: 57, y0: 100, x1: 300, y1: 112 }],
-    })} />)
+    render(book())
     await waitFor(() => expect(renders).toHaveBeenCalledTimes(1))
 
-    // When the second page comes near the viewport
+    // When that page comes near the viewport
     act(() => reportNear([{ isIntersecting: true } as IntersectionObserverEntry],
                          {} as IntersectionObserver))
 
@@ -190,7 +265,7 @@ describe('PdfPage', () => {
     renders.mockImplementationOnce(() => { throw new Error('Invalid page') })
 
     // When it is drawn
-    render(<PdfPage excerpt={excerpt()} zoom={1} />)
+    render(book())
 
     // Then the reader is told, rather than left with a blank page
     expect(await screen.findByText(/Invalid page/)).toBeInTheDocument()
@@ -199,41 +274,33 @@ describe('PdfPage', () => {
   it('given a rendered page, when the text layer is built, then it gets the right variable', async () => {
     /** Regression: setting --scale-factor gave every span font-size 0. */
     // Given a page rendered at 1×
-    const { container } = render(<PdfPage excerpt={excerpt()} zoom={1} />)
+    const { container } = render(book())
 
     // When the text layer has been built
     await waitFor(() => expect(textLayer).toHaveBeenCalled())
 
-    // Then the scale is published under the name those rules use. It comes
-    // from React state set once the page is loaded, so it is waited for
-    // rather than read the moment the layer is built.
-    const layer = container.querySelector('.textLayer') as HTMLElement
-    await waitFor(() =>
-      expect(layer.style.getPropertyValue('--total-scale-factor')).toBe('1'))
+    // Then the scale is published under the name those rules use
+    const layer = pageOf(container).querySelector('.textLayer') as HTMLElement
+    expect(layer.style.getPropertyValue('--total-scale-factor')).toBe('1')
   })
 
   it('given a drawn page, when the panel is dragged wider, then the page fills it', async () => {
-    // Given a page drawn at Fit in a 612px panel, and an observer to drive
-    let resized = () => {}
-    vi.stubGlobal('ResizeObserver', class {
-      constructor(callback: () => void) { resized = callback }
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    })
-    const { container } = render(<PdfPage excerpt={excerpt()} zoom={1} />)
+    // Given a page drawn at Fit in a 612px panel
+    const resize = observeResizes()
+    const { container } = render(book())
     await waitFor(() => expect(renders).toHaveBeenCalledTimes(1))
-    const canvas = container.querySelector('canvas') as HTMLCanvasElement
+    const page = pageOf(container)
+    const canvas = page.querySelector('canvas') as HTMLCanvasElement
     expect(canvas.style.width).toBe('612px')
 
     // When the panel is dragged to half as wide again
     Object.defineProperty(HTMLElement.prototype, 'clientWidth',
                           { value: 918, configurable: true })
-    act(() => resized())
+    resize()
 
     // Then the page, its text and its boxes fill it at once, before any redraw
-    const layer = container.querySelector('.textLayer') as HTMLElement
-    const box = container.querySelector('.pdf-boxes span') as HTMLElement
+    const layer = page.querySelector('.textLayer') as HTMLElement
+    const box = page.querySelector('.pdf-boxes span') as HTMLElement
     expect(canvas.style.width).toBe('918px')
     expect(layer.style.getPropertyValue('--total-scale-factor')).toBe('1.5')
     expect(box.style.left).toBe('85.5px')
@@ -244,26 +311,14 @@ describe('PdfPage', () => {
     const [{ viewport }] = renders.mock.lastCall as [{ viewport: { scale: number } }]
     expect(viewport.scale).toBe(1.5)
   })
-})
-
-describe('PdfBook', () => {
-  it('given no citation, when opened, then every page of the book is listed', async () => {
-    // Given the book with nothing cited
-    render(<PdfBook zoom={1} jumpTo={null} />)
-
-    // When it opens
-    // Then the whole book is there to scroll, from page one
-    expect(await screen.findByText('p. 1')).toBeInTheDocument()
-    expect(screen.getByText('p. 364')).toBeInTheDocument()
-  })
 
   it('given a page number, when asked for, then the book scrolls to it', async () => {
     // Given the book, open
-    const { rerender } = render(<PdfBook zoom={1} jumpTo={null} />)
+    const { rerender } = render(book({ excerpt: null }))
     await screen.findByText('p. 1')
 
     // When a page is asked for
-    rerender(<PdfBook zoom={1} jumpTo={{ page: 186, nth: 1 }} />)
+    rerender(book({ excerpt: null, jumpTo: { page: 186, nth: 1 } }))
 
     // Then the reader is taken there
     expect(Element.prototype.scrollIntoView)
@@ -272,13 +327,12 @@ describe('PdfBook', () => {
 
   it('given the same page twice, when asked for again, then it still scrolls', async () => {
     // Given the book already scrolled to a page
-    const { rerender } = render(
-      <PdfBook zoom={1} jumpTo={{ page: 186, nth: 1 }} />)
+    const { rerender } = render(book({ excerpt: null, jumpTo: { page: 186, nth: 1 } }))
     await screen.findByText('p. 1')
     vi.mocked(Element.prototype.scrollIntoView).mockClear()
 
     // When the same page is asked for again, under a new count
-    rerender(<PdfBook zoom={1} jumpTo={{ page: 186, nth: 2 }} />)
+    rerender(book({ excerpt: null, jumpTo: { page: 186, nth: 2 } }))
 
     // Then the request is not swallowed as a no-op
     expect(Element.prototype.scrollIntoView).toHaveBeenCalled()
@@ -317,7 +371,7 @@ describe('usePan', () => {
     // Given a page zoomed past the panel, with Space held
     const { pane, container } = inAPane()
     await screen.findByText('p. 186')
-    const page = figureOf(container)
+    const page = pageOf(container)
     pane.scrollTop = 400
     fireEvent.keyDown(window, { code: 'Space' })
     const was = { left: page.scrollLeft, top: pane.scrollTop }
@@ -337,7 +391,7 @@ describe('usePan', () => {
     // Given a page with nothing arming the hand
     const { pane, container } = inAPane()
     await screen.findByText('p. 186')
-    const page = figureOf(container)
+    const page = pageOf(container)
     const was = { left: page.scrollLeft, top: pane.scrollTop }
 
     // When a plain primary drag crosses it
@@ -353,7 +407,7 @@ describe('usePan', () => {
     // Given a page and no key held
     const { pane, container } = inAPane()
     await screen.findByText('p. 186')
-    const page = figureOf(container)
+    const page = pageOf(container)
     const was = { left: page.scrollLeft, top: pane.scrollTop }
 
     // When it is dragged with the middle button
@@ -369,7 +423,7 @@ describe('usePan', () => {
     // Given a drag that has been let go of
     const { pane, container } = inAPane()
     await screen.findByText('p. 186')
-    const page = figureOf(container)
+    const page = pageOf(container)
     const was = { left: page.scrollLeft, top: pane.scrollTop }
     fireEvent.pointerDown(page, { button: 1, clientX: 200, clientY: 200 })
     fireEvent.pointerMove(window, { clientX: 190, clientY: 190 })
@@ -439,7 +493,7 @@ describe('useSelecting', () => {
     await waitFor(() => expect(textLayer).toHaveBeenCalled())
 
     // When the layer is inspected
-    const layer = container.querySelector('.textLayer') as HTMLElement
+    const layer = pageOf(container).querySelector('.textLayer') as HTMLElement
 
     // Then the block is there, and it is the last thing in it
     await waitFor(() =>
@@ -450,7 +504,7 @@ describe('useSelecting', () => {
     // Given a page with a text layer
     const { container } = inAPane()
     await waitFor(() => expect(textLayer).toHaveBeenCalled())
-    const layer = container.querySelector('.textLayer') as HTMLElement
+    const layer = pageOf(container).querySelector('.textLayer') as HTMLElement
 
     // When a drag starts on it and then ends
     fireEvent.pointerDown(layer, { button: 0, clientX: 100, clientY: 100 })
@@ -466,7 +520,7 @@ describe('useSelecting', () => {
     // Given a drag in progress
     const { container } = inAPane()
     await waitFor(() => expect(textLayer).toHaveBeenCalled())
-    const layer = container.querySelector('.textLayer') as HTMLElement
+    const layer = pageOf(container).querySelector('.textLayer') as HTMLElement
     fireEvent.pointerDown(layer, { button: 0, clientX: 100, clientY: 100 })
 
     // When the window loses focus

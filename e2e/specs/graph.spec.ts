@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test'
 
-import { ask, expect, panel, test } from '../fixtures'
+import { ask, expect, openSection, panel, test } from '../fixtures'
 
 /** The panel tabs; the page-jump form also has a "Page" label. */
 const tab = (page: Page, name: 'Page' | 'Graph') =>
@@ -93,7 +93,7 @@ test.describe('the graph explorer', () => {
     await openable.click()
 
     // Then the panel switches to the page for that node
-    await expect(panel(app).locator('h2')).toHaveText(name.trim())
+    await expect(openSection(app)).toContainText(name.trim())
   })
 
   test('given a hub, when it is capped, then the card says what it did not show',
@@ -136,6 +136,6 @@ test.describe('the graph explorer', () => {
     await tab(app, 'Page').click()
 
     // Then it is the same passage, seen the other way
-    await expect(panel(app).locator('.meta code')).toHaveText('11.2.114')
+    await expect(openSection(app)).toHaveAttribute('title', '11.2.114')
   })
 })

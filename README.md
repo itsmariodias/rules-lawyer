@@ -27,9 +27,9 @@ searched by a tool-calling agent.
 
 - **Cited answers.** Every claim carries a citation to the SRD section it
   came from; invented citations are dropped, not shown.
-- **The page, not a summary.** A citation opens the actual PDF page in a side
-  panel with the cited lines boxed, plus a breadcrumb to where it sits in the
-  book.
+- **The page, not a summary.** A citation opens the actual PDF in a side
+  panel, scrolled to the cited lines and boxed, under a breadcrumb showing
+  where they sit in the book.
 - **A graph to explore.** A second tab draws the cited section's
   neighbourhood (what it references, imposes, grants or is immune to), and
   any node can be expanded or opened on the page.

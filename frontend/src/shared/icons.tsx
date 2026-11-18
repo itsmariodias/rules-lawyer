@@ -168,3 +168,24 @@ export function GraphIcon() {
     </svg>
   )
 }
+
+export function FolderIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none"
+         stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"
+         aria-hidden="true">
+      <path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2h8.5A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z" />
+    </svg>
+  )
+}
+
+/** Points right; CSS turns it down when what it heads is open. */
+export function ChevronIcon() {
+  return (
+    <svg className="chevron" viewBox="0 0 24 24" width="12" height="12"
+         fill="none" stroke="currentColor" strokeWidth="2.2"
+         strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m9 6 6 6-6 6" />
+    </svg>
+  )
+}

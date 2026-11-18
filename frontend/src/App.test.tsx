@@ -25,10 +25,10 @@ vi.mock('./chat/useChat', () => ({ useChat: () => chat }))
 // Has its own tests; the shell's tests assume a connected graph.
 vi.mock('./sidebar/useGraphStatus', () => ({ useGraphStatus: () => 'connected' }))
 vi.mock('./panel/SidePanel', () => ({
-  SidePanel: ({ sectionId, tab, onClose }: {
-    sectionId: string | null; tab: string; onClose: () => void
+  SidePanel: ({ sectionId, visit, tab, onClose }: {
+    sectionId: string | null; visit: number; tab: string; onClose: () => void
   }) => (
-    <div data-testid="panel">
+    <div data-testid="panel" data-visit={visit}>
       {`${tab}:${sectionId ?? 'none'}`}
       <button onClick={onClose}>Close panel</button>
     </div>
@@ -280,6 +280,24 @@ describe('the conversation', () => {
 
     // Then the panel opens on it
     expect(screen.getByTestId('panel')).toHaveTextContent('page:11.2.114')
+  })
+
+  it('given a citation already open, when pressed again, then the panel is told to go back to it', async () => {
+    // Given a citation open in the panel
+    chat.messages = [
+      { role: 'user', content: 'Prone?' },
+      { role: 'assistant', content: 'Disadvantage [11.2.114].' },
+    ]
+    render(<App />)
+    await userEvent.click(screen.getByRole('button', { name: '1' }))
+    const before = Number(screen.getByTestId('panel').dataset.visit)
+
+    // When the same citation is pressed again
+    await userEvent.click(screen.getByRole('button', { name: '1' }))
+
+    // Then the section is unchanged but the visit is new, so the book scrolls
+    expect(screen.getByTestId('panel')).toHaveTextContent('page:11.2.114')
+    expect(Number(screen.getByTestId('panel').dataset.visit)).toBe(before + 1)
   })
 })
 

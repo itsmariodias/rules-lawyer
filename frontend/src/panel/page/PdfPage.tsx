@@ -1,17 +1,17 @@
 /**
- * PDF pages rendered with pdf.js: a canvas, a selectable text layer, and
- * highlight boxes.  Boxes are in PDF points, origin top-left, so they only
- * need scaling.
+ * The book rendered with pdf.js: per page a canvas, a selectable text layer,
+ * and highlight boxes.  Boxes are in PDF points, origin top-left, so they
+ * only need scaling.
  *
  * Text layer CSS lives in `index.css`: importing `pdf_viewer.css` adds the
  * whole viewer's styles, including `.sidebar`, `.error` and `--bg`, to the
  * app.  Primary-button drag selects text; Space+drag or middle-drag pans.
  */
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import * as pdfjs from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
-import type { SourceExcerpt } from '../../api'
+import type { Box, SourceExcerpt } from '../../api'
 import { followPointer } from '../../shared/pointer'
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
@@ -21,12 +21,14 @@ let document_: Promise<pdfjs.PDFDocumentProxy> | null = null
 const load = () =>
   (document_ ??= pdfjs.getDocument({ url: '/api/pdf' }).promise)
 
+type Points = { width: number; height: number }
+
 /**
- * The page count and page 1's height/width.  Every SRD page is the same
- * size, so this sizes the placeholders of pages not yet rendered.
+ * The page count and page 1's size in points.  Every SRD page is the same
+ * size, so this sizes pages and places their boxes before they render.
  */
 function useShape() {
-  const [shape, setShape] = useState<{ count: number; aspect: number } | null>(null)
+  const [shape, setShape] = useState<{ count: number; points: Points } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -36,7 +38,8 @@ function useShape() {
         const pdf = await load()
         const viewport = (await pdf.getPage(1)).getViewport({ scale: 1 })
         if (!cancelled) {
-          setShape({ count: pdf.numPages, aspect: viewport.height / viewport.width })
+          setShape({ count: pdf.numPages,
+                     points: { width: viewport.width, height: viewport.height } })
         }
       } catch (failure) {
         if (!cancelled) setError(String(failure))
@@ -48,57 +51,42 @@ function useShape() {
   return { shape, error }
 }
 
-type Props = { excerpt: SourceExcerpt; zoom: number }
+// Shared by every page without boxes, so their box effects never refire.
+const NO_BOXES: Box[] = []
 
-/**
- * The pages a section is printed on, boxed.  A top-level section covers
- * dozens of pages, so only the first page with boxes renders at once; the
- * rest render as they scroll near, like `PdfBook`.
- */
-export function PdfPage({ excerpt, zoom }: Props) {
-  const [error, setError] = useState<string | null>(null)
-  const { shape, error: shapeError } = useShape()
-  const armed = useSpaceHeld()
-  const pages = excerpt.pages?.length ? excerpt.pages : [excerpt.page ?? 1]
-  // Only one page may scroll itself into view: otherwise whichever renders
-  // last wins and the panel opens partway through the section.
-  const first = excerpt.boxes[0]?.page ?? pages[0]
-
-  // Placeholders need the aspect, or every unrendered page is 0px tall and
-  // all of them count as near.
-  if (!shape) {
-    return shapeError ? <p className="error">{shapeError}</p>
-                      : <p className="muted">Loading the page…</p>
-  }
-
-  return (
-    <div className={armed ? 'pdf grabbable' : 'pdf'}>
-      {error && <p className="error">{error}</p>}
-      {pages.map((page) => (
-        <Page key={page} page={page} zoom={zoom} onError={setError}
-              eager={page === first} aspect={shape.aspect}
-              armed={armed} scrollToBox={page === first}
-              boxes={excerpt.boxes.filter((b) => b.page === page)} />
-      ))}
-    </div>
-  )
+type Props = {
+  zoom: number
+  /** The open section: its lines are boxed and its first line scrolled to. */
+  excerpt: SourceExcerpt | null
+  /** Changes on every citation, so citing the open section again scrolls. */
+  visit: number
+  /** `nth` changes per request, so the same page twice still scrolls. */
+  jumpTo: { page: number; nth: number } | null
 }
 
 /**
- * Every page, rendered lazily near the viewport.  Placeholders use page 1's
- * aspect ratio; every SRD page is the same size.
+ * Every page, rendered lazily near the viewport.  Pages stay mounted when
+ * the open section changes; only their boxes do.  The page holding the
+ * section's first line renders at once and scrolls to it.
  */
-export function PdfBook({ zoom, jumpTo }: {
-  zoom: number
-  /** `nth` changes per request, so the same page twice still scrolls. */
-  jumpTo: { page: number; nth: number } | null
-}) {
+export function PdfBook({ zoom, excerpt, visit, jumpTo }: Props) {
   const { shape: book, error: shapeError } = useShape()
   const [pageError, setError] = useState<string | null>(null)
   const error = shapeError ?? pageError
   // Once here rather than in each of the 364 pages.
   const armed = useSpaceHeld()
   const root = useRef<HTMLDivElement>(null)
+
+  const boxesByPage = useMemo(() => {
+    const byPage = new Map<number, Box[]>()
+    for (const box of excerpt?.boxes ?? []) {
+      byPage.set(box.page, [...(byPage.get(box.page) ?? []), box])
+    }
+    return byPage
+  }, [excerpt])
+  // Only one page may scroll itself into view: otherwise whichever renders
+  // last wins and the panel opens partway through the section.
+  const cited = excerpt ? (excerpt.boxes[0]?.page ?? excerpt.page) : null
 
   // Also on `book`, so a jump requested before the list existed still lands.
   useEffect(() => {
@@ -112,39 +100,41 @@ export function PdfBook({ zoom, jumpTo }: {
 
   return (
     <div className={armed ? 'pdf grabbable' : 'pdf'} ref={root}>
-      {Array.from({ length: book.count }, (_, index) => (
-        <Page key={index + 1} page={index + 1} zoom={zoom} boxes={[]}
-              aspect={book.aspect} armed={armed} onError={setError} />
-      ))}
+      {Array.from({ length: book.count }, (_, index) => {
+        const page = index + 1
+        const isCited = page === cited
+        return (
+          <Page key={page} page={page} zoom={zoom} points={book.points}
+                boxes={boxesByPage.get(page) ?? NO_BOXES}
+                eager={isCited} armed={armed} onError={setError}
+                scrollKey={isCited ? `${visit}:${excerpt!.section_id}` : undefined} />
+        )
+      })}
     </div>
   )
 }
 
-function Page({ page, zoom, boxes, aspect, eager, armed, scrollToBox, onError }: {
+function Page({ page, zoom, boxes, points, eager, armed, scrollKey, onError }: {
   page: number
   zoom: number
-  boxes: SourceExcerpt['boxes']
-  /** Scroll this page's first box into view on mount. */
-  scrollToBox?: boolean
-  /** Height/width, for sizing the placeholder before render. */
-  aspect?: number
+  boxes: Box[]
+  /** The page's size in points. */
+  points: Points
   /** Render without waiting to scroll near. */
   eager?: boolean
   /** Space is held: primary drag pans. */
   armed?: boolean
+  /** Scroll to the first box (or the page top) whenever this changes. */
+  scrollKey?: string
   onError: (message: string) => void
 }) {
   const canvas = useRef<HTMLCanvasElement>(null)
   const text = useRef<HTMLDivElement>(null)
-  const [points, setPoints] = useState<{ width: number; height: number } | null>(null)
   const [near, setNear] = useState(!!eager)
-
   // Horizontal scroll is on the figure, vertical on the panel body;
   // `scrollIntoView` only handles the latter (see the scrollLeft effect).
   const frame = useRef<HTMLElement>(null)
-  const scrollTo = useCallback((element: HTMLSpanElement | null) => {
-    element?.scrollIntoView({ block: 'center' })
-  }, [])
+  const scrolledFor = useRef<string | undefined>(undefined)
 
   const onPointerDown = usePan(frame, armed)
   useSelecting(text)
@@ -153,16 +143,13 @@ function Page({ page, zoom, boxes, aspect, eager, armed, scrollToBox, onError }:
   // width has settled, and is stretched until then.
   const width = useWidth(frame)
   const settled = useSettled(width, SETTLE_MS)
-  const scale = points && width ? (width / points.width) * zoom : 0
+  const scale = width ? (width / points.width) * zoom : 0
   // Floored from `width`, not `points * scale`: at Fit, one fractional pixel
   // over adds a scrollbar, and the float product can lose a whole pixel.
-  const size = points && scale
-    ? { width: Math.floor(width * zoom),
-        height: Math.floor(width * zoom * (points.height / points.width)) }
-    : aspect && width
-      ? { width: Math.floor(width * zoom),
-          height: Math.floor(width * zoom * aspect) }
-      : { width: 0, height: 0 }
+  const size = {
+    width: Math.floor(width * zoom),
+    height: Math.floor(width * zoom * (points.height / points.width)),
+  }
 
   useEffect(() => {
     const box = boxes[0]
@@ -172,8 +159,20 @@ function Page({ page, zoom, boxes, aspect, eager, armed, scrollToBox, onError }:
       0, middle - frame.current.clientWidth / 2)
   }, [boxes, scale])
 
+  // Once per key: a resize or zoom changes the scale but must not pull the
+  // reader back to the citation.
   useEffect(() => {
-    if (eager || near || !frame.current) return
+    if (!scrollKey || scrollKey === scrolledFor.current || !scale) return
+    scrolledFor.current = scrollKey
+    const first = frame.current?.querySelector('.pdf-boxes span')
+    if (first) first.scrollIntoView({ block: 'center' })
+    else frame.current?.scrollIntoView({ block: 'start' })
+  }, [scrollKey, scale, boxes])
+
+  useEffect(() => {
+    if (near || !frame.current) return
+    // A page cited after it mounted becomes eager without being near.
+    if (eager) { setNear(true); return }
     const watch = new IntersectionObserver((entries) => {
       if (entries.some((entry) => entry.isIntersecting)) {
         setNear(true)
@@ -197,9 +196,6 @@ function Page({ page, zoom, boxes, aspect, eager, armed, scrollToBox, onError }:
         if (cancelled || !canvas.current) return
 
         const unscaled = rendered.getViewport({ scale: 1 })
-        setPoints((current) =>
-          current?.width === unscaled.width && current.height === unscaled.height
-            ? current : { width: unscaled.width, height: unscaled.height })
         // Measured on the figure: .pdf-stack takes its width from the canvas.
         const viewport = rendered.getViewport({
           scale: (settled / unscaled.width) * zoom,
@@ -262,7 +258,6 @@ function Page({ page, zoom, boxes, aspect, eager, armed, scrollToBox, onError }:
         <div className="pdf-boxes">
           {boxes.map((box, index) => (
             <span key={index}
-                  ref={scrollToBox && index === 0 ? scrollTo : undefined}
                   style={{
                     left: box.x0 * scale,
                     top: box.y0 * scale,

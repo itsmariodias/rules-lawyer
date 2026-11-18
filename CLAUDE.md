@@ -97,7 +97,8 @@ frontend/src/
   chat/              ChatMessage, Markdown, ToolTrace, Timing, Usage, and
                      useChat (conversation state for the open thread)
   sidebar/           Sidebar, and useGraphStatus (polled until connected)
-  panel/             SidePanel, Resizer; page/PdfPage; graph/GraphView and
+  panel/             SidePanel, Resizer; page/PdfPage (the book) and
+                     page/SectionTree; graph/GraphView and
                      graph-layout (pure layout maths)
   shared/            icons, pointer (followPointer: window-level drags,
                      cancel included), useStored (localStorage state, theme)
@@ -838,18 +839,29 @@ browser stays on one origin and the SSE stream shares it.
 
 ### Side panel: the page
 
-- The Page tab is a pdf.js render with highlight boxes from
-  `/source/{id}`, so a citation is checkable against the printed page. With
-  nothing cited it is the whole book, lazily rendered, with a page-jump box.
-- **A citation shows its place in the book:** a breadcrumb from the
-  top-level section down to the cited one (`ancestors`, read from the
-  `HAS_SUBSECTION` path), every ancestor clickable, and its subsections
-  listed below the page in book order.
+- The Page tab is always the whole book, a pdf.js render of every page
+  lazily, with a page-jump box. A citation boxes its lines from
+  `/source/{id}` in place, so it is checkable against the printed page, and
+  scrolls to the first one; the pages stay mounted, so nothing already
+  drawn is redrawn. `App` bumps a `visit` count on every citation, so citing
+  the open section again scrolls back to it.
+- **The section tree** (`SectionTree`), a bar pinned between the toolbar
+  and the pages, shows where the open section sits: a breadcrumb (SRD ›
+  Classes › Rogue, from `ancestors`, read from the `HAS_SUBSECTION` path)
+  ending in a dropdown of its subsections in book order. Each crumb and
+  entry navigates like a citation. The SRD crumb clears the citation and
+  scrolls to page 1; with nothing cited the dropdown holds the 16 top-level
+  sections, the book seed's first ring from `/neighbourhood`, fetched once.
+  It changes only on a click, never with scrolling. The menu opens under
+  the whole bar, not its button, since the panel clips anything pushed past
+  its edge.
 - **A section is boxed with everything under it,** since its `char_end`
   covers every descendant: 16 pages for Rules Definitions, 87 for
   Monsters A-Z. So only the first page with boxes renders at once and
-  scrolls itself into view; the rest have placeholders sized from page 1's
-  aspect and render as they scroll near. (When every page scrolled itself
+  scrolls itself into view, once per visit (a resize or zoom does not pull
+  the reader back); the rest render as they scroll near. Every page is
+  sized, and its boxes placed, from page 1's size in points before it
+  renders, so the scroll lands on the line. (When every page scrolled itself
   into view, the last to render won, and the panel opened at a seemingly
   random page.)
 - **Closing the panel clears the citation** (the close button or the active
@@ -885,7 +897,7 @@ browser stays on one origin and the SSE stream shares it.
 
 - The Graph tab shows the cited section's neighbourhood (default depth 1,
   remembered). Both tabs share the selected section; a node opens on the
-  page, a subsection link re-seeds the graph.
+  page, a row of the section tree re-seeds the graph.
 - **With nothing cited, the seed is the book:** a node `neighbourhood.py`
   makes (uid `book`, label `:Book`) joined by `HAS_SUBSECTION` to the 16
   roots, all shown whatever the fan. It is never stored, so the agent's

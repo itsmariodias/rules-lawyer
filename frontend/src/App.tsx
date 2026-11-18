@@ -26,6 +26,8 @@ export default function App() {
   // Separate from `panelOpen`: the panel can open with nothing cited.
   // Closing it clears the citation, so the toolbar reopens the whole book.
   const [cited, setCited] = useState<string | null>(null)
+  // Bumped on every citation, so citing the open section again scrolls to it.
+  const [visit, setVisit] = useState(0)
   const [tab, setTab] = useState<Tab>('page')
   const [panelOpen, setPanelOpen] = useState(false)
   const [panel, setPanel] = useStored('panel-width', defaultPanel())
@@ -52,13 +54,18 @@ export default function App() {
     void send(text)
   }
 
+  const navigate = useCallback((sectionId: string | null) => {
+    setCited(sectionId)
+    setVisit((count) => count + 1)
+  }, [])
+
   // Re-seed the open tab; open on Page if the panel was closed.  Stable, so
   // a streamed token does not redraw every memoised answer.
   const cite = useCallback((sectionId: string) => {
-    setCited(sectionId)
+    navigate(sectionId)
     if (!panelOpen) setTab('page')
     setPanelOpen(true)
-  }, [panelOpen])
+  }, [panelOpen, navigate])
 
   const lastAsked = messages.map((message) => message.role).lastIndexOf('user')
 
@@ -173,8 +180,8 @@ export default function App() {
       {panelOpen && <Resizer width={panel} sidebar={sidebarRoom}
                              onResize={setPanel} />}
       {panelOpen && (
-        <SidePanel sectionId={cited} tab={tab} onTab={setTab}
-                   onClose={closePanel} onNavigate={setCited} />
+        <SidePanel sectionId={cited} visit={visit} tab={tab} onTab={setTab}
+                   onClose={closePanel} onNavigate={navigate} />
       )}
     </div>
   )
