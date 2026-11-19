@@ -6,6 +6,8 @@ passes their messages in.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from rules_lawyer.chat.retrieval import search
@@ -26,7 +28,8 @@ def _close_row(row: dict, message: ToolMessage) -> None:
     row.update(tool_outcome(message))
 
 
-def turns_of(messages: list, when: dict[str, str] | None = None) -> list[dict]:
+def turns_of(messages: list, when: dict[str, str] | None = None,
+             cite: Callable[[str], list[dict]] = resolve_citations) -> list[dict]:
     """A stored conversation as UI turns.
 
     Tool calls attach to the assistant answer that follows them.  Calls from
@@ -35,6 +38,7 @@ def turns_of(messages: list, when: dict[str, str] | None = None) -> list[dict]:
     Args:
         messages: The thread's messages, in order.
         when: Message id to ISO timestamp, from ``written_at``.
+        cite: An answer's text to its citations.
 
     Returns:
         ``{"role": "user", "content", "at"}`` and ``{"role": "assistant",
@@ -66,7 +70,7 @@ def turns_of(messages: list, when: dict[str, str] | None = None) -> list[dict]:
                 # A call with no stored result is shown done, status unknown.
                 tools = [{**row, "done": True} for row in pending.values()]
                 turns.append({"role": "assistant", "content": text,
-                              "citations": resolve_citations(text),
+                              "citations": cite(text),
                               "tools": tools,
                               "usage": usage_of(spoken),
                               "at": when.get(message.id)})

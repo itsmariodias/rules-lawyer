@@ -243,6 +243,37 @@ class TestHistory:
         assert [turn["content"] for turn in turns] == ["Prone?", "Prone creatures crawl."]
 
     @pytest.mark.asyncio
+    async def test_given_the_graph_down_when_read_then_the_turns_come_back_unlinked(
+            self, saver, store, monkeypatch):
+        # Given a stored answer citing a section, and no graph to resolve it
+        from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+        from neo4j.exceptions import ServiceUnavailable
+
+        from rules_lawyer.chat.retrieval import search
+
+        def unreachable(section_id):
+            raise ServiceUnavailable("Couldn't connect to localhost:7687")
+
+        monkeypatch.setattr(search, "get_section", unreachable)
+        await stored(saver, "kept", HumanMessage(content="Prone?"),
+                     AIMessage(content="", tool_calls=[{
+                         "name": "get_srd_section",
+                         "args": {"section_id": "11.2.114"}, "id": "call-1"}]),
+                     ToolMessage(content="Prone", tool_call_id="call-1",
+                                 name="get_srd_section"),
+                     AIMessage(content="Prone creatures crawl [11.2.114]."))
+        reader = ChatService(saver, store)
+
+        # When it is read back
+        turns = await reader.history("kept")
+
+        # Then the conversation opens, its citation and lookup left unresolved
+        assert [turn["content"] for turn in turns] == [
+            "Prone?", "Prone creatures crawl [11.2.114]."]
+        assert turns[1]["citations"] == []
+        assert turns[1]["tools"][0]["subject"] is None
+
+    @pytest.mark.asyncio
     async def test_given_a_thread_nobody_used_when_read_then_it_is_empty(
             self, service):
         # Given an id nothing was stored under

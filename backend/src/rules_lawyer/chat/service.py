@@ -16,6 +16,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.store.base import BaseStore
+from neo4j.exceptions import ServiceUnavailable
 
 from rules_lawyer.chat import threads
 from rules_lawyer.chat.agent import titles
@@ -169,13 +170,22 @@ class ChatService:
             thread_id: The conversation.
 
         Returns:
-            See ``threads.turns_of``; empty for an unknown thread.
+            See ``threads.turns_of``; empty for an unknown thread.  With the
+            graph unreachable, the turns come back without citations or
+            lookup headings, which only the graph can resolve.
         """
         messages = await self._messages(thread_id)
         when = await self._written_at(thread_id)
+
+        def read() -> list[dict]:
+            try:
+                return threads.name_missing_subjects(
+                    threads.turns_of(messages, when))
+            except ServiceUnavailable:
+                return threads.turns_of(messages, when, cite=lambda text: [])
+
         # Both resolve section ids with synchronous graph queries.
-        return await asyncio.to_thread(
-            lambda: threads.name_missing_subjects(threads.turns_of(messages, when)))
+        return await asyncio.to_thread(read)
 
     async def lookup(self, thread_id: str, call_id: str) -> dict | None:
         """One tool call's stored result, read from the thread's latest state.

@@ -766,8 +766,10 @@ and `retry` read it, so stored conversations open without a key.
   There is no thread table: deleting the checkpoints is deleting the thread.
 - **Stored threads are read from the checkpointer, not the agent,** since
   building the agent needs a model and so a key: a stored conversation opens
-  without one. Tool results a running step has already written are read
-  from its pending writes, as `aget_state` reads them.
+  without one. It opens without the graph too: on `ServiceUnavailable`,
+  `history` returns the turns with no citations or lookup headings, so the
+  ids show as written, unlinked. Tool results a running step has already
+  written are read from its pending writes, as `aget_state` reads them.
 - **The list scans the newest checkpoints** (40 per thread listed; a turn of
   20 lookups writes over 40), so old threads drop off it. Pinned threads are
   fetched by id and always listed, beyond the limit too.
