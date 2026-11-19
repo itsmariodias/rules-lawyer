@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { ChatEvent } from '../api'
+import type { ChatEvent, Message } from '../api'
 import { useChat } from './useChat'
 
 vi.mock('../api', async (importOriginal) => ({
@@ -39,6 +39,8 @@ async function answered(result: { current: ReturnType<typeof useChat> }) {
 }
 
 beforeEach(() => {
+  window.history.replaceState(null, '', '/')
+  vi.mocked(api.loadThread).mockResolvedValue([])
   vi.mocked(api.listThreads).mockResolvedValue([])
   vi.mocked(api.streamChat).mockResolvedValue(undefined)
   vi.mocked(api.retryChat).mockResolvedValue(undefined)
@@ -221,6 +223,8 @@ describe('open', () => {
     expect(api.loadThread).toHaveBeenCalledWith('stored')
     expect(result.current.threadId).toBe('stored')
     expect(result.current.messages).toHaveLength(2)
+    // And it has its own path
+    expect(window.location.pathname).toBe('/chat/stored')
   })
 
   it('given a thread that will not load, when opened, then the next question stays put', async () => {
@@ -233,11 +237,117 @@ describe('open', () => {
     // When the gone one is opened
     await act(() => result.current.open('gone'))
 
-    // Then the screen and the thread a question would join still agree
+    // Then the screen, the path and the thread a question would join agree
     expect(result.current.threadId).toBe('held')
+    expect(window.location.pathname).toBe('/chat/held')
     expect(result.current.messages[1].content).toBe('The first answer.')
     // And the list is refetched, so the gone thread leaves it
     expect(api.listThreads).toHaveBeenCalled()
+  })
+})
+
+describe('the path', () => {
+  it('given a thread path, when the app arrives on it, then the thread opens', async () => {
+    // Given a link to a stored thread
+    window.history.replaceState(null, '', '/chat/stored')
+    vi.mocked(api.loadThread).mockResolvedValue([
+      { role: 'user', content: 'Prone?' },
+      { role: 'assistant', content: 'A Prone creature…' },
+    ])
+
+    // When the app loads there
+    const { result } = renderHook(() => useChat())
+
+    // Then that thread is on screen
+    await waitFor(() => expect(result.current.threadId).toBe('stored'))
+    expect(api.loadThread).toHaveBeenCalledWith('stored')
+    expect(result.current.messages).toHaveLength(2)
+  })
+
+  it('given a thread path, when the app arrives on it, then it is arriving until the thread loads', async () => {
+    // Given a link to a stored thread, still loading
+    window.history.replaceState(null, '', '/chat/stored')
+    let deliver: (messages: Message[]) => void = () => {}
+    vi.mocked(api.loadThread).mockReturnValue(
+      new Promise((resolve) => { deliver = resolve }))
+
+    // When the app loads there
+    const { result } = renderHook(() => useChat())
+
+    // Then it is arriving from the first render, and not once the thread is in
+    expect(result.current.arriving).toBe(true)
+    await act(async () => deliver([{ role: 'user', content: 'Prone?' }]))
+    expect(result.current.arriving).toBe(false)
+    expect(result.current.messages).toHaveLength(1)
+  })
+
+  it('given the root, when the app arrives on it, then nothing is arriving', () => {
+    // Given the new chat's path
+    // When the app loads there
+    const { result } = renderHook(() => useChat())
+
+    // Then there is no thread to wait for
+    expect(result.current.arriving).toBe(false)
+  })
+
+  it('given a path to a thread that has gone, when arrived on, then the root replaces it', async () => {
+    // Given a link to a deleted thread
+    window.history.replaceState(null, '', '/chat/gone')
+    vi.mocked(api.loadThread).mockRejectedValue(new Error("no thread 'gone'"))
+
+    // When the app loads there
+    const { result } = renderHook(() => useChat())
+
+    // Then a new chat is shown at the root
+    await waitFor(() => expect(window.location.pathname).toBe('/'))
+    expect(result.current.threadId).toBeNull()
+    expect(result.current.arriving).toBe(false)
+  })
+
+  it('given a first question, when its thread starts, then the new chat becomes its path', async () => {
+    // Given the new chat at the root
+    replying({ type: 'start', thread_id: 'abc' })
+    const { result } = renderHook(() => useChat())
+    const before = window.history.length
+
+    // When the question starts a thread
+    await act(() => result.current.send('Prone?'))
+
+    // Then the path names it, without an empty page for Back to return to
+    expect(window.location.pathname).toBe('/chat/abc')
+    expect(window.history.length).toBe(before)
+  })
+
+  it('given two threads opened in turn, when Back is pressed, then the first returns', async () => {
+    // Given one thread opened, then another
+    vi.mocked(api.loadThread).mockImplementation(async (id) => [
+      { role: 'user', content: `${id}?` },
+    ])
+    const { result } = renderHook(() => useChat())
+    await act(() => result.current.open('first'))
+    await act(() => result.current.open('second'))
+
+    // When the browser goes back to the first's path
+    window.history.replaceState(null, '', '/chat/first')
+    await act(async () => { window.dispatchEvent(new PopStateEvent('popstate')) })
+
+    // Then the first is on screen again
+    await waitFor(() => expect(result.current.threadId).toBe('first'))
+    expect(result.current.messages[0].content).toBe('first?')
+  })
+
+  it('given a thread on screen, when Back reaches the root, then a new chat shows', async () => {
+    // Given an open thread
+    const { result } = renderHook(() => useChat())
+    await act(() => result.current.open('stored'))
+
+    // When the browser goes back to the root
+    window.history.replaceState(null, '', '/')
+    await act(async () => { window.dispatchEvent(new PopStateEvent('popstate')) })
+
+    // Then the screen is the new chat
+    expect(result.current.threadId).toBeNull()
+    expect(result.current.messages).toEqual([])
   })
 })
 
@@ -251,9 +361,10 @@ describe('reset', () => {
     // When it is reset
     act(() => result.current.reset())
 
-    // Then the next turn will mint its own thread
+    // Then the next turn will mint its own thread, at the root
     expect(result.current.threadId).toBeNull()
     expect(result.current.messages).toEqual([])
+    expect(window.location.pathname).toBe('/')
   })
 })
 
@@ -267,10 +378,11 @@ describe('forget', () => {
     // When it is deleted
     await act(() => result.current.forget('abc'))
 
-    // Then the screen is cleared with it
+    // Then the screen is cleared with it, and its path with them
     expect(api.deleteThread).toHaveBeenCalledWith('abc')
     expect(result.current.messages).toEqual([])
     expect(result.current.threadId).toBeNull()
+    expect(window.location.pathname).toBe('/')
   })
 
   it('given another conversation, when deleted, then the one being read stays', async () => {

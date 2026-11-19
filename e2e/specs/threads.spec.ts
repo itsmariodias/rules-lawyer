@@ -61,6 +61,38 @@ test.describe('the thread list', () => {
     await expect(app.locator('.trace .outcome')).toContainText('passages')
   })
 
+  test('given an answered conversation, when its path is reloaded, then it is still open',
+       async ({ app }) => {
+    // Given an answered conversation, now at its own path
+    const question = unique()
+    await ask(app, question)
+    await expect(app).toHaveURL(/\/chat\/[0-9a-f]+$/)
+
+    // When that path is reloaded
+    await app.reload()
+
+    // Then the conversation is on screen without opening it from the list
+    await expect(app.locator('.message.user p')).toHaveText([question])
+  })
+
+  test('given two conversations, when Back is pressed, then the first returns',
+       async ({ app }) => {
+    // Given one conversation, then a new one
+    const first = unique()
+    await ask(app, first)
+    await app.getByRole('button', { name: 'New conversation' }).click()
+    await expect(app).toHaveURL(/\/$/)
+    const second = unique()
+    await ask(app, second)
+
+    // When the browser goes back past the new chat
+    await app.goBack()
+
+    // Then the first conversation is on screen at its path
+    await expect(app).toHaveURL(/\/chat\/[0-9a-f]+$/)
+    await expect(app.locator('.message.user p')).toHaveText([first])
+  })
+
   test('given a conversation, when pinned, then it moves to its own section',
        async ({ app }) => {
     // Given an answered conversation, with no Pinned section yet

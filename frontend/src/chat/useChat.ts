@@ -1,6 +1,8 @@
 /**
  * Conversation state for the open thread.  History lives on the server; the
- * streaming assistant message is always the last element of `messages`.
+ * streaming assistant message is always the last element of `messages`.  The
+ * open thread is also the address bar's path (`route.ts`), so a reload, a
+ * link or Back opens it.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -8,12 +10,17 @@ import {
   deleteThread, listThreads, loadThread, pinThread, retryChat, streamChat,
   type ChatEvent, type Message, type Thread,
 } from '../api'
+import { showThread, threadOf } from './route'
 
 export function useChat() {
   const [messages, setMessages] = useState<Message[]>([])
   const [threads, setThreads] = useState<Thread[]>([])
   const [threadId, setThreadId] = useState<string | null>(null)
   const [streaming, setStreaming] = useState(false)
+  // True from arriving on a thread's path until it has loaded or failed, so
+  // the screen does not flash the new chat first.
+  const [arriving, setArriving] = useState(
+    () => threadOf(window.location.pathname) !== null)
   const abort = useRef<AbortController | null>(null)
 
   const refreshThreads = useCallback(() => {
@@ -31,6 +38,9 @@ export function useChat() {
     switch (event.type) {
       case 'start':
         setThreadId(event.thread_id)
+        // The new chat becomes this thread, rather than leaving an empty
+        // page for Back to return to.
+        showThread(event.thread_id, 'replace')
         // The server lists a thread only once its turn is stored; until then
         // it is listed here, untitled.
         setThreads((current) =>
@@ -135,41 +145,73 @@ export function useChat() {
     refreshThreads()
   }, [refreshThreads])
 
+  /** Empty the screen for a new chat, leaving the address bar alone. */
+  const clear = useCallback(() => {
+    abort.current?.abort()
+    setThreadId(null)
+    setMessages([])
+  }, [])
+
   /** Delete a thread, clearing the view if it was the open one. */
   const forget = useCallback(async (id: string) => {
     await deleteThread(id)
     if (id === threadId) {
-      abort.current?.abort()
-      setThreadId(null)
-      setMessages([])
+      clear()
+      showThread(null, 'replace')
     }
     refreshThreads()
-  }, [threadId, refreshThreads])
+  }, [threadId, clear, refreshThreads])
 
   /**
-   * Show a stored thread.  The id changes only once its messages arrive, so
-   * a failed load leaves the next question in the thread on screen; the
-   * list is refetched, since the usual cause is a thread deleted elsewhere.
+   * Show a stored thread, leaving the address bar alone.  The id changes
+   * only once its messages arrive, so a failed load leaves the next question
+   * in the thread on screen; the list is refetched, since the usual cause is
+   * a thread deleted elsewhere.
+   *
+   * Returns whether it loaded.
    */
-  const open = useCallback(async (id: string) => {
+  const load = useCallback(async (id: string) => {
     abort.current?.abort()
     let loaded: Message[]
     try {
       loaded = await loadThread(id)
     } catch {
       refreshThreads()
-      return
+      return false
     }
     setThreadId(id)
     setMessages(loaded.map((message) => ({ ...message, replayed: true })))
+    return true
   }, [refreshThreads])
 
-  const reset = useCallback(() => {
-    abort.current?.abort()
-    setThreadId(null)
-    setMessages([])
-  }, [])
+  /** Show a stored thread at its own path. */
+  const open = useCallback(async (id: string) => {
+    if (await load(id)) showThread(id, 'push')
+  }, [load])
 
-  return { messages, threads, threadId, streaming, send, retry,
+  /** Start a new chat at `/`. */
+  const reset = useCallback(() => {
+    clear()
+    showThread(null, 'push')
+  }, [clear])
+
+  // Show what the path names, on arrival and on Back or Forward.  A path
+  // naming a thread that will not load is replaced, so it is not kept.
+  useEffect(() => {
+    const follow = async () => {
+      const id = threadOf(window.location.pathname)
+      if (id === null) clear()
+      else if (!(await load(id))) {
+        clear()
+        showThread(null, 'replace')
+      }
+      setArriving(false)
+    }
+    void follow()
+    window.addEventListener('popstate', follow)
+    return () => window.removeEventListener('popstate', follow)
+  }, [load, clear])
+
+  return { messages, threads, threadId, streaming, arriving, send, retry,
            stop, open, reset, forget, pin }
 }

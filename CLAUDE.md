@@ -94,8 +94,9 @@ backend/src/rules_lawyer/
 frontend/src/
   api.ts             client; ChatEvent mirrors turn.py's events
   App.tsx            shell: layout, panel state, composer
-  chat/              ChatMessage, Markdown, ToolTrace, Timing, Usage, and
-                     useChat (conversation state for the open thread)
+  chat/              ChatMessage, Markdown, ToolTrace, Timing, Usage,
+                     useChat (conversation state for the open thread) and
+                     route (that thread's path)
   sidebar/           Sidebar, and useGraphStatus (polled until connected)
   panel/             SidePanel, Resizer; page/PdfPage (the book) and
                      page/SectionTree; graph/GraphView and
@@ -837,6 +838,15 @@ browser stays on one origin and the SSE stream shares it.
 
 ### Thread list
 
+- **The open thread is the path,** `/chat/<id>`, and a new chat is `/`, kept
+  with the History API (no router). Opening a thread or starting a new chat
+  pushes an entry; a first question replaces `/` with its thread, so Back
+  skips the empty page; deleting the open thread replaces its path with `/`.
+  The path is read on arrival and on `popstate`, and one naming a thread that
+  will not load is replaced with `/`. Until a thread arrived on by its path
+  has loaded (`arriving`), the welcome screen is held back, so a reload does
+  not flash the new chat. `/chat/` is free in the browser because
+  Vite proxies only `/api/*`.
 - Fixed width (`SIDEBAR`, 260px); collapses to a rail with expand and new.
 - The row draws the box; the title button and the `⋯` button inside paint
   nothing (a button cannot contain a button). `⋯` shows on hover, focus or

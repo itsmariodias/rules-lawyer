@@ -12,6 +12,7 @@ const chat = {
   threads: [] as Thread[],
   threadId: null as string | null,
   streaming: false,
+  arriving: false,
   send: vi.fn(),
   retry: vi.fn(),
   stop: vi.fn(),
@@ -38,7 +39,7 @@ vi.mock('./logo.svg?raw', () => ({ default: '<svg></svg>' }))
 
 beforeEach(() => {
   Object.assign(chat, { messages: [], threads: [], threadId: null,
-                        streaming: false })
+                        streaming: false, arriving: false })
   Element.prototype.scrollIntoView = vi.fn()
 })
 
@@ -54,6 +55,21 @@ describe('the welcome screen', () => {
     expect(screen.getByRole('button',
                             { name: 'What exactly does the Prone condition do?' }))
       .toBeInTheDocument()
+  })
+
+  it('given a thread on its way, when rendered, then the welcome is held back', () => {
+    // Given a reload on a thread's path, its turns not yet arrived
+    chat.arriving = true
+
+    // When the screen is read
+    render(<App />)
+
+    // Then it does not flash the new chat first
+    expect(screen.queryByRole('heading', { name: /Rules Lawyer/ }))
+      .not.toBeInTheDocument()
+    expect(screen.queryByRole('button',
+                              { name: 'What exactly does the Prone condition do?' }))
+      .not.toBeInTheDocument()
   })
 
   it('given an example, when pressed, then it is asked', async () => {

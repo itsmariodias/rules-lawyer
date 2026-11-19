@@ -21,8 +21,10 @@ const EXAMPLES = [
 
 export default function App() {
   const { messages, threads, threadId, streaming, send, retry,
-          stop, open, reset, forget, pin } = useChat()
+          stop, open, reset, forget, pin, arriving } = useChat()
   const [draft, setDraft] = useState('')
+  // A new chat, not a thread whose turns are still on their way.
+  const blank = messages.length === 0 && !arriving
   // Separate from `panelOpen`: the panel can open with nothing cited.
   // Closing it clears the citation, so the toolbar reopens the whole book.
   const [cited, setCited] = useState<string | null>(null)
@@ -92,7 +94,7 @@ export default function App() {
                onPin={(id, pinned) => void pin(id, pinned)}
                onForget={forget} />
 
-      <main className={`chat ${messages.length === 0 ? 'empty' : ''}`}>
+      <main className={`chat ${blank ? 'empty' : ''}`}>
         <header className="chat-head">
           <PanelToggle tab="page" active={panelOpen && tab === 'page'}
                        label="Book page" onClick={toggle} />
@@ -101,7 +103,7 @@ export default function App() {
         </header>
 
         <div className="messages">
-          {messages.length === 0 && (
+          {blank && (
             <div className="welcome">
               <h1><LogoIcon size={40} />Rules Lawyer</h1>
               <p className="muted">
@@ -150,7 +152,7 @@ export default function App() {
             : <button type="submit" disabled={!draft.trim()}>Send</button>}
         </form>
 
-        {messages.length === 0 && (
+        {blank && (
           <ul className="examples">
             {EXAMPLES.map((example) => (
               <li key={example}>
