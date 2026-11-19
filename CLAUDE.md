@@ -730,13 +730,16 @@ and `retry` read it, so stored conversations open without a key.
   mid-thread replays them to the new one; LangChain converts standard tool
   calls, but provider-specific content may be refused.
 - **A question has a lookup budget** (`CHAT_MAX_TOOL_CALLS`, 8):
-  LangChain's `ToolCallLimitMiddleware` per run, so a retry gets its own.
+  `LookupBudget`, LangChain's `ToolCallLimitMiddleware` per run, so a retry
+  gets its own.
   Every call resends the turn so far, so a turn's input grows with the square
   of its calls; of 14 stored turns, the 6 making 10 to 29 calls used 87% of
   the input tokens (one, on dice, ran 14 regex queries for a list the SRD
   does not print). Past the budget a call is answered "Tool call limit
-  exceeded" unrun (`status="error"`, so the trace shows it failed) and the
-  model answers from what it has. Not `exit_behavior="end"`, which replaces
+  exceeded" unrun and the model answers from what it has. The library marks
+  that message `status="error"`; `LookupBudget` adds an artifact with status
+  `skipped` ("max tool calls reached"), which `tool_outcome` prefers, so the
+  trace does not show a broken lookup. Not `exit_behavior="end"`, which replaces
   the answer with a notice; and not withholding the tools on a last call,
   since Anthropic refuses a history of tool calls without tools and Ollama
   ignores `tool_choice`.
@@ -767,7 +770,8 @@ and `retry` read it, so stored conversations open without a key.
 - **Tool artifacts:** each tool returns `(content, artifact)`. The artifact
   (`status` of ok / empty / refused / failed, `summary`, `subject`) rides on
   the `ToolMessage`, is never shown to the model, and drives the trace.
-  `empty` is a valid answer, not a failure.
+  `empty` is a valid answer, not a failure; `skipped` (a call past the
+  budget, never run) is not one either.
 - **Usage** is summed from `usage_metadata` over a turn's model calls, live
   (sent before `done`, after an `error` too) and when reopened. A turn
   without counts shows nothing. The fake reports a fixed 1230 per call.

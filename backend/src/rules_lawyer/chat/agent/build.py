@@ -66,6 +66,23 @@ class CutEarlierLookups(AgentMiddleware):
             messages=with_earlier_lookups_cut(request.messages)))
 
 
+class LookupBudget(ToolCallLimitMiddleware):
+    """``ToolCallLimitMiddleware`` whose refused calls say why in the trace.
+
+    The library marks a call past the limit ``status="error"``, which the
+    trace would show as a failed lookup; the artifact gives it its own status.
+    """
+
+    def after_model(self, state, runtime):
+        """Count the model's tool calls, refusing those past the limit."""
+        update = super().after_model(state, runtime)
+        for message in (update or {}).get("messages", []):
+            if isinstance(message, ToolMessage):
+                message.artifact = {"status": "skipped",
+                                    "summary": "max tool calls reached"}
+        return update
+
+
 def system_prompt() -> str:
     """``system.md`` plus the derived graph schema.
 
@@ -104,7 +121,7 @@ def build_agent(model: BaseChatModel,
             # A run is one question (a retry too).  "continue" answers calls
             # past the limit with an error the model reads, so it answers
             # from what it has; "end" would replace the answer with a notice.
-            ToolCallLimitMiddleware(
+            LookupBudget(
                 run_limit=get_settings().chat.max_tool_calls,
                 exit_behavior="continue"),
         ],

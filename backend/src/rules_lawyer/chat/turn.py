@@ -229,10 +229,11 @@ def tool_outcome(message: ToolMessage) -> dict:
         if the tool raised.
     """
     # A tool that raised has no artifact; LangChain sets status="error" on its
-    # message instead.
+    # message instead.  A call refused over the lookup budget is an error
+    # with an artifact, whose status wins.
     artifact = getattr(message, "artifact", None) or {}
     failed = getattr(message, "status", None) == "error"
-    return {"status": "failed" if failed else artifact.get("status", "ok"),
+    return {"status": artifact.get("status") or ("failed" if failed else "ok"),
             "summary": artifact.get("summary"),
             "subject": artifact.get("subject")}
 

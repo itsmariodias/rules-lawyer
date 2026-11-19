@@ -276,6 +276,21 @@ describe('ToolTrace', () => {
     expect(within(row()).getByText('refused')).toBeInTheDocument()
   })
 
+  it('given a call over the limit, when rendered, then it reads as skipped, not failed', () => {
+    // Given a query refused unrun because the question used its tool calls
+    render(<ToolTrace tools={[call({ name: 'query_srd_graph',
+                                     args: { cypher_query: 'MATCH (n) RETURN n.id' },
+                                     status: 'skipped',
+                                     summary: 'max tool calls reached' })]} />)
+
+    // When the row is read
+    // Then it gives the reason, without the failure mark
+    expect(row()).toHaveClass('is-skipped')
+    expect(row()).not.toHaveClass('is-failed')
+    expect(within(row()).getByText('–')).toBeInTheDocument()
+    expect(within(row()).getByText('max tool calls reached')).toBeInTheDocument()
+  })
+
   it('given a call that found nothing, when rendered, then it is not a failure', () => {
     // Given a query that ran and matched nothing
     render(<ToolTrace tools={[call({ name: 'query_srd_graph',

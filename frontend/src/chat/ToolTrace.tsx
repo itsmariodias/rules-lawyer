@@ -58,6 +58,7 @@ function describe(call: ToolCall): Row {
 function marker(call: ToolCall): string {
   if (!call.done) return '·'
   if (call.status === 'refused' || call.status === 'failed') return '✗'
+  if (call.status === 'skipped') return '–'
   return MARKS[call.name] ?? '●'
 }
 

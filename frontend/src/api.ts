@@ -11,7 +11,8 @@ export type Citation = {
   labels: string[]
 }
 
-export type ToolStatus = 'ok' | 'empty' | 'refused' | 'failed'
+/** `skipped`: not run, because the question had used its tool calls. */
+export type ToolStatus = 'ok' | 'empty' | 'refused' | 'failed' | 'skipped'
 
 export type ToolCall = {
   id: string

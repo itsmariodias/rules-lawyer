@@ -240,3 +240,6 @@ class TestToolCallLimit:
         results = [m for m in state["messages"] if isinstance(m, ToolMessage)]
         assert [m.status for m in results] == ["success", "success", "error"]
         assert state["messages"][-1].content == "Answered from what I found."
+        # and the refused call says why, for the trace
+        assert results[-1].artifact == {"status": "skipped",
+                                        "summary": "max tool calls reached"}

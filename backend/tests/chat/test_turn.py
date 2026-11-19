@@ -284,6 +284,19 @@ class TestFromUpdate:
         # Then the absent artifact does not read as a successful call
         assert event["status"] == "failed"
 
+    def test_given_a_call_over_the_budget_when_read_then_it_is_skipped_not_failed(
+            self):
+        # Given a call refused unrun: an error that says why in its artifact
+        update = self._update(status="error", artifact={
+            "status": "skipped", "summary": "max tool calls reached"})
+
+        # When it is flattened
+        [event] = turn._from_update(update)
+
+        # Then the trace shows the limit, not a broken lookup
+        assert event["status"] == "skipped"
+        assert event["summary"] == "max tool calls reached"
+
     def test_given_no_artifact_when_read_then_the_event_is_still_whole(self):
         # Given a plain tool result
         update = self._update()
