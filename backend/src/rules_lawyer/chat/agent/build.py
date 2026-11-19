@@ -3,14 +3,67 @@
 from __future__ import annotations
 
 from langchain.agents import create_agent
+from langchain.agents.middleware import AgentMiddleware, ToolCallLimitMiddleware
 from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import AnyMessage, HumanMessage, ToolMessage
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
 from rules_lawyer.chat.agent.prompts import prompt
 from rules_lawyer.chat.agent.tools import TOOLS
 from rules_lawyer.chat.retrieval import cypher
+from rules_lawyer.config import get_settings
 
 SYSTEM_PROMPT = prompt("system")
+
+
+# Every tool result opens with the ``[id] Heading (type, p.N)`` of what it
+# read, which this keeps along with a line or two of the text.
+EARLIER_LOOKUP_CHARS = 300
+
+
+def with_earlier_lookups_cut(messages: list[AnyMessage]) -> list[AnyMessage]:
+    """The conversation as the model is sent it: earlier turns' tool results cut
+    to ``EARLIER_LOOKUP_CHARS``, the current turn whole.
+
+    Args:
+        messages: The thread's messages, oldest first.
+
+    Returns:
+        The same messages, with each tool result before the last question
+        cut at a word boundary and marked as cut.
+    """
+    questions = [index for index, message in enumerate(messages)
+                 if isinstance(message, HumanMessage)]
+    if not questions:
+        return messages
+    current = questions[-1]
+    earlier = []
+    for message in messages[:current]:
+        if (isinstance(message, ToolMessage)
+                and len(str(message.content)) > EARLIER_LOOKUP_CHARS):
+            cut = str(message.content)[:EARLIER_LOOKUP_CHARS].rsplit(" ", 1)[0]
+            message = message.model_copy(update={
+                "content": f"{cut} … (cut: an earlier turn's lookup)"})
+        earlier.append(message)
+    return earlier + messages[current:]
+
+
+class CutEarlierLookups(AgentMiddleware):
+    """Applies ``with_earlier_lookups_cut`` to each model call.
+
+    The request is changed, not the state, so the checkpointer still stores
+    every lookup whole for the trace and ``/lookups``.
+    """
+
+    def wrap_model_call(self, request, handler):
+        """Call the model on the cut conversation."""
+        return handler(request.override(
+            messages=with_earlier_lookups_cut(request.messages)))
+
+    async def awrap_model_call(self, request, handler):
+        """Call the model on the cut conversation."""
+        return await handler(request.override(
+            messages=with_earlier_lookups_cut(request.messages)))
 
 
 def system_prompt() -> str:
@@ -46,5 +99,14 @@ def build_agent(model: BaseChatModel,
         model=model,
         tools=TOOLS,
         system_prompt=system_prompt(),
+        middleware=[
+            CutEarlierLookups(),
+            # A run is one question (a retry too).  "continue" answers calls
+            # past the limit with an error the model reads, so it answers
+            # from what it has; "end" would replace the answer with a notice.
+            ToolCallLimitMiddleware(
+                run_limit=get_settings().chat.max_tool_calls,
+                exit_behavior="continue"),
+        ],
         checkpointer=checkpointer,
     )

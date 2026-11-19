@@ -116,6 +116,10 @@ class ChatSettings(Credentials):
     # cartesian product that runs long before returning anything.
     cypher_timeout_seconds: float = 10
     cypher_max_rows: int = 50
+    # Tool calls one question may make; past it, calls are refused unrun and
+    # the model answers from what it has.  Of 14 stored turns, 8 needed 3 or
+    # fewer, while 6 made 10 to 29 and used 87% of all input tokens.
+    max_tool_calls: int = 8
 
     @model_validator(mode="after")
     def _provider_defaults(self) -> ChatSettings:

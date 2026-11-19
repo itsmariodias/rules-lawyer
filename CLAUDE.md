@@ -729,6 +729,17 @@ and `retry` read it, so stored conversations open without a key.
 - **A thread keeps its old provider's messages.** Switching `CHAT_PROVIDER`
   mid-thread replays them to the new one; LangChain converts standard tool
   calls, but provider-specific content may be refused.
+- **A question has a lookup budget** (`CHAT_MAX_TOOL_CALLS`, 8):
+  LangChain's `ToolCallLimitMiddleware` per run, so a retry gets its own.
+  Every call resends the turn so far, so a turn's input grows with the square
+  of its calls; of 14 stored turns, the 6 making 10 to 29 calls used 87% of
+  the input tokens (one, on dice, ran 14 regex queries for a list the SRD
+  does not print). Past the budget a call is answered "Tool call limit
+  exceeded" unrun (`status="error"`, so the trace shows it failed) and the
+  model answers from what it has. Not `exit_behavior="end"`, which replaces
+  the answer with a notice; and not withholding the tools on a last call,
+  since Anthropic refuses a history of tool calls without tools and Ollama
+  ignores `tool_choice`.
 - **A stall is not an error by itself,** so `_until_silent` fails a turn
   after `CHAT_TIMEOUT_SECONDS` of silence, reset by every token and tool
   result.
@@ -798,6 +809,15 @@ and `retry` read it, so stored conversations open without a key.
   unreachable. The question is read from the checkpoint, not resent. The
   graph checkpoints before the input, so the first turn also has a state to
   branch from. An empty thread is a 404 before the stream starts.
+- **Earlier turns' lookups are cut when sent,** not when stored: every
+  model call resends the whole thread, so a follow-up re-read every passage
+  of the turns before it (12k to 19k input tokens before its first lookup,
+  against 3k for an opening question). `CutEarlierLookups` (middleware in
+  `build.py`) cuts each tool result before the last question to
+  `EARLIER_LOOKUP_CHARS`, keeping the `[id] Heading` it opens with, so the
+  model still knows what it read and can fetch it again; the checkpointer
+  keeps the whole result for the trace and `/lookups`. The current turn is
+  sent whole.
 - **Reopened conversations keep their trace:** `turns_of` (pure) attaches
   tool calls to the answer that follows them; a failed turn's calls do not
   leak into the next. `name_missing_subjects` fills `subject` for threads
