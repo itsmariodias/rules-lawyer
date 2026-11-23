@@ -39,6 +39,7 @@ src/
     ToolTrace.tsx       the lookups the agent made during a turn
     Timing.tsx          elapsed time while a turn runs, its date after
     Usage.tsx           tokens used by a turn
+    ExportChat.tsx      the open conversation's download menu: Markdown, Word, PDF
 
   sidebar/              the thread list
     Sidebar.tsx         rows, pin and delete, theme, graph status

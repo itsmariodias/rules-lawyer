@@ -367,6 +367,34 @@ describe('the toolbar', () => {
   })
 })
 
+describe('the export', () => {
+  it('given a new chat, when rendered, then there is nothing to export', () => {
+    // Given no thread open
+    // When the header is drawn
+    render(<App />)
+
+    // Then it offers no export
+    expect(screen.queryByRole('button', { name: 'Export chat' })).toBeNull()
+  })
+
+  it('given an open thread, when rendered, then it can be exported', () => {
+    // Given an open conversation
+    Object.assign(chat, {
+      threadId: 't1',
+      messages: [{ role: 'user', content: 'What does Prone do?' },
+                 { role: 'assistant', content: 'A Prone creature [11.2.114].' }],
+    })
+
+    // When the header is drawn
+    render(<App />)
+
+    // Then its export menu downloads that thread
+    expect(screen.getByRole('button', { name: 'Export chat' })).toBeEnabled()
+    expect(screen.getByRole('menuitem', { name: 'PDF (.pdf)', hidden: true }))
+      .toHaveAttribute('href', '/api/chat/threads/t1/export?format=pdf')
+  })
+})
+
 describe('the thread list', () => {
   // The list's own behaviour is in Sidebar.test.tsx; these check it
   // reaches the conversation.

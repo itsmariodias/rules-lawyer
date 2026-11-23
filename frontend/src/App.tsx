@@ -8,6 +8,7 @@ import { useChat } from './chat/useChat'
 import { useStored } from './shared/useStored'
 import { clampWidth, defaultPanel, Resizer, SIDEBAR } from './panel/Resizer'
 import { ChatMessage } from './chat/ChatMessage'
+import { ExportChat } from './chat/ExportChat'
 import { BookIcon, GraphIcon, LogoIcon } from './shared/icons'
 import { SidePanel, type Tab } from './panel/SidePanel'
 import { Sidebar } from './sidebar/Sidebar'
@@ -96,6 +97,9 @@ export default function App() {
 
       <main className={`chat ${blank ? 'empty' : ''}`}>
         <header className="chat-head">
+          {threadId !== null && messages.length > 0 && (
+            <ExportChat threadId={threadId} disabled={streaming} />
+          )}
           <PanelToggle tab="page" active={panelOpen && tab === 'page'}
                        label="Book page" onClick={toggle} />
           <PanelToggle tab="graph" active={panelOpen && tab === 'graph'}
