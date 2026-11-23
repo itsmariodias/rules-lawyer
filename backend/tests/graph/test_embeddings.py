@@ -62,6 +62,15 @@ class TestTexts:
         assert not built["1"].endswith("wor")
 
 
+    def test_given_a_document_prefix_when_built_then_it_opens_every_text(self):
+        # Given a prefix a model asks for on documents
+        # When the texts are built
+        built = embeddings.texts(DOCUMENT, document_prefix="doc: ")
+
+        # Then it comes before the heading path
+        assert built["1.1.1"] == "doc: Monsters > Goblin > Actions\n\nScimitar. Melee Attack."
+
+
 class TestDigest:
     def test_given_the_same_text_when_hashed_twice_then_it_agrees(self):
         # Given one text
@@ -289,34 +298,6 @@ class TestEmbed:
                          "base_url": "http://ollama.test:11434"}
         assert vectors == [[1.0, 0.0, 0.0]]
 
-    @pytest.mark.parametrize(("query", "prefix"), [
-        (False, "search_document: "), (True, "search_query: ")])
-    def test_given_nomic_on_ollama_when_embedded_then_each_side_is_prefixed(
-            self, monkeypatch, query, prefix):
-        # Given nomic-embed-text, whose card asks for a prefix per side, with
-        # the client replaced by one recording what it was sent
-        langchain_ollama = pytest.importorskip("langchain_ollama")
-        sent: list[str] = []
-
-        class Recording:
-            def __init__(self, **_):
-                pass
-
-            def embed_documents(self, chunk):
-                sent.extend(chunk)
-                return [[1.0, 0.0, 0.0] for _ in chunk]
-
-        monkeypatch.setattr(langchain_ollama, "OllamaEmbeddings", Recording)
-
-        # When a text is embedded as a section or as a question, the model
-        # named with a tag
-        embeddings.embed(["Prone"], settings(provider="ollama",
-                                             model="nomic-embed-text:v1.5"),
-                         query=query)
-
-        # Then the text went with its side's prefix
-        assert sent == [prefix + "Prone"]
-
     def test_given_a_model_of_another_width_when_embedded_then_the_width_is_named(
             self, monkeypatch):
         """Truncating a model that was not trained for it ranks nonsense."""
@@ -456,22 +437,23 @@ class TestResolve:
         # Then none were reused
         assert sum(len(batch) for batch in calls) == 2
 
-    def test_given_nomic_vectors_without_prefixes_when_resolved_then_they_are_discarded(
+    def test_given_a_new_document_prefix_when_resolved_then_every_section_is_re_embedded(
             self, tmp_path):
-        # Given nomic-embed-text vectors embedded before it was given its
-        # prefixes, whose header records Gemini's task
-        path = tmp_path / "e.ollama.idx"
-        seed(path, DOCUMENT, provider="ollama", model="nomic-embed-text")
+        # Given a complete file made without a prefix
+        path = tmp_path / "e.idx"
+        seed(path, DOCUMENT)
         calls: list[list[str]] = []
 
-        # When the vectors are resolved for the same model
+        # When the vectors are resolved with a document prefix
         embeddings.resolve(DOCUMENT, path=path,
-                           settings=settings(provider="ollama",
-                                             model="nomic-embed-text"),
+                           settings=settings(google_api_key="k",
+                                             document_prefix="doc: "),
                            embedder=recorder(calls))
 
-        # Then none were reused
-        assert sum(len(batch) for batch in calls) == 2
+        # Then every section was embedded again, with the prefix first
+        sent = [text for batch in calls for text in batch]
+        assert len(sent) == 2
+        assert all(text.startswith("doc: ") for text in sent)
 
     def test_given_a_task_recorded_for_a_model_without_tasks_when_resolved_then_it_is_kept(
             self, tmp_path):

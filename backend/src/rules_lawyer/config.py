@@ -154,6 +154,11 @@ class EmbeddingSettings(Credentials):
     batch: int = 32
     # ~1500 tokens, under the model's input cap.  One SRD section exceeds it.
     max_chars: int = 6000
+    # Put before every section and every question, for a model trained with a
+    # pair of prefixes.  The document prefix is part of each digest, so
+    # changing it re-embeds every section.
+    document_prefix: str = ""
+    query_prefix: str = ""
     # Rows per transaction; lower than the loader's 1000 because each row is
     # 1536 floats.
     write_batch: int = 200

@@ -218,17 +218,17 @@ truncated (Gemini and OpenAI's `text-embedding-3` can), then embed and load:
 
 ```text
 EMBED_PROVIDER=ollama
-EMBED_MODEL=nomic-embed-text
-EMBED_DIMENSIONS=768
+EMBED_MODEL=your-embedding-model
+EMBED_DIMENSIONS=its-width
 ```
 
 ```bash
 uv run rules-lawyer embed && uv run rules-lawyer load
 ```
 
-`nomic-embed-text` is sent the `search_document: ` and `search_query: `
-prefixes its model card asks for; an `.idx` made without them is
-re-embedded.
+If the model's card asks for a prefix on documents and another on queries,
+set `EMBED_DOCUMENT_PREFIX` and `EMBED_QUERY_PREFIX`, quoted to keep a
+trailing space. Changing the document prefix re-embeds every section.
 
 Without the embedding provider's key, search is lexical only.
 

@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 if TYPE_CHECKING:
     from langchain_core.language_models import BaseChatModel
@@ -285,34 +285,18 @@ class Ollama(ModelProvider):
     temperature = 0.2
     # From httpx when LangChain calls it, from the ollama client otherwise.
     unreachable = ("Connection refused", "Failed to connect to Ollama")
-    # Prefixes the model cards ask for, by model name without its tag.
-    # Without them a model embeds both sides alike.
-    prefixes: ClassVar[dict[str, EmbeddingTasks]] = {
-        "nomic-embed-text": EmbeddingTasks(document="search_document: ",
-                                           query="search_query: "),
-    }
 
     def chat_options(self, settings: ChatSettings) -> dict[str, Any]:
         """Also the server's address."""
         return super().chat_options(settings) | {"base_url": settings.ollama_base_url}
 
-    def embedding_tasks(self, model: str) -> EmbeddingTasks | None:
-        """Its text prefixes, for a model whose card names them."""
-        return self.prefixes.get(model.split(":")[0])
-
     def embedder(self, settings: EmbeddingSettings, *,
                  query: bool = False) -> Embedder:
-        """LangChain's ``OllamaEmbeddings``, at the model's own width, each
-        text prefixed for its side when the model takes prefixes."""
+        """LangChain's ``OllamaEmbeddings``, at the model's own width."""
         from langchain_ollama import OllamaEmbeddings
 
-        embed_documents = OllamaEmbeddings(
-            model=settings.model, base_url=settings.ollama_base_url).embed_documents
-        tasks = self.embedding_tasks(settings.model)
-        if tasks is None:
-            return embed_documents
-        prefix = tasks.query if query else tasks.document
-        return lambda chunk: embed_documents([prefix + text for text in chunk])
+        return OllamaEmbeddings(model=settings.model,
+                                base_url=settings.ollama_base_url).embed_documents
 
     def explain(self, text: str, settings: ChatSettings) -> str | None:
         """The server not running, or the model not pulled."""

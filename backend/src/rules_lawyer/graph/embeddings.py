@@ -127,16 +127,18 @@ def _truncate(text: str, limit: int) -> str:
     return text[:limit].rsplit(" ", 1)[0]
 
 
-def texts(document: dict, max_chars: int = 6000) -> dict[str, str]:
+def texts(document: dict, max_chars: int = 6000,
+          document_prefix: str = "") -> dict[str, str]:
     """The text to embed for each section with prose.
 
     Each is prefixed with its heading path (``Monsters > Goblin > Actions``),
-    since dozens of sections share headings like "Actions".  Truncated here,
-    not in ``embed``, so the digest describes what was sent.
+    since dozens of sections share headings like "Actions".  Prefixed and
+    truncated here, not in ``embed``, so the digest describes what was sent.
 
     Args:
         document: The stage 1 artifact.
         max_chars: Truncation limit, at a word boundary.
+        document_prefix: Put before every text, for a model that asks for one.
 
     Returns:
         Section id to text.
@@ -150,7 +152,7 @@ def texts(document: dict, max_chars: int = 6000) -> dict[str, str]:
         if content:
             breadcrumb = " > ".join(here)
             whole = f"{breadcrumb}\n\n{content}" if breadcrumb else content
-            found[node["id"]] = _truncate(whole, max_chars)
+            found[node["id"]] = _truncate(document_prefix + whole, max_chars)
         for child in node.get("subsections") or []:
             walk(child, here)
 
@@ -375,7 +377,7 @@ def resolve(document: dict, *, path: Path, settings: EmbeddingSettings,
         MissingEmbeddings: Some sections lack a vector and there is no key.
         BadEmbeddingsFile: The file exists but cannot be read.
     """
-    wanted = texts(document, settings.max_chars)
+    wanted = texts(document, settings.max_chars, settings.document_prefix)
     task = _document_task(settings)
     cached: dict[str, tuple[str, list[float]]] = {}
 

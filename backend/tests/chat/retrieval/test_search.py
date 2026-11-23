@@ -204,6 +204,23 @@ class TestEmbedQuery:
         assert vector == (0.0, 1.0)
         search.embed_query.cache_clear()
 
+    def test_given_a_query_prefix_when_a_query_is_embedded_then_it_opens_the_text(
+            self, settings_env, monkeypatch):
+        # Given a key, a query prefix, and an embedder that records its input
+        settings_env(GOOGLE_API_KEY="not-a-real-key", EMBED_QUERY_PREFIX="ask: ")
+        search.embed_query.cache_clear()
+        sent = []
+        monkeypatch.setattr(search.embeddings, "embed",
+                            lambda batch, settings, report=None, *, query=False:
+                            sent.extend(batch) or [[1.0]])
+
+        # When a query is embedded
+        search.embed_query("prone")
+
+        # Then the prefix went before the question
+        assert sent == ["ask: prone"]
+        search.embed_query.cache_clear()
+
     def test_given_a_repeated_query_when_embedded_then_it_is_not_asked_twice(
             self, settings_env, monkeypatch):
         # Given a key and an embedder that counts its calls

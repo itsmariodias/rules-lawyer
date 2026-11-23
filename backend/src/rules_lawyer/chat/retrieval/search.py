@@ -225,7 +225,8 @@ def embed_query(text: str) -> tuple[float, ...] | None:
     settings = get_settings().embedding
     if settings.missing_key():
         return None
-    return tuple(embeddings.embed([text], settings, query=True)[0])
+    return tuple(embeddings.embed([settings.query_prefix + text], settings,
+                                  query=True)[0])
 
 
 _VECTOR = f"""
