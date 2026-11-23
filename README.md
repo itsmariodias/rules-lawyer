@@ -55,26 +55,43 @@ searched by a tool-calling agent.
 
 ## Run with Docker
 
-To use the app as it is, you need only **Docker** and a model provider (a
-**Gemini API key** by default). From a clone:
+You need **Docker** and a model provider (a **Gemini API key** by default).
+
+### How to run
+
+Only the compose file is needed, no clone:
 
 ```bash
-cp .env.example .env            # set NEO4J_PASSWORD and GOOGLE_API_KEY
+mkdir rules-lawyer && cd rules-lawyer
+curl -fsSLO https://raw.githubusercontent.com/itsmariodias/rules-lawyer/main/docker-compose.yml
+printf 'NEO4J_PASSWORD=choose-one\nGOOGLE_API_KEY=your-key\n' > .env
 docker compose up -d
 ```
 
 Then open <http://localhost:8080> (`RULES_LAWYER_PORT` changes the port).
+The published image (`ghcr.io/itsmariodias/rules-lawyer`) has the SRD parsed
+and embedded, so the first start loads the graph in about a minute without
+spending API calls. Later starts load it again only if the image changed.
 
-Compose pulls the published image (`ghcr.io/itsmariodias/rules-lawyer`), or
-builds it if it cannot; `docker compose up -d --build` builds from your
-checkout. The image has the SRD parsed and its embeddings, so the first start
-loads the graph without spending API calls, in about a minute. Later starts
-check the graph against the image and load it again only if it differs. To
-load it anyway:
+### Develop with compose
+
+From a clone, compose builds the image from your checkout:
+
+```bash
+git clone https://github.com/itsmariodias/rules-lawyer.git && cd rules-lawyer
+cp .env.example .env            # set NEO4J_PASSWORD and GOOGLE_API_KEY
+docker compose up -d --build
+```
+
+To load the graph again anyway:
 
 ```bash
 docker compose run --rm loader rules-lawyer load
 ```
+
+For the API and frontend with live reload, see [Quickstart](#quickstart).
+
+### Configuration
 
 Conversations are kept in the `chat` volume. The same `.env` configures
 [other model providers](#other-model-providers), with two differences:
