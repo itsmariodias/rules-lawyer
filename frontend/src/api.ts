@@ -198,6 +198,13 @@ export const listThreads = () =>
 export const loadThread = (id: string) =>
   getJSON<{ messages: Message[] }>(`/chat/threads/${id}`).then((r) => r.messages)
 
+/** The file types a conversation exports to. */
+export type ExportFormat = 'markdown' | 'docx' | 'pdf'
+
+/** A link that downloads a conversation, named by the server for its title. */
+export const exportUrl = (threadId: string, format: ExportFormat) =>
+  `/api/chat/threads/${encodeURIComponent(threadId)}/export?format=${format}`
+
 export async function pinThread(id: string, pinned: boolean): Promise<void> {
   const response = await fetch(`/api/chat/threads/${id}/pin`, {
     method: 'PUT',

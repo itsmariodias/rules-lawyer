@@ -169,6 +169,16 @@ export function GraphIcon() {
   )
 }
 
+export function DownloadIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="17" height="17" fill="none"
+         stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"
+         strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 4v11M7 10.5l5 5 5-5M5 20h14" />
+    </svg>
+  )
+}
+
 export function FolderIcon() {
   return (
     <svg viewBox="0 0 24 24" width="14" height="14" fill="none"

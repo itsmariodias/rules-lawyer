@@ -94,9 +94,10 @@ src/rules_lawyer/
       cypher.py       safe, read-only Cypher for the agent
       neighbourhood.py  a bounded walk around one node
       source.py       a citation -> markdown slice and page boxes
-    service.py        ChatService: ask, retry, history, pins, list, delete
+    service.py        ChatService: ask, retry, history, export, pins, list, delete
     turn.py           one turn as a stream of events
     threads.py        stored messages as the turns the UI shows
+    export.py         a conversation as markdown, Word or PDF
     routes.py         /chat, /chat/threads/*, /source, /neighbourhood
 
 tests/                mirrors src/: tests/graph/test_mapping.py tests
@@ -255,6 +256,7 @@ The frontend reaches all of these under `/api`.
 | `GET /chat/threads` | every conversation, pinned first |
 | `GET /chat/threads/{id}` | one conversation's turns |
 | `GET /chat/threads/{id}/lookups/{call_id}` | one tool call's full result |
+| `GET /chat/threads/{id}/export?format=` | the conversation as a download: `markdown` (default), `docx` or `pdf` |
 | `POST /chat/threads/{id}/retry` | ask the last question again |
 | `PUT /chat/threads/{id}/pin` | pin or unpin |
 | `DELETE /chat/threads/{id}` | delete |

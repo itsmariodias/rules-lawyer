@@ -4,6 +4,7 @@ import pytest
 
 from rules_lawyer.chat import service as chat_service
 from rules_lawyer.chat.agent import titles
+from rules_lawyer.chat.export import ExportFormat
 from rules_lawyer.chat.service import ChatService
 from tests.fakes import FakeChatService
 
@@ -280,6 +281,44 @@ class TestHistory:
         # When it is read back
         # Then the route can answer 404 from the emptiness
         assert await service.history("never-used") == []
+
+
+class TestExport:
+    @pytest.mark.asyncio
+    async def test_given_a_titled_thread_when_exported_then_the_file_is_named_for_its_title(
+            self, saver, store):
+        # Given a stored conversation with a title
+        await stored(saver, "kept", *answered("Prone?"))
+        await titles.remember(store, "kept", "Prone condition effects")
+
+        # When it is exported as a PDF
+        exported = await ChatService(saver, store).export("kept", ExportFormat.PDF)
+
+        # Then the file is a PDF named for the title
+        assert exported.file_name == "prone-condition-effects.pdf"
+        assert exported.content.startswith(b"%PDF")
+
+    @pytest.mark.asyncio
+    async def test_given_an_untitled_thread_when_exported_then_the_question_titles_it(
+            self, saver, store):
+        # Given a stored conversation whose title was never made
+        await stored(saver, "kept", *answered("What does Prone do?"))
+
+        # When it is exported
+        exported = await ChatService(saver, store).export("kept", ExportFormat.MARKDOWN)
+
+        # Then the question heads it, as it heads the thread list
+        assert exported.content.decode().startswith("# What does Prone do?\n")
+        assert "Prone creatures crawl." in exported.content.decode()
+
+    @pytest.mark.asyncio
+    async def test_given_an_unknown_thread_when_exported_then_there_is_nothing(
+            self, saver, store):
+        # Given no conversation under an id
+        # When it is exported
+        # Then there is no file, rather than an empty one
+        assert await ChatService(saver, store).export("never-used",
+                                                      ExportFormat.DOCX) is None
 
 
 class TestLookup:

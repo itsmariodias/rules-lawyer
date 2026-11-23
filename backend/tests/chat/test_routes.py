@@ -245,6 +245,53 @@ class TestChatThread:
         assert client.get("/chat/threads/never-used").status_code == 404
 
 
+class TestExportThread:
+    @pytest.mark.neo4j
+    def test_given_a_stored_conversation_when_exported_then_it_downloads_as_a_file(
+            self, client, graph):
+        # Given a conversation with one turn in it
+        client.post("/chat", json={"message": "Prone condition",
+                                   "thread_id": "kept"})
+
+        # When it is exported as a PDF
+        response = client.get("/chat/threads/kept/export", params={"format": "pdf"})
+
+        # Then the browser is handed a PDF to save, named for the thread
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "application/pdf"
+        assert response.headers["content-disposition"] == (
+            'attachment; filename="prone-condition.pdf"')
+        assert response.content.startswith(b"%PDF")
+
+    @pytest.mark.neo4j
+    def test_given_no_format_when_exported_then_it_is_markdown(self, client, graph):
+        # Given a conversation with one turn in it
+        client.post("/chat", json={"message": "Prone condition",
+                                   "thread_id": "kept"})
+
+        # When it is exported without saying how
+        response = client.get("/chat/threads/kept/export")
+
+        # Then it comes as markdown, the question in it
+        assert response.headers["content-type"] == "text/markdown; charset=utf-8"
+        assert "## Question\n\nProne condition" in response.text
+
+    def test_given_an_id_nobody_used_when_exported_then_it_is_a_not_found(self, client):
+        # Given an id nothing was stored under
+        # When it is exported
+        # Then there is no file to download
+        assert client.get("/chat/threads/never-used/export").status_code == 404
+
+    def test_given_an_unknown_format_when_exported_then_it_is_refused(self, client):
+        # Given a file type the export does not make
+        # When it is asked for
+        response = client.get("/chat/threads/kept/export", params={"format": "rtf"})
+
+        # Then the request is refused naming what is allowed
+        assert response.status_code == 422
+        assert "markdown" in response.text
+
+
 class TestPinThread:
     @pytest.mark.neo4j
     def test_given_a_conversation_when_pinned_then_it_sorts_above_the_rest(
