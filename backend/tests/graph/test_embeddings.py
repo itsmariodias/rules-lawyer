@@ -11,7 +11,7 @@ from rules_lawyer.graph import embeddings
 def settings(**overrides) -> EmbeddingSettings:
     """Embedding settings with no API key, whatever ``.env`` says."""
     values = {"google_api_key": None, "model": "test-model", "dimensions": 3,
-              "task_type": "RETRIEVAL_DOCUMENT", "batch": 2, "max_chars": 6000}
+              "batch": 2, "max_chars": 6000}
     return EmbeddingSettings(**(values | overrides))
 
 
@@ -60,6 +60,15 @@ class TestTexts:
         # Then the text is inside it and ends on a whole word
         assert len(built["1"]) <= 50
         assert not built["1"].endswith("wor")
+
+
+    def test_given_a_document_prefix_when_built_then_it_opens_every_text(self):
+        # Given a prefix a model asks for on documents
+        # When the texts are built
+        built = embeddings.texts(DOCUMENT, document_prefix="doc: ")
+
+        # Then it comes before the heading path
+        assert built["1.1.1"] == "doc: Monsters > Goblin > Actions\n\nScimitar. Melee Attack."
 
 
 class TestDigest:
@@ -211,6 +220,35 @@ class TestEmbed:
 
         # Then it waited between attempts, and not after the last
         assert waits == [1, 2, 4, 8]
+
+    @pytest.mark.parametrize(("query", "task"), [
+        (False, "RETRIEVAL_DOCUMENT"), (True, "RETRIEVAL_QUERY")])
+    def test_given_google_when_embedded_then_each_side_is_sent_as_its_task(
+            self, monkeypatch, query, task):
+        # Given Gemini, with its client replaced by one recording each call
+        from google import genai
+
+        sent: list = []
+
+        class Recording:
+            def __init__(self, **_):
+                self.models = self
+
+            def embed_content(self, *, model, contents, config):
+                sent.append(config)
+                return type("Reply", (), {"embeddings": [
+                    type("Item", (), {"values": [1.0, 0.0, 0.0]})()
+                    for _ in contents]})()
+
+        monkeypatch.setattr(genai, "Client", Recording)
+
+        # When a text is embedded as a section or as a question
+        embeddings.embed(["a"], settings(google_api_key="not-a-real-key"),
+                         query=query)
+
+        # Then the task named the side, at the configured width
+        assert [config.task_type for config in sent] == [task]
+        assert sent[0].output_dimensionality == 3
 
     def test_given_openai_when_embedded_then_its_client_gets_the_key_and_width(
             self, monkeypatch):
@@ -383,6 +421,55 @@ class TestResolve:
         # Then none of Gemini's were reused
         assert sum(len(batch) for batch in calls) == 2
 
+    def test_given_a_file_from_another_task_when_resolved_then_it_is_discarded(
+            self, tmp_path):
+        # Given Gemini vectors embedded for some other task
+        path = tmp_path / "e.idx"
+        seed(path, DOCUMENT, task_type="SEMANTIC_SIMILARITY")
+        calls: list[list[str]] = []
+
+        # When the vectors are resolved for Gemini, which embeds the book as
+        # RETRIEVAL_DOCUMENT
+        embeddings.resolve(DOCUMENT, path=path,
+                           settings=settings(google_api_key="k"),
+                           embedder=recorder(calls))
+
+        # Then none were reused
+        assert sum(len(batch) for batch in calls) == 2
+
+    def test_given_a_new_document_prefix_when_resolved_then_every_section_is_re_embedded(
+            self, tmp_path):
+        # Given a complete file made without a prefix
+        path = tmp_path / "e.idx"
+        seed(path, DOCUMENT)
+        calls: list[list[str]] = []
+
+        # When the vectors are resolved with a document prefix
+        embeddings.resolve(DOCUMENT, path=path,
+                           settings=settings(google_api_key="k",
+                                             document_prefix="doc: "),
+                           embedder=recorder(calls))
+
+        # Then every section was embedded again, with the prefix first
+        sent = [text for batch in calls for text in batch]
+        assert len(sent) == 2
+        assert all(text.startswith("doc: ") for text in sent)
+
+    def test_given_a_task_recorded_for_a_model_without_tasks_when_resolved_then_it_is_kept(
+            self, tmp_path):
+        """OpenAI files once recorded Gemini's task, which OpenAI ignores."""
+        # Given an OpenAI file whose header records a task
+        path = tmp_path / "e.openai.idx"
+        seed(path, DOCUMENT, provider="openai", task_type="RETRIEVAL_DOCUMENT")
+
+        # When the vectors are resolved for OpenAI
+        vectors = embeddings.resolve(DOCUMENT, path=path,
+                                     settings=settings(provider="openai"),
+                                     embedder=refuse)
+
+        # Then all were reused
+        assert len(vectors) == 2
+
     def test_given_refresh_when_resolved_then_the_file_is_ignored(self, tmp_path):
         # Given a complete file and a key
         path = tmp_path / "e.idx"
@@ -467,12 +554,14 @@ def refuse(batch, config, report=lambda _: None):  # pragma: no cover
     raise AssertionError("the embedder should not have been called")
 
 
-def seed(path, document, *, dimensions: int = 3, only: list[str] | None = None):
+def seed(path, document, *, dimensions: int = 3, only: list[str] | None = None,
+         provider: str = "google", model: str = "test-model",
+         task_type: str = "RETRIEVAL_DOCUMENT"):
     """Write an ``.idx`` file for ``document``."""
     built = embeddings.texts(document)
     keys = [key for key in built if only is None or key in only]
     embeddings.write(path, embeddings.Vectors(
-        model="test-model", dimensions=dimensions,
-        task_type="RETRIEVAL_DOCUMENT", keys=keys,
+        model=model, dimensions=dimensions, provider=provider,
+        task_type=task_type, keys=keys,
         digests=[embeddings.digest(built[key]) for key in keys],
         rows=[embeddings.normalise([1.0] * dimensions) for _ in keys]))

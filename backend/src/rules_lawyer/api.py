@@ -1,6 +1,9 @@
 """The FastAPI app: each package's router, plus the conversation stores.
 
     uv run uvicorn rules_lawyer.api:app --reload
+
+With ``RULES_LAWYER_SERVE_FRONTEND`` set, the routes move under ``/api`` and
+the built frontend is served at ``/``, as the Docker image runs it.
 """
 
 from __future__ import annotations
@@ -75,6 +78,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(srd_routes.router)
-app.include_router(graph_routes.router)
-app.include_router(chat_routes.router)
+# The frontend calls /api/..., which the Vite dev server strips before
+# proxying; serving the built frontend itself, the API takes that prefix.
+settings = get_settings()
+prefix = "/api" if settings.serve_frontend else ""
+app.include_router(srd_routes.router, prefix=prefix)
+app.include_router(graph_routes.router, prefix=prefix)
+app.include_router(chat_routes.router, prefix=prefix)
+
+if settings.serve_frontend:
+    # Checked after every route; a page navigation to a path with no file
+    # (/chat/<id>) gets index.html, so the frontend can route it.
+    app.frontend("/", directory=settings.frontend_dir, fallback="index.html")

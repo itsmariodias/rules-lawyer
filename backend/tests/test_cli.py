@@ -14,10 +14,10 @@ def run(monkeypatch, capsys):
         seen: dict = {}
 
         def build_graph(input_path, *, reset, skip_verify, embeddings_path,
-                        refresh_embeddings, report):
+                        refresh_embeddings, if_needed, report):
             seen.update(input=input_path, reset=reset, skip_verify=skip_verify,
                         embeddings=embeddings_path,
-                        refresh=refresh_embeddings)
+                        refresh=refresh_embeddings, if_needed=if_needed)
             if isinstance(result, Exception):
                 raise result
             return result
@@ -102,10 +102,20 @@ class TestMain:
         assert seen["reset"] is True
         assert seen["skip_verify"] is False
         assert seen["refresh"] is False
+        assert seen["if_needed"] is False
         assert seen["input"].name == "srd_hierarchy.json"
         # None, so the pipeline falls back to the configured path rather than
         # the CLI deciding it twice.
         assert seen["embeddings"] is None
+
+    def test_given_if_needed_when_run_then_the_pipeline_checks_before_loading(
+            self, run):
+        # Given the flag that loads only a graph failing verification
+        _, _, seen = run(["--if-needed"], report())
+
+        # When the pipeline is called
+        # Then it is told to verify the graph already there first
+        assert seen["if_needed"] is True
 
     def test_given_no_reset_when_run_then_the_existing_graph_is_kept(self, run):
         # Given the flag that merges instead of emptying
@@ -142,3 +152,21 @@ class TestMain:
         # When the pipeline is called
         # Then it is told not to trust what is on disk
         assert seen["refresh"] is True
+
+
+class TestRunEmbed:
+    @pytest.mark.parametrize(("task", "summary"), [
+        ("RETRIEVAL_DOCUMENT", "2173 embeddings, m at 1536 dimensions (RETRIEVAL_DOCUMENT)\n"),
+        (None, "2173 embeddings, m at 1536 dimensions\n")])
+    def test_given_embeddings_built_when_run_then_a_task_is_named_only_if_the_model_has_one(
+            self, monkeypatch, capsys, task, summary):
+        # Given an embedding run whose model takes a task, or none
+        monkeypatch.setattr(cli, "build_embeddings", lambda *_, **__: {
+            "count": 2173, "model": "m", "dimensions": 1536,
+            "task_type": task, "output": "srd_embeddings.idx"})
+
+        # When the embed command finishes
+        cli.main(["embed"])
+
+        # Then the summary names the task only when there is one
+        assert summary in capsys.readouterr().out

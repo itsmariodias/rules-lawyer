@@ -86,6 +86,27 @@ class TestSettingsPaths:
         # Then that is what is used, with ``~`` expanded
         assert settings.embeddings_path == Path.home() / "Downloads/srd.idx"
 
+    def test_given_a_blank_embeddings_path_when_read_then_the_default_is_used(
+            self, settings_env):
+        # Given an embeddings path set, but to nothing, as compose sets it to
+        # keep a host path in .env out of the container
+        settings = settings_env(RULES_LAWYER_ROOT="/srv/app",
+                                RULES_LAWYER_EMBEDDINGS="")
+
+        # When the path is read
+        # Then it is the provider's default, not the working directory
+        assert settings.embeddings_path == Path(
+            "/srv/app/data/output/srd_embeddings.idx")
+
+    def test_given_a_root_when_the_frontend_is_read_then_it_is_the_build_under_it(self):
+        # Given a settings object rooted somewhere other than the checkout
+        settings = Settings(root=Path("/srv/app"))
+
+        # When the frontend directory is read
+        # Then it is where `npm run build` writes, and is not served by default
+        assert settings.frontend_dir == Path("/srv/app/frontend/dist")
+        assert settings.serve_frontend is False
+
     def test_given_conversation_files_when_read_then_they_sit_outside_output(self):
         # Given the settings
         settings = Settings(root=Path("/srv/app"))
@@ -235,7 +256,6 @@ class TestEmbeddingSettings:
         # Then it is the pinned one, at the width the file is written for
         assert settings.model == "gemini-embedding-001"
         assert settings.dimensions == 1536
-        assert settings.task_type == "RETRIEVAL_DOCUMENT"
 
     def test_given_a_blank_key_when_read_then_it_counts_as_no_key_at_all(self):
         # Given a key set to nothing

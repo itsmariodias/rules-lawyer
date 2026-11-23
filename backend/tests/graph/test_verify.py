@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 from rules_lawyer.graph import mapping
@@ -116,3 +118,18 @@ class TestVerify:
         assert orphans == {"Section": 3, "FrontMatter": 3}
         assert not [c for c in verified["failures"]
                     if c["check"] == "unexpected orphan nodes"]
+
+    def test_given_vectors_other_than_those_loaded_when_verified_then_the_difference_fails(
+            self, verified, document, vectors, graph_session):
+        """Same count and width, as another model's vectors would have."""
+        # Given vectors that differ from the loaded ones in one section
+        other = dataclasses.replace(
+            vectors, rows=[[-value for value in vectors.rows[0]], *vectors.rows[1:]])
+
+        # When the graph is verified against them
+        report = verify(document, mapping.build(document), graph_session, other)
+
+        # Then that one section is counted as differing
+        [failure] = [c for c in report["failures"]
+                     if c["check"] == "embeddings differing from the vectors"]
+        assert failure["found"] == 1

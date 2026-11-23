@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 if TYPE_CHECKING:
     from langchain_core.language_models import BaseChatModel
@@ -22,6 +22,21 @@ if TYPE_CHECKING:
 
 # Embeds one batch of texts, one vector per text.
 Embedder = Callable[[list[str]], list[list[float]]]
+
+
+class EmbeddingTasks(NamedTuple):
+    """What an embedding model is told each side's texts are for.
+
+    A model trained on two tasks embeds a question toward the passages
+    answering it, not toward text worded like it.
+
+    Attributes:
+        document: For the book's sections.
+        query: For questions.
+    """
+
+    document: str
+    query: str
 
 
 class Provider(StrEnum):
@@ -121,11 +136,25 @@ class ModelProvider:
             options[self.max_tokens_option] = settings.max_tokens
         return options
 
-    def embedder(self, settings: EmbeddingSettings) -> Embedder:
+    def embedding_tasks(self, model: str) -> EmbeddingTasks | None:
+        """The tasks an embedding model of this provider takes.
+
+        Args:
+            model: The embedding model.
+
+        Returns:
+            Its tasks, or None if it embeds both sides alike.
+        """
+        return None
+
+    def embedder(self, settings: EmbeddingSettings, *,
+                 query: bool = False) -> Embedder:
         """A function embedding one batch with this provider.
 
         Args:
             settings: The embedding settings; ``model`` is set.
+            query: Embed questions rather than the book's sections.  Only a
+                model with ``embedding_tasks`` embeds them differently.
 
         Returns:
             The function, holding one client for every batch.
@@ -178,14 +207,20 @@ class Google(ModelProvider):
     rejected_key = ("API_KEY_INVALID", "API key not valid")
     rate_limited = ("RESOURCE_EXHAUSTED", "429")
 
-    def embedder(self, settings: EmbeddingSettings) -> Embedder:
-        """``google-genai`` directly, for the task type and the width."""
+    def embedding_tasks(self, model: str) -> EmbeddingTasks:
+        """Gemini's retrieval pair, the ``task_type`` of every request."""
+        return EmbeddingTasks(document="RETRIEVAL_DOCUMENT", query="RETRIEVAL_QUERY")
+
+    def embedder(self, settings: EmbeddingSettings, *,
+                 query: bool = False) -> Embedder:
+        """``google-genai`` directly, for the task and the width."""
         from google import genai
         from google.genai import types
 
         client = genai.Client(api_key=self.api_key(settings).get_secret_value())
+        tasks = self.embedding_tasks(settings.model)
         config = types.EmbedContentConfig(
-            task_type=settings.task_type,
+            task_type=tasks.query if query else tasks.document,
             output_dimensionality=settings.dimensions)
         return lambda chunk: [
             item.values for item in client.models.embed_content(
@@ -215,7 +250,8 @@ class OpenAI(ModelProvider):
             options["base_url"] = settings.openai_base_url
         return options
 
-    def embedder(self, settings: EmbeddingSettings) -> Embedder:
+    def embedder(self, settings: EmbeddingSettings, *,
+                 query: bool = False) -> Embedder:
         """LangChain's ``OpenAIEmbeddings``, at the configured width."""
         from langchain_openai import OpenAIEmbeddings
 
@@ -254,7 +290,8 @@ class Ollama(ModelProvider):
         """Also the server's address."""
         return super().chat_options(settings) | {"base_url": settings.ollama_base_url}
 
-    def embedder(self, settings: EmbeddingSettings) -> Embedder:
+    def embedder(self, settings: EmbeddingSettings, *,
+                 query: bool = False) -> Embedder:
         """LangChain's ``OllamaEmbeddings``, at the model's own width."""
         from langchain_ollama import OllamaEmbeddings
 

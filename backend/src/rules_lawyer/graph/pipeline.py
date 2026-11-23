@@ -16,6 +16,7 @@ def build_graph(input_path: Path | None = None, *, reset: bool = True,
                 skip_verify: bool = False,
                 embeddings_path: Path | None = None,
                 refresh_embeddings: bool = False,
+                if_needed: bool = False,
                 report: Report = lambda _: None) -> dict:
     """Load the artifact and its vectors into the configured Neo4j database.
 
@@ -25,10 +26,14 @@ def build_graph(input_path: Path | None = None, *, reset: bool = True,
         skip_verify: Skip ``verify``; ``validation.ok`` is then None.
         embeddings_path: Defaults to ``settings.embeddings_path``.
         refresh_embeddings: Re-embed every section.
+        if_needed: Verify the graph already there first, and load only if a
+            check fails.
         report: Receives progress lines.
 
     Returns:
-        ``load_graph``'s report, plus ``validation`` and ``input``.
+        ``load_graph``'s report, plus ``validation``, ``input`` and
+        ``loaded``; only the last three when ``if_needed`` found nothing to
+        load.
 
     Raises:
         FileNotFoundError: The artifact does not exist.
@@ -52,6 +57,14 @@ def build_graph(input_path: Path | None = None, *, reset: bool = True,
         report=report)
 
     with session(settings.neo4j) as open_session:
+        if if_needed:
+            report("verifying the graph already loaded")
+            existing = verification.verify(document, data, open_session, vectors)
+            if existing["ok"]:
+                report("the graph already matches the artifact")
+                return {"validation": existing, "input": str(input_path),
+                        "loaded": False}
+            report(f"{len(existing['failures'])} checks failed; loading")
         result = load_graph(data, open_session, vectors=vectors, reset=reset,
                             batch_size=settings.neo4j.batch_size,
                             embedding_batch_size=settings.embedding.write_batch,
@@ -64,6 +77,7 @@ def build_graph(input_path: Path | None = None, *, reset: bool = True,
                                                        open_session, vectors)
 
     result["input"] = str(input_path)
+    result["loaded"] = True
     return result
 
 

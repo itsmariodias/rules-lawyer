@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import logging
 import subprocess
 import sys
@@ -7,7 +8,9 @@ import sys
 import pytest
 from fastapi.testclient import TestClient
 
+from rules_lawyer import api
 from rules_lawyer.api import app
+from rules_lawyer.config import get_settings
 
 
 def routes_of(application) -> set[str]:
@@ -56,6 +59,93 @@ class TestApp:
         # Then it is the document /docs renders
         assert schema["info"]["title"] == "D&D SRD graph RAG"
         assert "/chat" in schema["paths"]
+
+
+@pytest.fixture
+def served(tmp_path, settings_env):
+    """The app as the image runs it, over a stand-in frontend build.
+
+    The routes are assembled at import, so the module is reloaded under the
+    flag, and again without it afterwards so later tests get the dev app.
+    """
+    build = tmp_path / "frontend" / "dist"
+    (build / "assets").mkdir(parents=True)
+    (build / "index.html").write_text("<div id=root></div>")
+    (build / "assets" / "app.js").write_text("console.log('app')")
+    settings_env(RULES_LAWYER_SERVE_FRONTEND="true",
+                 RULES_LAWYER_ROOT=str(tmp_path),
+                 RULES_LAWYER_DATA=str(tmp_path / "data"))
+    yield importlib.reload(api).app
+    get_settings.cache_clear()
+    importlib.reload(api)
+
+
+class TestServeFrontend:
+    def test_given_no_flag_when_built_then_the_api_is_at_the_root_and_alone(self):
+        # Given the app as the dev server runs it
+        with TestClient(app) as client:
+            # When the root and the health check are requested
+            page = client.get("/", headers={"Accept": "text/html"})
+            health = client.get("/health")
+
+        # Then there is no page, and the API answers without a prefix
+        assert page.status_code == 404
+        assert health.status_code == 200
+
+    def test_given_the_flag_when_the_root_is_opened_then_the_page_is_served(
+            self, served):
+        # Given the app serving the frontend
+        with TestClient(served) as client:
+            # When the browser opens the root
+            response = client.get("/", headers={"Accept": "text/html"})
+
+        # Then it gets the frontend's page
+        assert response.status_code == 200
+        assert "<div id=root>" in response.text
+
+    def test_given_the_flag_when_a_thread_path_is_opened_then_the_page_is_served(
+            self, served):
+        # Given the app serving the frontend
+        with TestClient(served) as client:
+            # When the browser reloads a conversation's path, which no file has
+            response = client.get("/chat/0b6e", headers={"Accept": "text/html"})
+
+        # Then it gets the page, which routes the path itself
+        assert response.status_code == 200
+        assert "<div id=root>" in response.text
+
+    def test_given_the_flag_when_an_asset_is_requested_then_the_file_is_served(
+            self, served):
+        # Given the app serving the frontend
+        with TestClient(served) as client:
+            # When the page asks for one of its scripts
+            response = client.get("/assets/app.js")
+
+        # Then it is the file itself
+        assert response.text == "console.log('app')"
+
+    def test_given_the_flag_when_the_api_is_called_then_it_answers_under_api(
+            self, served):
+        # Given the app serving the frontend
+        with TestClient(served) as client:
+            # When the health check is called where the frontend calls it
+            response = client.get("/api/health")
+
+            # Then the API answers, with its stores opened by the lifespan
+            assert response.json()["status"] == "ok"
+            assert served.state.checkpointer is not None
+            assert served.state.store is not None
+
+    def test_given_the_flag_when_an_unknown_api_path_is_called_then_it_is_not_the_page(
+            self, served):
+        # Given the app serving the frontend
+        with TestClient(served) as client:
+            # When the frontend calls an API path nothing serves
+            response = client.get("/api/nothing-here")
+
+        # Then it is a 404, not the page in its place
+        assert response.status_code == 404
+        assert "<div id=root>" not in response.text
 
 
 class TestRouteIsolation:

@@ -137,8 +137,9 @@ class ChatSettings(Credentials):
 class EmbeddingSettings(Credentials):
     """Settings for ``rules-lawyer embed``.
 
-    Provider, model, dimensions and task type are written into the ``.idx``
-    header; a file made under different values is discarded whole on load.
+    Provider, model and dimensions, and the provider's task, are written into
+    the ``.idx`` header; a file made under different values is discarded
+    whole on load.
     Keys are optional: a complete ``.idx`` needs none.
     """
 
@@ -150,11 +151,14 @@ class EmbeddingSettings(Credentials):
     # at full width, so ``embeddings.embed`` normalises itself.  Other models
     # must return exactly this width.
     dimensions: int = 1536
-    # Gemini only.
-    task_type: str = "RETRIEVAL_DOCUMENT"
     batch: int = 32
     # ~1500 tokens, under the model's input cap.  One SRD section exceeds it.
     max_chars: int = 6000
+    # Put before every section and every question, for a model trained with a
+    # pair of prefixes.  The document prefix is part of each digest, so
+    # changing it re-embeds every section.
+    document_prefix: str = ""
+    query_prefix: str = ""
     # Rows per transaction; lower than the loader's 1000 because each row is
     # 1536 floats.
     write_batch: int = 200
@@ -191,13 +195,21 @@ class Settings(BaseSettings):
     # to LangGraph.
     store_name: str = "chat-store.sqlite"
     # Overridable on its own, for a downloaded copy kept outside data/.
-    embeddings: Path | None = None
+    # Blank is unset, so a container can clear a host path set in .env.
+    embeddings: Annotated[Path | None, BeforeValidator(_blank_is_absent)] = None
     embeddings_name: str = "srd_embeddings.idx"
+    # The API under /api and the built frontend at /, as one server.
+    serve_frontend: bool = False
 
     @property
     def data_dir(self) -> Path:
         """``RULES_LAWYER_DATA`` if set, else ``<root>/data``."""
         return self.data.expanduser() if self.data else self.root / "data"
+
+    @property
+    def frontend_dir(self) -> Path:
+        """The built frontend (``npm run build``), served when ``serve_frontend``."""
+        return self.root / "frontend" / "dist"
 
     @property
     def source_dir(self) -> Path:

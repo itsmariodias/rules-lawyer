@@ -1,3 +1,7 @@
+<div align="center">
+
+<img src="frontend/src/logo.svg" alt="" width="96" height="96">
+
 # Rules Lawyer
 
 [![CI](https://github.com/itsmariodias/rules-lawyer/actions/workflows/ci.yml/badge.svg)](https://github.com/itsmariodias/rules-lawyer/actions/workflows/ci.yml)
@@ -6,6 +10,8 @@
 [![Python 3.12+](https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2Fitsmariodias%2Frules-lawyer%2Fmain%2Fbackend%2Fpyproject.toml&logo=python&logoColor=white&color=3776AB)](backend/pyproject.toml)
 [![Node 22](https://img.shields.io/badge/node-22-5FA04E?logo=nodedotjs&logoColor=white)](.github/workflows/ci.yml)
 [![Neo4j 5.26](https://img.shields.io/badge/neo4j-5.26-4581C3?logo=neo4j&logoColor=white)](docker-compose.yml)
+
+</div>
 
 Every table has one: the player who stops the game to ask whether you can
 really grapple a gelatinous cube. Rules Lawyer is that player, except it
@@ -47,9 +53,68 @@ searched by a tool-calling agent.
 
 [GRAPH.md](GRAPH.md) documents every node label and relationship type.
 
+## Run with Docker
+
+You need **Docker** and a model provider (a **Gemini API key** by default).
+
+### How to run
+
+Only the compose file is needed, no clone:
+
+```bash
+mkdir rules-lawyer && cd rules-lawyer
+curl -fsSLO https://raw.githubusercontent.com/itsmariodias/rules-lawyer/main/docker-compose.yml
+printf 'NEO4J_PASSWORD=choose-one\nGOOGLE_API_KEY=your-key\n' > .env
+docker compose up -d
+```
+
+Then open <http://localhost:8080> (`RULES_LAWYER_PORT` changes the port).
+The published image (`ghcr.io/itsmariodias/rules-lawyer`) has the SRD parsed
+and embedded, so the first start loads the graph in about a minute without
+spending API calls. Later starts load it again only if the image changed.
+
+### Develop with compose
+
+From a clone, compose builds the image from your checkout:
+
+```bash
+git clone https://github.com/itsmariodias/rules-lawyer.git && cd rules-lawyer
+cp .env.example .env            # set NEO4J_PASSWORD and GOOGLE_API_KEY
+docker compose up -d --build
+```
+
+To load the graph again anyway:
+
+```bash
+docker compose run --rm loader rules-lawyer load
+```
+
+For the API and frontend with live reload, see [Quickstart](#quickstart).
+
+### Configuration
+
+Conversations are kept in the `chat` volume. The same `.env` configures
+[other model providers](#other-model-providers), with two differences:
+
+- **Ollama on your machine** is `OLLAMA_BASE_URL=http://host.docker.internal:11434`.
+- **Another embedding provider** cannot use the embeddings in the image. With
+  its key in `.env`, the loader embeds the SRD itself each time it loads.
+  To use an `.idx` you already have, mount it in a
+  `docker-compose.override.yml` beside `docker-compose.yml`, which compose
+  reads on its own:
+
+  ```yaml
+  services:
+    loader:
+      volumes:
+        - /path/to/srd_embeddings.openai.idx:/embeddings.idx:ro
+      environment:
+        RULES_LAWYER_EMBEDDINGS: /embeddings.idx
+  ```
+
 ## Quickstart
 
-You need **Python 3.12+** with [uv](https://docs.astral.sh/uv/),
+To develop it, you need **Python 3.12+** with [uv](https://docs.astral.sh/uv/),
 **Node 22+**, **Docker**, and a model provider: a **Gemini API key** by
 default, or OpenAI, Anthropic or a local Ollama (see
 [Other model providers](#other-model-providers)).
@@ -153,13 +218,17 @@ truncated (Gemini and OpenAI's `text-embedding-3` can), then embed and load:
 
 ```text
 EMBED_PROVIDER=ollama
-EMBED_MODEL=nomic-embed-text
-EMBED_DIMENSIONS=768
+EMBED_MODEL=your-embedding-model
+EMBED_DIMENSIONS=its-width
 ```
 
 ```bash
 uv run rules-lawyer embed && uv run rules-lawyer load
 ```
+
+If the model's card asks for a prefix on documents and another on queries,
+set `EMBED_DOCUMENT_PREFIX` and `EMBED_QUERY_PREFIX`, quoted to keep a
+trailing space. Changing the document prefix re-embeds every section.
 
 Without the embedding provider's key, search is lexical only.
 

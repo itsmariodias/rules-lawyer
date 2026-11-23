@@ -52,6 +52,34 @@ class TestBuildGraph:
         assert result["nodes_written"] > 0
         assert result["relationships_written"] > 0
 
+    @pytest.mark.neo4j
+    def test_given_a_graph_that_verifies_when_run_if_needed_then_nothing_is_loaded(
+            self, graph):
+        # Given the artifact already loaded
+        lines: list[str] = []
+
+        # When the graph is built only if needed
+        result = pipeline.build_graph(if_needed=True, report=lines.append)
+
+        # Then it was verified and left as it was
+        assert result["loaded"] is False
+        assert result["validation"]["ok"] is True
+        assert "the graph already matches the artifact" in lines
+
+    @pytest.mark.neo4j
+    def test_given_a_graph_that_fails_a_check_when_run_if_needed_then_it_is_loaded(
+            self, graph):
+        # Given a loaded graph missing one section's vector
+        graph.run("MATCH (n:Section) WHERE n.embedding IS NOT NULL "
+                  "WITH n LIMIT 1 REMOVE n.embedding")
+
+        # When the graph is built only if needed
+        result = pipeline.build_graph(if_needed=True)
+
+        # Then it was loaded again, and now verifies
+        assert result["loaded"] is True
+        assert result["validation"]["ok"] is True
+
 
 @pytest.mark.neo4j
 class TestCounts:

@@ -6,6 +6,7 @@ collections), never from the loader's tally.
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING, Any
 
 from rules_lawyer.graph import mapping
@@ -15,6 +16,10 @@ from rules_lawyer.graph.schema import VECTOR_NAME, vector_index_width
 
 if TYPE_CHECKING:  # pragma: no cover
     from neo4j import Session
+
+# The cosine above which a stored vector counts as the one being loaded. Not
+# equality: the same text embedded twice need not return identical floats.
+SAME_VECTOR = 0.999
 
 
 def _scalar(session: Session, query: str, **parameters: Any) -> Any:
@@ -48,7 +53,7 @@ def verify(document: dict, data: GraphData, session: Session,
         document: The stage 1 artifact.
         data: What ``mapping.build`` produced from it.
         session: An open session on the loaded database.
-        vectors: The vectors that were written.
+        vectors: The vectors the graph should hold.
 
     Returns:
         ``ok``, the number of ``checks``, the ``failures``, mapper
@@ -177,6 +182,18 @@ def verify(document: dict, data: GraphData, session: Session,
            _scalar(session, "MATCH (n:Section) WHERE n.embedding IS NOT NULL "
                             "AND size(n.embedding) <> $width RETURN count(n)",
                    width=vectors.dimensions))
+    # Count and width alone pass another model's vectors of the same width,
+    # and a section whose text changed would keep its old vector.
+    expected = dict(zip(vectors.keys, vectors.rows))
+    differing = 0
+    for record in session.run("MATCH (n:Section) WHERE n.embedding IS NOT NULL "
+                              "RETURN n.id AS id, n.embedding AS embedding"):
+        row, stored = expected.get(record["id"]), record["embedding"]
+        if row is None or len(row) != len(stored) or (
+                math.sumprod(row, stored)
+                < SAME_VECTOR * math.hypot(*row) * math.hypot(*stored)):
+            differing += 1
+    _check(checks, "embeddings differing from the vectors", 0, differing)
     online = [row for row in session.run("SHOW VECTOR INDEXES").data()
               if row.get("name") == VECTOR_NAME]
     _check(checks, f"{VECTOR_NAME} index online", "ONLINE",
