@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 
 import pytest
 from fastapi.testclient import TestClient
 
 from rules_lawyer.api import app
+from rules_lawyer.chat.export import MEDIA_TYPES, ExportFormat, render
 from rules_lawyer.chat.routes import chat_service
 from tests.fakes import fake_chat_service
 
@@ -275,6 +277,26 @@ class TestExportThread:
         # Then it comes as markdown, the question in it
         assert response.headers["content-type"] == "text/markdown; charset=utf-8"
         assert "## Question\n\nProne condition" in response.text
+
+    def test_given_a_format_when_exported_then_the_service_file_is_the_attachment(
+            self, client):
+        # Given a service holding one conversation, which needs no graph
+        class OneThread:
+            async def export(self, thread_id, kind):
+                turns = [{"role": "user", "content": "Prone condition"}]
+                return render("Prone condition", turns, kind, date(2026, 11, 23))
+
+        app.dependency_overrides[chat_service] = OneThread
+
+        # When it is exported as a Word document
+        response = client.get("/chat/threads/kept/export", params={"format": "docx"})
+
+        # Then the browser is handed that file to save, named for the thread
+        assert response.status_code == 200
+        assert response.headers["content-type"] == MEDIA_TYPES[ExportFormat.DOCX]
+        assert response.headers["content-disposition"] == (
+            'attachment; filename="prone-condition.docx"')
+        assert response.content.startswith(b"PK")
 
     def test_given_an_id_nobody_used_when_exported_then_it_is_a_not_found(self, client):
         # Given an id nothing was stored under

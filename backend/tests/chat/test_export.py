@@ -9,6 +9,7 @@ import pytest
 
 from rules_lawyer.chat.export import (
     ATTRIBUTION,
+    MONOSPACE,
     ExportFormat,
     file_name,
     render,
@@ -190,6 +191,31 @@ class TestToDocx:
         assert runs == [("A ", False, False), ("Prone", True, False),
                         (" ", False, False), ("creature", False, True),
                         (".", False, False)]
+
+    def test_given_code_when_written_then_it_is_set_in_monospace(self):
+        # Given inline code, a fenced block and an indented block
+        markdown = "Roll `1d20`.\n\n```\nMATCH (s)\nRETURN s\n```\n\n    indented\n"
+
+        # When it is written as a Word document
+        document = docx.Document(io.BytesIO(to_docx(markdown, "x")))
+
+        # Then the code keeps its lines, in a monospace font
+        inline, fenced, indented = document.paragraphs
+        assert [(r.text, r.font.name) for r in inline.runs] == [
+            ("Roll ", None), ("1d20", MONOSPACE), (".", None)]
+        assert (fenced.style.name, fenced.text) == ("No Spacing", "MATCH (s)\nRETURN s")
+        assert indented.text == "indented"
+        assert {r.font.name for r in fenced.runs + indented.runs} == {MONOSPACE}
+
+    def test_given_line_breaks_when_written_then_only_a_hard_break_breaks_the_line(self):
+        # Given a paragraph wrapped once and broken once with a trailing backslash
+        markdown = "A Prone\ncreature\\\ncrawls."
+
+        # When it is written as a Word document
+        [paragraph] = docx.Document(io.BytesIO(to_docx(markdown, "x"))).paragraphs
+
+        # Then the wrap is a space and the break a new line
+        assert paragraph.text == "A Prone creature\ncrawls."
 
     def test_given_a_table_when_written_then_word_has_a_table_with_a_bold_header(self):
         # Given an answer with a table
