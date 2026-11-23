@@ -27,10 +27,17 @@ jobs:
       - name: Lint
         run: uv run ruff check
       # Parsing also checks the book against itself, and gives the tests the
-      # artifact they need. Without embeddings or a key, the tests needing
-      # vectors skip; the Neo4j tests start their own container.
+      # artifact they need. The Neo4j tests start their own container.
       - name: Parse the SRD
         run: uv run rules-lawyer parse
+      # The vectors the image ships, so the tests needing them run. The
+      # Dockerfile names the release asset and its checksum.
+      - name: Fetch the embeddings
+        run: |
+          url=$(sed -n 's/^ARG EMBEDDINGS_URL=//p' ../Dockerfile)
+          sum=$(sed -n 's/^ARG EMBEDDINGS_SHA256=//p' ../Dockerfile)
+          curl -fsSL "$url" -o ../data/output/srd_embeddings.idx
+          echo "$sum  ../data/output/srd_embeddings.idx" | sha256sum -c -
       - name: Test
         run: uv run pytest --cov=rules_lawyer --cov-report=xml --cov-report=term:skip-covered
       # Uploads need no token once the repository is public.

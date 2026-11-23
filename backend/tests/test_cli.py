@@ -169,3 +169,21 @@ class TestMain:
         # When the pipeline is called
         # Then it is told not to trust what is on disk
         assert seen["refresh"] is True
+
+
+class TestRunEmbed:
+    @pytest.mark.parametrize(("task", "summary"), [
+        ("RETRIEVAL_DOCUMENT", "2173 embeddings, m at 1536 dimensions (RETRIEVAL_DOCUMENT)\n"),
+        (None, "2173 embeddings, m at 1536 dimensions\n")])
+    def test_given_embeddings_built_when_run_then_a_task_is_named_only_if_the_model_has_one(
+            self, monkeypatch, capsys, task, summary):
+        # Given an embedding run whose model takes a task, or none
+        monkeypatch.setattr(cli, "build_embeddings", lambda *_, **__: {
+            "count": 2173, "model": "m", "dimensions": 1536,
+            "task_type": task, "output": "srd_embeddings.idx"})
+
+        # When the embed command finishes
+        cli.main(["embed"])
+
+        # Then the summary names the task only when there is one
+        assert summary in capsys.readouterr().out

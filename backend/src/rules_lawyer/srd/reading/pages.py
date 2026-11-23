@@ -13,7 +13,7 @@ from rules_lawyer.srd.model import Box
 # parsed artifact, leaves it out. Annotations are strings, so they need none.
 try:
     import pymupdf
-except ModuleNotFoundError:
+except ModuleNotFoundError:  # pragma: no cover - installed wherever tests run
     pymupdf = None
 
 # Measured over all 364 pages: the only text below this baseline is the
