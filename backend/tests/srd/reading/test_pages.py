@@ -224,16 +224,6 @@ class TestReadPages:
         assert book.title == "System Reference Document 5.2.1"
         assert len(book.pages) == 364
 
-    def test_given_no_pymupdf_when_read_then_the_error_says_how_to_install_it(
-            self, monkeypatch, tmp_path):
-        # Given an environment without PyMuPDF, as the Docker image is
-        monkeypatch.setattr("rules_lawyer.srd.reading.pages.pymupdf", None)
-
-        # When a PDF is read
-        # Then the failure names the package and the command that installs it
-        with pytest.raises(ModuleNotFoundError, match="PyMuPDF.*uv sync"):
-            read_pages(tmp_path / "srd.pdf")
-
 
 class TestBoxesOf:
     def test_given_a_line_when_boxed_then_its_height_comes_from_baseline_and_size(self):

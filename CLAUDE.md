@@ -85,16 +85,18 @@ backend/src/rules_lawyer/
       cypher.py      guard, read-only transaction, derived schema, rendering
       neighbourhood.py  bounded walk around one node (graph view and tool)
       source.py      a citation -> markdown slice and page rectangles
-    service.py       ChatService: ask, retry, history, lookups, pins, list,
-                     delete; builds its model only to answer
+    service.py       ChatService: ask, retry, history, lookups, export, pins,
+                     list, delete; builds its model only to answer
     turn.py          one turn -> typed event stream
     threads.py       stored messages -> UI turns, traces and results (no I/O)
+    export.py        a thread's turns -> markdown, Word or PDF (no I/O)
     routes.py        /chat, /chat/threads/*, /source/{id}, /neighbourhood
 
 frontend/src/
   api.ts             client; ChatEvent mirrors turn.py's events
   App.tsx            shell: layout, panel state, composer
   chat/              ChatMessage, Markdown, ToolTrace, Timing, Usage,
+                     ExportChat (the open thread's download menu),
                      useChat (conversation state for the open thread) and
                      route (that thread's path)
   sidebar/           Sidebar, and useGraphStatus (polled until connected)
@@ -270,6 +272,7 @@ POST /chat                            {"message", "thread_id"} -> SSE; 503 if no
 GET  /chat/threads                    pinned first, then newest
 GET  /chat/threads/{id}               one conversation's turns
 GET  /chat/threads/{id}/lookups/{call_id}  one tool call's stored result
+GET  /chat/threads/{id}/export?format=markdown|docx|pdf  a download
 POST /chat/threads/{id}/retry         re-ask the last question -> SSE; 404 empty
 PUT  /chat/threads/{id}/pin           {"pinned"}; 404 if no such thread
 DEL  /chat/threads/{id}               delete; 404 if no such thread
@@ -868,6 +871,10 @@ and `retry` read it, so stored conversations open without a key.
 - **Turns are dated from the checkpoint** (`written_at`: the earliest
   checkpoint containing each message). Durations are measured in the browser,
   from send to stream end.
+- **Exports render from `history`** (`chat/export.py`): markdown first,
+  then Word and PDF from it, so the three agree. Every file ends with the
+  SRD attribution, which the licence requires. Word gets ordered items'
+  numbers as text, since its own numbering runs on between lists.
 
 ## Frontend
 
@@ -895,6 +902,9 @@ browser stays on one origin and the SSE stream shares it.
   right-aligned column, and replaces a dotted id with the heading the server
   resolved. Replayed conversations start collapsed.
 - **Usage** shows the total; the in / out / calls split is on hover.
+- **Export** (open thread only) is a native popover of download links,
+  placed by CSS anchor positioning. jsdom has no popovers, so tests check
+  its wiring only.
 
 ### Thread list
 
@@ -1025,13 +1035,8 @@ development.
   runtime writes get their owner as they are copied, since a `chown -R`
   afterwards stores them twice. Every provider extra is installed. It runs
   as `app` (uid 1000).
-- **No PyMuPDF at run time.** It is the `pdf` dependency group, which `uv
-  sync` installs by default (`default-groups`), so development and CI are
-  unchanged; the runtime syncs with `--no-group pdf` (58 MB). Only
-  `read_pages` needs it, so `pages.py` imports it if present and
-  `read_pages` raises `ModuleNotFoundError` naming it: `rules-lawyer parse`
-  reports it as a message and `/parse` answers 501. The image is 419 MB, 90
-  MB compressed.
+- **PyMuPDF ships in the image** (58 MB), though the image never parses:
+  the chat's PDF export renders with it (`pymupdf.Story`).
 - **The embeddings are a release asset** (`embeddings-v1`), fetched by
   `ADD --checksum`, because `data/output/` is not in the repository and a
   load needs vectors. A parser change that alters any section's text needs

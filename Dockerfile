@@ -42,10 +42,10 @@ ENV UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
 WORKDIR /app/backend
 COPY backend/pyproject.toml backend/uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev --no-group pdf --all-extras --no-install-project
+    uv sync --locked --no-dev --all-extras --no-install-project
 COPY backend/ ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev --no-group pdf --all-extras
+    uv sync --locked --no-dev --all-extras
 
 FROM python:${PYTHON_VERSION}-slim
 ENV PATH=/app/backend/.venv/bin:$PATH \

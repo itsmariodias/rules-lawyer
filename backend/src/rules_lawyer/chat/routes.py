@@ -13,12 +13,13 @@ from collections.abc import AsyncIterator, Iterator
 from contextlib import contextmanager
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from rules_lawyer.chat.agent.model import ModelUnavailable
+from rules_lawyer.chat.export import ExportFormat
 from rules_lawyer.chat.retrieval import neighbourhood as graph_view
 from rules_lawyer.chat.retrieval.source import excerpt
 from rules_lawyer.chat.service import ChatService
@@ -182,6 +183,33 @@ async def chat_thread(thread_id: str, service: Chat) -> dict:
     if not messages:
         raise HTTPException(status_code=404, detail=f"no thread {thread_id!r}")
     return {"thread_id": thread_id, "messages": messages}
+
+
+@router.get("/chat/threads/{thread_id}/export")
+async def export_thread(
+        thread_id: str, service: Chat,
+        kind: Annotated[ExportFormat, Query(alias="format")] = ExportFormat.MARKDOWN,
+) -> Response:
+    """One conversation as a file to download: markdown, Word or PDF.
+
+    Args:
+        thread_id: The conversation.
+        service: Conversations.
+        kind: The file type, ``?format=markdown|docx|pdf``.
+
+    Returns:
+        The file, as an attachment named for the thread's title.
+
+    Raises:
+        HTTPException: 404 if the thread does not exist.
+    """
+    exported = await service.export(thread_id, kind)
+    if exported is None:
+        raise HTTPException(status_code=404, detail=f"no thread {thread_id!r}")
+    return Response(
+        exported.content, media_type=exported.media_type,
+        headers={"Content-Disposition":
+                 f'attachment; filename="{exported.file_name}"'})
 
 
 @router.get("/chat/threads/{thread_id}/lookups/{call_id}")

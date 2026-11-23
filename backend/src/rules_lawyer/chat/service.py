@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+from datetime import date
 from functools import cached_property
 from uuid import uuid4
 
@@ -21,6 +22,7 @@ from neo4j.exceptions import ServiceUnavailable
 from rules_lawyer.chat import threads
 from rules_lawyer.chat.agent import titles
 from rules_lawyer.chat.agent.model import model as configured_model
+from rules_lawyer.chat.export import Export, ExportFormat, render
 from rules_lawyer.chat.turn import stream_turn, thread_config
 
 PINS = ("threads", "pinned")
@@ -186,6 +188,27 @@ class ChatService:
 
         # Both resolve section ids with synchronous graph queries.
         return await asyncio.to_thread(read)
+
+    async def export(self, thread_id: str, kind: ExportFormat) -> Export | None:
+        """One thread as a file to download.
+
+        Args:
+            thread_id: The conversation.
+            kind: The file type.
+
+        Returns:
+            The file, titled as the thread list titles it; None for an
+            unknown thread.  With the graph unreachable the answers have no
+            sources, as in ``history``.
+        """
+        turns = await self.history(thread_id)
+        if not turns:
+            return None
+        stored = await self.store.aget(titles.TITLES, thread_id)
+        title = (stored.value["title"] if stored
+                 else threads.short_title(turns[0]["content"]))
+        # Laying out a PDF takes CPU time that would stall every open stream.
+        return await asyncio.to_thread(render, title, turns, kind, date.today())
 
     async def lookup(self, thread_id: str, call_id: str) -> dict | None:
         """One tool call's stored result, read from the thread's latest state.

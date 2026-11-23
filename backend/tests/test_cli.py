@@ -80,23 +80,6 @@ class TestMain:
         assert code == 1
         assert "artifact not found" in output.err
 
-    def test_given_no_pdf_reader_when_parsing_then_it_reports_and_exits(
-            self, monkeypatch, capsys, tmp_path):
-        # Given an install without PyMuPDF, as the Docker image is
-        pdf = tmp_path / "srd.pdf"
-        pdf.write_bytes(b"%PDF")
-        monkeypatch.setattr("rules_lawyer.srd.reading.pages.pymupdf", None)
-
-        # When the CLI is asked to parse
-        with pytest.raises(SystemExit) as exit_:
-            cli.main(["parse", "--pdf", str(pdf), "--out", str(tmp_path / "out.json")])
-
-        # Then it exits non-zero, naming what is missing, with no traceback
-        assert exit_.value.code == 1
-        error = capsys.readouterr().err
-        assert error.startswith("ERROR: Parsing the PDF needs PyMuPDF")
-        assert "Traceback" not in error
-
     def test_given_no_embeddings_when_run_then_it_reports_and_exits(self, run):
         # Given a pipeline with neither vectors on disk nor a key
         code, output, _ = run([], MissingEmbeddings(

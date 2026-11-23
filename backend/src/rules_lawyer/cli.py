@@ -22,9 +22,8 @@ from rules_lawyer.graph.pipeline import build_embeddings, build_graph
 from rules_lawyer.srd.artifact import build, write
 from rules_lawyer.srd.verify import KNOWN
 
-# Reported as a message, without a traceback. ModuleNotFoundError: parsing
-# where PyMuPDF is not installed, as in the Docker image.
-FAILURES = (FileNotFoundError, ModuleNotFoundError, MissingEmbeddings, BadEmbeddingsFile)
+# Reported as a message, without a traceback.
+FAILURES = (FileNotFoundError, MissingEmbeddings, BadEmbeddingsFile)
 
 
 def main(argv: list[str] | None = None) -> None:

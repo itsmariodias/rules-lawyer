@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 
 import pytest
 from fastapi.testclient import TestClient
 
 from rules_lawyer.api import app
+from rules_lawyer.chat.export import MEDIA_TYPES, ExportFormat, render
 from rules_lawyer.chat.routes import chat_service
 from tests.fakes import fake_chat_service
 
@@ -243,6 +245,73 @@ class TestChatThread:
         # When it is fetched
         # Then the UI can tell an empty conversation from a missing one
         assert client.get("/chat/threads/never-used").status_code == 404
+
+
+class TestExportThread:
+    @pytest.mark.neo4j
+    def test_given_a_stored_conversation_when_exported_then_it_downloads_as_a_file(
+            self, client, graph):
+        # Given a conversation with one turn in it
+        client.post("/chat", json={"message": "Prone condition",
+                                   "thread_id": "kept"})
+
+        # When it is exported as a PDF
+        response = client.get("/chat/threads/kept/export", params={"format": "pdf"})
+
+        # Then the browser is handed a PDF to save, named for the thread
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "application/pdf"
+        assert response.headers["content-disposition"] == (
+            'attachment; filename="prone-condition.pdf"')
+        assert response.content.startswith(b"%PDF")
+
+    @pytest.mark.neo4j
+    def test_given_no_format_when_exported_then_it_is_markdown(self, client, graph):
+        # Given a conversation with one turn in it
+        client.post("/chat", json={"message": "Prone condition",
+                                   "thread_id": "kept"})
+
+        # When it is exported without saying how
+        response = client.get("/chat/threads/kept/export")
+
+        # Then it comes as markdown, the question in it
+        assert response.headers["content-type"] == "text/markdown; charset=utf-8"
+        assert "## Question\n\nProne condition" in response.text
+
+    def test_given_a_format_when_exported_then_the_service_file_is_the_attachment(
+            self, client):
+        # Given a service holding one conversation, which needs no graph
+        class OneThread:
+            async def export(self, thread_id, kind):
+                turns = [{"role": "user", "content": "Prone condition"}]
+                return render("Prone condition", turns, kind, date(2026, 11, 23))
+
+        app.dependency_overrides[chat_service] = OneThread
+
+        # When it is exported as a Word document
+        response = client.get("/chat/threads/kept/export", params={"format": "docx"})
+
+        # Then the browser is handed that file to save, named for the thread
+        assert response.status_code == 200
+        assert response.headers["content-type"] == MEDIA_TYPES[ExportFormat.DOCX]
+        assert response.headers["content-disposition"] == (
+            'attachment; filename="prone-condition.docx"')
+        assert response.content.startswith(b"PK")
+
+    def test_given_an_id_nobody_used_when_exported_then_it_is_a_not_found(self, client):
+        # Given an id nothing was stored under
+        # When it is exported
+        # Then there is no file to download
+        assert client.get("/chat/threads/never-used/export").status_code == 404
+
+    def test_given_an_unknown_format_when_exported_then_it_is_refused(self, client):
+        # Given a file type the export does not make
+        # When it is asked for
+        response = client.get("/chat/threads/kept/export", params={"format": "rtf"})
+
+        # Then the request is refused naming what is allowed
+        assert response.status_code == 422
+        assert "markdown" in response.text
 
 
 class TestPinThread:

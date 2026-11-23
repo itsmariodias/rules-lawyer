@@ -425,6 +425,50 @@ code { font-family: var(--mono); font-size: 0.87em; }
 .panel-toggle:hover { background: var(--bg-raised); color: var(--text); }
 .panel-toggle.on { background: var(--accent-soft); color: var(--accent); }
 
+/* Export, set apart from the panel toggles by a rule. */
+.export-chat {
+  display: flex;
+  padding-right: 6px;
+  margin-right: 2px;
+  border-right: 1px solid var(--border);
+}
+.head-button {
+  display: flex;
+  align-items: center;
+  padding: 7px;
+  border-radius: 8px;
+  color: var(--text-muted);
+  anchor-name: --export;
+}
+.head-button:hover:not(:disabled) { background: var(--bg-raised); color: var(--text); }
+.head-button:disabled { opacity: 0.4; cursor: default; }
+
+/* A popover, placed under its button by anchor positioning; the browser
+   default centres it in the window. */
+.export-menu {
+  position-anchor: --export;
+  inset: auto;
+  top: anchor(bottom);
+  right: anchor(right);
+  margin: 4px 0 0;
+  min-width: 150px;
+  padding: 4px;
+  color: var(--text);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+}
+.export-menu a {
+  display: block;
+  padding: 6px 9px;
+  border-radius: 6px;
+  color: inherit;
+  font-size: 13px;
+  text-decoration: none;
+}
+.export-menu a:hover { background: var(--bg-sunken); }
+
 .messages {
   flex: 1;
   overflow-y: auto;

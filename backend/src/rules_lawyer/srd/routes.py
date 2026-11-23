@@ -56,8 +56,7 @@ async def parse(request: ParseRequest | None = None) -> dict:
         (several MB) stays on disk.
 
     Raises:
-        HTTPException: 404 if the PDF does not exist; 501 if PyMuPDF is not
-            installed, as in the Docker image.
+        HTTPException: 404 if the PDF does not exist.
     """
     request = request or ParseRequest()
     settings = get_settings()
@@ -65,10 +64,7 @@ async def parse(request: ParseRequest | None = None) -> dict:
     out_path = request.out or settings.output_path
     if not pdf_path.exists():
         raise HTTPException(status_code=404, detail=f"PDF not found: {pdf_path}")
-    try:
-        artifact = await run_in_threadpool(build, pdf_path, markdown_path_for(out_path).name)
-    except ModuleNotFoundError as exc:
-        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    artifact = await run_in_threadpool(build, pdf_path, markdown_path_for(out_path).name)
     json_path, markdown_path, anchors_path = await run_in_threadpool(write, artifact, out_path)
     return {"meta": artifact.document["meta"], "validation": artifact.document["validation"],
             "written": {"json": str(json_path), "markdown": str(markdown_path), "anchors": str(anchors_path)}}

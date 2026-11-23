@@ -7,14 +7,9 @@ from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
-from rules_lawyer.srd.model import Box
+import pymupdf
 
-# Optional: only parsing opens the PDF, and the Docker image, which ships the
-# parsed artifact, leaves it out. Annotations are strings, so they need none.
-try:
-    import pymupdf
-except ModuleNotFoundError:  # pragma: no cover - installed wherever tests run
-    pymupdf = None
+from rules_lawyer.srd.model import Box
 
 # Measured over all 364 pages: the only text below this baseline is the
 # footer, a page number and the book's title, "System Reference Document
@@ -193,13 +188,8 @@ def read_pages(pdf_path: Path) -> Book:
         The title every footer prints, and one list of lines per page.
 
     Raises:
-        ModuleNotFoundError: PyMuPDF is not installed.
         ValueError: The footers do not all print the same title.
     """
-    if pymupdf is None:
-        raise ModuleNotFoundError(
-            "Parsing the PDF needs PyMuPDF, which is not installed: "
-            "`uv sync` installs it with the default groups.")
     with pymupdf.open(pdf_path) as doc:
         split = [split_footer(page_lines(page, n)) for n, page in enumerate(doc, start=1)]
     titles = {title for _, title in split}
