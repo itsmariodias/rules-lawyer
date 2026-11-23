@@ -1,3 +1,7 @@
+<div align="center">
+
+<img src="frontend/src/logo.svg" alt="" width="96" height="96">
+
 # Rules Lawyer
 
 [![CI](https://github.com/itsmariodias/rules-lawyer/actions/workflows/ci.yml/badge.svg)](https://github.com/itsmariodias/rules-lawyer/actions/workflows/ci.yml)
@@ -6,6 +10,8 @@
 [![Python 3.12+](https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2Fitsmariodias%2Frules-lawyer%2Fmain%2Fbackend%2Fpyproject.toml&logo=python&logoColor=white&color=3776AB)](backend/pyproject.toml)
 [![Node 22](https://img.shields.io/badge/node-22-5FA04E?logo=nodedotjs&logoColor=white)](.github/workflows/ci.yml)
 [![Neo4j 5.26](https://img.shields.io/badge/neo4j-5.26-4581C3?logo=neo4j&logoColor=white)](docker-compose.yml)
+
+</div>
 
 Every table has one: the player who stops the game to ask whether you can
 really grapple a gelatinous cube. Rules Lawyer is that player, except it
