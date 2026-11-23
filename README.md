@@ -47,9 +47,51 @@ searched by a tool-calling agent.
 
 [GRAPH.md](GRAPH.md) documents every node label and relationship type.
 
+## Run with Docker
+
+To use the app as it is, you need only **Docker** and a model provider (a
+**Gemini API key** by default). From a clone:
+
+```bash
+cp .env.example .env            # set NEO4J_PASSWORD and GOOGLE_API_KEY
+docker compose up -d
+```
+
+Then open <http://localhost:8080> (`RULES_LAWYER_PORT` changes the port).
+
+Compose pulls the published image (`ghcr.io/itsmariodias/rules-lawyer`), or
+builds it if it cannot; `docker compose up -d --build` builds from your
+checkout. The image has the SRD parsed and its embeddings, so the first start
+loads the graph without spending API calls, in about a minute. Later starts
+check the graph against the image and load it again only if it differs. To
+load it anyway:
+
+```bash
+docker compose run --rm loader rules-lawyer load
+```
+
+Conversations are kept in the `chat` volume. The same `.env` configures
+[other model providers](#other-model-providers), with two differences:
+
+- **Ollama on your machine** is `OLLAMA_BASE_URL=http://host.docker.internal:11434`.
+- **Another embedding provider** cannot use the embeddings in the image. With
+  its key in `.env`, the loader embeds the SRD itself each time it loads.
+  To use an `.idx` you already have, mount it in a
+  `docker-compose.override.yml` beside `docker-compose.yml`, which compose
+  reads on its own:
+
+  ```yaml
+  services:
+    loader:
+      volumes:
+        - /path/to/srd_embeddings.openai.idx:/embeddings.idx:ro
+      environment:
+        RULES_LAWYER_EMBEDDINGS: /embeddings.idx
+  ```
+
 ## Quickstart
 
-You need **Python 3.12+** with [uv](https://docs.astral.sh/uv/),
+To develop it, you need **Python 3.12+** with [uv](https://docs.astral.sh/uv/),
 **Node 22+**, **Docker**, and a model provider: a **Gemini API key** by
 default, or OpenAI, Anthropic or a local Ollama (see
 [Other model providers](#other-model-providers)).

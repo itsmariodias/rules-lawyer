@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "aiosqlite>=0.22.1",
-    "fastapi>=0.115",
+    "fastapi>=0.141",
     "google-genai>=2.20.0",
     "langchain>=1.3.18",
     "langchain-google-genai>=4.4.0",
@@ -15,7 +15,6 @@ dependencies = [
     "neo4j>=5.26",
     "pydantic>=2.13.5",
     "pydantic-settings>=2.7",
-    "pymupdf>=1.24",
     "python-dotenv>=1.2.3",
     "uvicorn>=0.32",
 ]
@@ -42,6 +41,11 @@ build-backend = "hatchling.build"
 packages = ["src/rules_lawyer"]
 
 [dependency-groups]
+# Parsing the PDF; the Docker image's runtime ships the parsed artifact and
+# leaves it out (`--no-group pdf`).
+pdf = [
+    "pymupdf>=1.24",
+]
 dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
@@ -49,6 +53,9 @@ dev = [
     "ruff>=0.17.5",
     "testcontainers[neo4j]>=4.15.0",
 ]
+
+[tool.uv]
+default-groups = ["dev", "pdf"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

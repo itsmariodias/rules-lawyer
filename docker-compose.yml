@@ -26,7 +26,41 @@ services:
       start_period: 30s
     restart: unless-stopped
 
+  # Loads the graph, unless the one already there verifies against the
+  # image's artifact, then exits.
+  loader:
+    image: ghcr.io/itsmariodias/rules-lawyer:latest
+    build: .
+    command: ["rules-lawyer", "load", "--if-needed"]
+    env_file: .env
+    # Container paths, over any host paths .env sets for development. Blank
+    # embeddings is unset: the provider's file in the image.
+    environment: &container
+      NEO4J_URI: bolt://neo4j:7687
+      RULES_LAWYER_DATA: /app/data
+      RULES_LAWYER_EMBEDDINGS: ""
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    restart: "no"
+
+  # The API and the frontend on one port: http://localhost:8080
+  app:
+    image: ghcr.io/itsmariodias/rules-lawyer:latest
+    build: .
+    env_file: .env
+    environment: *container
+    ports:
+      - "${RULES_LAWYER_PORT:-8080}:8000"
+    volumes:
+      - chat:/app/data/chat
+    depends_on:
+      loader:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
 volumes:
   neo4j_data:
   neo4j_logs:
   neo4j_import:
+  chat:

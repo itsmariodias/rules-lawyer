@@ -3,6 +3,7 @@
     uv run rules-lawyer parse                   PDF -> JSON, markdown and page anchors
     uv run rules-lawyer embed                   JSON -> srd_embeddings.idx (needs a key)
     uv run rules-lawyer load                    JSON and vectors -> Neo4j, verified
+    uv run rules-lawyer load --if-needed        the same, unless the graph already verifies
 
 Each exits non-zero on failure: ``parse`` when the book disagrees with itself
 other than in its known quirks, ``load`` when verification fails.
@@ -21,8 +22,9 @@ from rules_lawyer.graph.pipeline import build_embeddings, build_graph
 from rules_lawyer.srd.artifact import build, write
 from rules_lawyer.srd.verify import KNOWN
 
-# Reported as a message, without a traceback.
-FAILURES = (FileNotFoundError, MissingEmbeddings, BadEmbeddingsFile)
+# Reported as a message, without a traceback. ModuleNotFoundError: parsing
+# where PyMuPDF is not installed, as in the Docker image.
+FAILURES = (FileNotFoundError, ModuleNotFoundError, MissingEmbeddings, BadEmbeddingsFile)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -55,6 +57,8 @@ def main(argv: list[str] | None = None) -> None:
                       help="the srd_embeddings.idx to load vectors from, overriding RULES_LAWYER_EMBEDDINGS")
     load.add_argument("--refresh-embeddings", action="store_true",
                       help="ignore the cached file and re-embed everything")
+    load.add_argument("--if-needed", action="store_true",
+                      help="verify the graph already loaded first, and load only if a check fails")
 
     args = parser.parse_args(argv)
     try:
@@ -102,14 +106,15 @@ def run_load(args: argparse.Namespace) -> None:
     """Load and verify the graph.
 
     Args:
-        args: ``input``, ``reset``, ``skip_verify``, ``embeddings`` and
-            ``refresh_embeddings`` from the command line.
+        args: ``input``, ``reset``, ``skip_verify``, ``embeddings``,
+            ``refresh_embeddings`` and ``if_needed`` from the command line.
 
     Raises:
         SystemExit: Verification failed.
     """
     result = build_graph(args.input, reset=args.reset, skip_verify=args.skip_verify,
-                         embeddings_path=args.embeddings, refresh_embeddings=args.refresh_embeddings, report=print)
+                         embeddings_path=args.embeddings, refresh_embeddings=args.refresh_embeddings,
+                         if_needed=args.if_needed, report=print)
     validation = result["validation"]
     if validation.get("skipped"):
         print("validation skipped")

@@ -57,6 +57,19 @@ class TestParse:
         assert body == {"meta": {"pages": 364}, "validation": {"problems": []},
                         "written": {"json": str(out), "markdown": "out.md", "anchors": "out.anchors.json"}}
 
+    def test_given_no_pdf_reader_when_parsed_then_it_is_a_501(self, client, tmp_path, monkeypatch):
+        # Given a PDF, in an install without PyMuPDF, as the Docker image is
+        pdf = tmp_path / "srd.pdf"
+        pdf.write_bytes(b"%PDF")
+        monkeypatch.setattr("rules_lawyer.srd.reading.pages.pymupdf", None)
+
+        # When it is parsed
+        response = client.post("/parse", json={"pdf": str(pdf), "out": str(tmp_path / "out.json")})
+
+        # Then the server says it cannot, and why
+        assert response.status_code == 501
+        assert "PyMuPDF" in response.json()["detail"]
+
 
 class TestPdf:
     def test_given_no_pdf_when_asked_then_it_is_a_404(self, client, settings_env, tmp_path):

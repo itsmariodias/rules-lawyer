@@ -14,10 +14,10 @@ def run(monkeypatch, capsys):
         seen: dict = {}
 
         def build_graph(input_path, *, reset, skip_verify, embeddings_path,
-                        refresh_embeddings, report):
+                        refresh_embeddings, if_needed, report):
             seen.update(input=input_path, reset=reset, skip_verify=skip_verify,
                         embeddings=embeddings_path,
-                        refresh=refresh_embeddings)
+                        refresh=refresh_embeddings, if_needed=if_needed)
             if isinstance(result, Exception):
                 raise result
             return result
@@ -80,6 +80,23 @@ class TestMain:
         assert code == 1
         assert "artifact not found" in output.err
 
+    def test_given_no_pdf_reader_when_parsing_then_it_reports_and_exits(
+            self, monkeypatch, capsys, tmp_path):
+        # Given an install without PyMuPDF, as the Docker image is
+        pdf = tmp_path / "srd.pdf"
+        pdf.write_bytes(b"%PDF")
+        monkeypatch.setattr("rules_lawyer.srd.reading.pages.pymupdf", None)
+
+        # When the CLI is asked to parse
+        with pytest.raises(SystemExit) as exit_:
+            cli.main(["parse", "--pdf", str(pdf), "--out", str(tmp_path / "out.json")])
+
+        # Then it exits non-zero, naming what is missing, with no traceback
+        assert exit_.value.code == 1
+        error = capsys.readouterr().err
+        assert error.startswith("ERROR: Parsing the PDF needs PyMuPDF")
+        assert "Traceback" not in error
+
     def test_given_no_embeddings_when_run_then_it_reports_and_exits(self, run):
         # Given a pipeline with neither vectors on disk nor a key
         code, output, _ = run([], MissingEmbeddings(
@@ -102,10 +119,20 @@ class TestMain:
         assert seen["reset"] is True
         assert seen["skip_verify"] is False
         assert seen["refresh"] is False
+        assert seen["if_needed"] is False
         assert seen["input"].name == "srd_hierarchy.json"
         # None, so the pipeline falls back to the configured path rather than
         # the CLI deciding it twice.
         assert seen["embeddings"] is None
+
+    def test_given_if_needed_when_run_then_the_pipeline_checks_before_loading(
+            self, run):
+        # Given the flag that loads only a graph failing verification
+        _, _, seen = run(["--if-needed"], report())
+
+        # When the pipeline is called
+        # Then it is told to verify the graph already there first
+        assert seen["if_needed"] is True
 
     def test_given_no_reset_when_run_then_the_existing_graph_is_kept(self, run):
         # Given the flag that merges instead of emptying

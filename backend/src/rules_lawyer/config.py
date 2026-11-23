@@ -191,13 +191,21 @@ class Settings(BaseSettings):
     # to LangGraph.
     store_name: str = "chat-store.sqlite"
     # Overridable on its own, for a downloaded copy kept outside data/.
-    embeddings: Path | None = None
+    # Blank is unset, so a container can clear a host path set in .env.
+    embeddings: Annotated[Path | None, BeforeValidator(_blank_is_absent)] = None
     embeddings_name: str = "srd_embeddings.idx"
+    # The API under /api and the built frontend at /, as one server.
+    serve_frontend: bool = False
 
     @property
     def data_dir(self) -> Path:
         """``RULES_LAWYER_DATA`` if set, else ``<root>/data``."""
         return self.data.expanduser() if self.data else self.root / "data"
+
+    @property
+    def frontend_dir(self) -> Path:
+        """The built frontend (``npm run build``), served when ``serve_frontend``."""
+        return self.root / "frontend" / "dist"
 
     @property
     def source_dir(self) -> Path:

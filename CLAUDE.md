@@ -18,8 +18,8 @@ and nothing in `chat/` writes to either.
 ## Layout
 
 A monorepo. `backend/` is the Python service, `frontend/` the React UI, `e2e/`
-the Playwright suite; `data/`, `docker-compose.yml` and `.env` (from
-`.env.example`) are shared at the root. Every `uv` command runs from
+the Playwright suite; `data/`, `docker-compose.yml`, the `Dockerfile` and
+`.env` (from `.env.example`) are shared at the root. Every `uv` command runs from
 `backend/`; `config.py` resolves `data/` and `.env` from the repository root
 regardless of the working directory. Each of `backend/`, `frontend/` and
 `e2e/` has a README for people; this file is for agents.
@@ -196,6 +196,9 @@ GRAPH.md             reference for every label and relationship type
   drops its own 0.7 for Gemini 3 when none is passed. A temperature set for
   a provider whose default is none is still sent, with a warning at startup
   (`lifespan`).
+- `RULES_LAWYER_SERVE_FRONTEND` moves the routes under `/api` and serves
+  `<root>/frontend/dist` at `/` (see Docker). A blank
+  `RULES_LAWYER_EMBEDDINGS` counts as unset, as a blank key does.
 - Embedding settings: `EMBED_PROVIDER`, `EMBED_MODEL`, `EMBED_DIMENSIONS`,
   `EMBED_TASK_TYPE` (Gemini only), `EMBED_BATCH`, `EMBED_MAX_CHARS`,
   `EMBED_WRITE_BATCH`.
@@ -215,6 +218,7 @@ uv run rules-lawyer embed --refresh            # re-embed everything
 uv run rules-lawyer load                       # artifact + vectors -> graph, verify
 uv run rules-lawyer load --no-reset --skip-verify
 uv run rules-lawyer load --embeddings ~/Downloads/srd_embeddings.idx
+uv run rules-lawyer load --if-needed           # only if the graph fails verification
 uv run pytest                                  # -m "not neo4j" for the Docker-free set
 uv run ruff check                              # lint (ruff's default rules); CI runs it
 uv run uvicorn rules_lawyer.api:app --reload --reload-include '*.md'
@@ -229,6 +233,11 @@ cd ../e2e && npm install && npm run install-browsers && npm test
 `parse` exits non-zero if the book disagrees with itself other than in its
 known quirks; `load` exits non-zero if verification fails.
 `--reload-include '*.md'` makes editing a prompt file restart the server.
+
+```bash
+docker compose up -d                           # the whole app on :8080 (see Docker)
+docker compose up -d --build                   # from this checkout, not ghcr.io
+```
 
 The pipelines are importable: `srd.artifact.build`, `write` and `load`, and
 `graph.pipeline.build_graph`. Progress goes through an injected `report`
@@ -260,6 +269,13 @@ GET  /source/{id}?context=400         markdown slice, highlight offsets, boxes,
                                       ancestors, parent, children
 GET  /neighbourhood?section=|node=    &depth &fan &limit; neither: the book
 ```
+
+With `RULES_LAWYER_SERVE_FRONTEND` every route above is under `/api` (the
+path the frontend calls, which Vite strips in dev), and FastAPI's
+`app.frontend` serves the build at `/`, after every route, with `index.html`
+for a navigation to a path with no file (`/chat/<id>`). The routes are read
+at import, so a test of that mode reloads `rules_lawyer.api` under the flag
+and again without it.
 
 - The Neo4j driver is synchronous, so graph endpoints use `run_in_threadpool`,
   and async chat code (building the agent, resolving citations) runs its
@@ -481,7 +497,7 @@ used and the printed one kept in `printed_score`.
 ## Stage 2: the graph
 
 `rules-lawyer load` writes **3900 nodes and 12025 relationships**, then runs
-**79 verification checks**. Loads MERGE on stable keys, but a full reset is
+**80 verification checks**. Loads MERGE on stable keys, but a full reset is
 the default: the artifact is the whole truth, and merging alone would keep
 nodes a re-parse has dropped.
 
@@ -604,9 +620,20 @@ table; 336 creatures
 with stats; 16 roots and one parent per section; all 5659 reference edges
 and zero unresolved; 1336 abilities, each attached;
 abilities with damage; sections with prose each having a vector of the right
-width; `srd_vector` online and of that width; no orphans but the 3
+width, and each vector the one being loaded (cosine 0.999, since the same
+text embedded twice need not return identical floats; count and width alone
+pass another model's vectors of the same width); `srd_vector` online and of
+that width; no orphans but the 3
 front-matter roots, which nothing in the book refers to. Non-zero failures
 exit non-zero.
+
+### Loading only if needed
+
+`load --if-needed` verifies the graph already there against the artifact and
+the vectors first, and loads only if a check fails. The vector check makes
+that safe: a provider switch, or a section whose text changed, fails it. The
+vectors are resolved first either way, so another provider without a
+complete file still embeds before the check.
 
 ## Stage 3: the chat
 
@@ -969,6 +996,49 @@ browser stays on one origin and the SSE stream shares it.
 - **Filled nodes are sections; hollow nodes are derived,** so a reader can
   tell what opens on the page.
 - Edge types are labelled only on the selected node's edges, at most five.
+
+## Docker
+
+For people who only want to use the app: `docker compose up` runs Neo4j, a
+one-shot `loader` (`rules-lawyer load --if-needed`) and the `app` (API and
+frontend on one port, 8080 by default so a dev server on 8000 keeps its
+port). `docker compose up -d neo4j` still starts the database alone for
+development.
+
+- **One image, two roles.** The `Dockerfile` builds the frontend and parses
+  the SRD in stages on the build platform (`--platform=$BUILDPLATFORM`): both
+  outputs are platform-independent, so the arm64 image never parses under
+  QEMU. The runtime stage is an editable install at `/app/backend`, because
+  `config.py` finds the repository root from its own path; `data/` and
+  `frontend/dist` sit under `/app` as in a checkout. The venv is built in a
+  stage of its own with uv's cache mounted, and only the venv is copied on:
+  the cache (186 MB) and uv (35 MB) were most of an 847 MB image. Files the
+  runtime writes get their owner as they are copied, since a `chown -R`
+  afterwards stores them twice. Every provider extra is installed. It runs
+  as `app` (uid 1000).
+- **No PyMuPDF at run time.** It is the `pdf` dependency group, which `uv
+  sync` installs by default (`default-groups`), so development and CI are
+  unchanged; the runtime syncs with `--no-group pdf` (58 MB). Only
+  `read_pages` needs it, so `pages.py` imports it if present and
+  `read_pages` raises `ModuleNotFoundError` naming it: `rules-lawyer parse`
+  reports it as a message and `/parse` answers 501. The image is 419 MB, 90
+  MB compressed.
+- **The embeddings are a release asset** (`embeddings-v1`), fetched by
+  `ADD --checksum`, because `data/output/` is not in the repository and a
+  load needs vectors. A parser change that alters any section's text needs
+  a new asset, and `EMBEDDINGS_URL` and `EMBEDDINGS_SHA256` change together;
+  otherwise the loader needs a key to embed the difference. The image ships
+  only Google's file: another embedding provider re-embeds on each load, or
+  mounts its own `.idx` (README).
+- **Container paths win over `.env`.** Both services read `.env`
+  (`env_file`) for keys and providers, and `environment` overrides the paths
+  a development `.env` may set: `NEO4J_URI` to the `neo4j` service,
+  `RULES_LAWYER_DATA`, and `RULES_LAWYER_EMBEDDINGS` blank. `.dockerignore`
+  keeps `.env` out of the image.
+- **Published** by `.github/workflows/image.yml` to
+  `ghcr.io/itsmariodias/rules-lawyer` (amd64 and arm64; `latest` from main,
+  versions from `v*` tags). Compose has `image` and `build`, so it pulls and
+  builds only if it cannot.
 
 ## Testing
 
