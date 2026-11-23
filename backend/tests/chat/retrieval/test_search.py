@@ -189,9 +189,9 @@ class TestEmbedQuery:
         search.embed_query.cache_clear()
         seen = {}
 
-        def record(batch, settings, report=None):
+        def record(batch, settings, report=None, *, query=False):
             seen["texts"] = batch
-            seen["task_type"] = settings.task_type
+            seen["query"] = query
             return [[0.0, 1.0]]
 
         monkeypatch.setattr(search.embeddings, "embed", record)
@@ -200,7 +200,7 @@ class TestEmbedQuery:
         vector = search.embed_query("prone")
 
         # Then it went as a query, and came back hashable
-        assert seen == {"texts": ["prone"], "task_type": "RETRIEVAL_QUERY"}
+        assert seen == {"texts": ["prone"], "query": True}
         assert vector == (0.0, 1.0)
         search.embed_query.cache_clear()
 
@@ -211,7 +211,7 @@ class TestEmbedQuery:
         search.embed_query.cache_clear()
         calls = []
         monkeypatch.setattr(search.embeddings, "embed",
-                            lambda batch, settings, report=None:
+                            lambda batch, settings, report=None, *, query=False:
                             calls.append(batch) or [[1.0]])
 
         # When the same query is embedded twice

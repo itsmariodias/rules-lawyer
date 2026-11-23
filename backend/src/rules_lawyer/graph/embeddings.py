@@ -56,11 +56,13 @@ class Vectors:
             meta, for provenance.
         provider: Who made them.  Files written before providers were
             configurable hold Gemini vectors and no provider.
+        task_type: The model's document task (``EmbeddingTasks.document``);
+            None for a model that embeds both sides alike.
     """
 
     model: str
     dimensions: int
-    task_type: str
+    task_type: str | None
     keys: list[str]
     digests: list[str]
     rows: list[list[float]]
@@ -86,13 +88,21 @@ class Vectors:
             settings: The embedding settings in force.
 
         Returns:
-            True if provider, model, dimensions and task type all equal the
-            settings'.
+            True if provider, model and dimensions equal the settings', and
+            the task type equals the model's when it takes one.
         """
+        task = _document_task(settings)
+        # Files from models that take no task may still record Gemini's.
         return (self.provider == settings.provider
                 and self.model == settings.model
                 and self.dimensions == settings.dimensions
-                and self.task_type == settings.task_type)
+                and (task is None or self.task_type == task))
+
+
+def _document_task(settings: EmbeddingSettings) -> str | None:
+    """The task the configured model embeds the book's sections as."""
+    tasks = settings.model_provider.embedding_tasks(settings.model)
+    return tasks.document if tasks else None
 
 
 # --------------------------------------------------------------------------
@@ -239,7 +249,7 @@ def read(path: Path) -> Vectors:
     flat = payload.tolist()
     rows = [flat[i * dimensions:(i + 1) * dimensions] for i in range(len(keys))]
     return Vectors(model=header["model"], dimensions=dimensions,
-                   task_type=header["task_type"], keys=keys,
+                   task_type=header.get("task_type"), keys=keys,
                    digests=list(header["digests"]), rows=rows,
                    artifact=header.get("artifact") or {},
                    provider=header.get("provider", Provider.GOOGLE))
@@ -271,7 +281,8 @@ def normalise(vector: Iterable[float]) -> list[float]:
 
 
 def embed(batch: list[str], settings: EmbeddingSettings,
-          report: Report = lambda _: None) -> list[list[float]]:
+          report: Report = lambda _: None, *,
+          query: bool = False) -> list[list[float]]:
     """Embed texts with the configured provider.
 
     Rate limits (as the provider words them) are retried with exponential
@@ -281,8 +292,9 @@ def embed(batch: list[str], settings: EmbeddingSettings,
 
     Args:
         batch: Texts to embed.
-        settings: Provider, model, dimensions, task type, batch size and key.
+        settings: Provider, model, dimensions, batch size and key.
         report: Receives progress lines.
+        query: Embed questions rather than the book's sections.
 
     Returns:
         One normalised vector per text, in order.
@@ -298,7 +310,7 @@ def embed(batch: list[str], settings: EmbeddingSettings,
         raise MissingEmbeddings(f"{variable} is not set")
     provider = settings.model_provider
     try:
-        embed_chunk = provider.embedder(settings)
+        embed_chunk = provider.embedder(settings, query=query)
     except ImportError as exc:
         raise MissingEmbeddings(
             f"EMBED_PROVIDER={settings.provider} needs its package: run "
@@ -335,6 +347,12 @@ def embed(batch: list[str], settings: EmbeddingSettings,
 # The policy
 
 
+def _made(provider: str, model: str, dimensions: int, task: str | None) -> str:
+    """How a set of vectors is made, for a report line."""
+    made = f"{provider} {model} at {dimensions}"
+    return f"{made} ({task})" if task else made
+
+
 def resolve(document: dict, *, path: Path, settings: EmbeddingSettings,
             refresh: bool = False, report: Report = lambda _: None,
             embedder: Callable[..., list[list[float]]] = embed) -> Vectors:
@@ -358,6 +376,7 @@ def resolve(document: dict, *, path: Path, settings: EmbeddingSettings,
         BadEmbeddingsFile: The file exists but cannot be read.
     """
     wanted = texts(document, settings.max_chars)
+    task = _document_task(settings)
     cached: dict[str, tuple[str, list[float]]] = {}
 
     if path.exists() and not refresh:
@@ -367,10 +386,8 @@ def resolve(document: dict, *, path: Path, settings: EmbeddingSettings,
             report(f"embeddings: read {len(cached)} from {path}")
         else:
             report(f"embeddings: ignoring {path}, which holds "
-                   f"{stored.provider} {stored.model} at {stored.dimensions} "
-                   f"({stored.task_type}), not {settings.provider} "
-                   f"{settings.model} at {settings.dimensions} "
-                   f"({settings.task_type})")
+                   f"{_made(stored.provider, stored.model, stored.dimensions, stored.task_type)}, "
+                   f"not {_made(settings.provider, settings.model, settings.dimensions, task)}")
     elif refresh:
         report("embeddings: refreshing, ignoring any cached file")
 
@@ -406,7 +423,7 @@ def resolve(document: dict, *, path: Path, settings: EmbeddingSettings,
     keys = list(wanted)
     vectors = Vectors(
         provider=settings.provider, model=settings.model, dimensions=settings.dimensions,
-        task_type=settings.task_type, keys=keys,
+        task_type=task, keys=keys,
         digests=[cached[key][0] for key in keys],
         rows=[cached[key][1] for key in keys],
         artifact={k: v for k, v in (document.get("meta") or {}).items()

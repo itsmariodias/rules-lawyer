@@ -97,8 +97,8 @@ def run_embed(args: argparse.Namespace) -> None:
         args: ``input``, ``out`` and ``refresh`` from the command line.
     """
     result = build_embeddings(args.input, embeddings_path=args.out, refresh=args.refresh, report=print)
-    print(f"\n{result['count']} embeddings, {result['model']} at {result['dimensions']} dimensions "
-          f"({result['task_type']})")
+    task = f" ({result['task_type']})" if result["task_type"] else ""
+    print(f"\n{result['count']} embeddings, {result['model']} at {result['dimensions']} dimensions{task}")
     print(result["output"])
 
 

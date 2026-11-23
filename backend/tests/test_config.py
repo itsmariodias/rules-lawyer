@@ -256,7 +256,6 @@ class TestEmbeddingSettings:
         # Then it is the pinned one, at the width the file is written for
         assert settings.model == "gemini-embedding-001"
         assert settings.dimensions == 1536
-        assert settings.task_type == "RETRIEVAL_DOCUMENT"
 
     def test_given_a_blank_key_when_read_then_it_counts_as_no_key_at_all(self):
         # Given a key set to nothing

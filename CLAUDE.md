@@ -175,7 +175,8 @@ GRAPH.md             reference for every label and relationship type
   `missing_key()`.
 - **Nothing outside `providers.py` branches on a provider's name.** Each
   `ModelProvider` subclass holds what differs: its key field and variable,
-  pinned models, its default temperature, `can_embed`, the reply cap's
+  pinned models, its default temperature, `can_embed`, its embedding
+  models' tasks (`embedding_tasks`), the reply cap's
   option name, the phrases its errors use for a rejected key and a rate
   limit, and the methods `chat`,
   `chat_options`, `embedder`, `embeddings_name` and `explain`. Adding a
@@ -200,8 +201,15 @@ GRAPH.md             reference for every label and relationship type
   `<root>/frontend/dist` at `/` (see Docker). A blank
   `RULES_LAWYER_EMBEDDINGS` counts as unset, as a blank key does.
 - Embedding settings: `EMBED_PROVIDER`, `EMBED_MODEL`, `EMBED_DIMENSIONS`,
-  `EMBED_TASK_TYPE` (Gemini only), `EMBED_BATCH`, `EMBED_MAX_CHARS`,
-  `EMBED_WRITE_BATCH`.
+  `EMBED_BATCH`, `EMBED_MAX_CHARS`, `EMBED_WRITE_BATCH`. The task type is
+  not one: the book is always what is searched, so each model's pair is
+  fixed (`EmbeddingTasks`), and setting it could only discard the shared
+  file. Gemini takes `RETRIEVAL_DOCUMENT` for sections and `RETRIEVAL_QUERY`
+  for questions as a parameter; `nomic-embed-text` takes `search_document: `
+  and `search_query: ` as text prefixes (`Ollama.prefixes`, matched without
+  the tag); OpenAI's models and any other Ollama model embed both sides
+  alike. A model's document task is recorded as the `.idx` header's task
+  type.
 - `get_settings()` is cached; tests change the environment through the
   `settings_env` fixture, which clears it either side.
 
@@ -598,7 +606,8 @@ documents each one.
 - **The header makes it a cache.** Digests mean a re-parse re-embeds only the
   changed sections, matched by digest under any id, since ids are positional
   and one new section renumbers its later siblings. A file made under
-  another provider, model, width or task type is discarded whole: two
+  another provider, model, width or task type is discarded whole (the task
+  type only for a provider that has one): two
   vector spaces in one index rank nonsense silently. Truncation (`EMBED_MAX_CHARS`) happens
   before the digest. Re-embedding costs API calls.
 - Vectors are written in their own pass (`EMBEDDING_QUERY`), so `mapping`

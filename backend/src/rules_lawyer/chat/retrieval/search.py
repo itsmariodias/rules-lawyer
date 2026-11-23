@@ -207,12 +207,6 @@ def search(text: str, limit: int = 8, types: list[str] | None = None) -> list[Pa
 # The dense arm
 
 
-# Gemini embeds documents as RETRIEVAL_DOCUMENT; queries need the paired type.
-# Not a setting, because it is not stored in the .idx header.  Other
-# providers ignore it.
-QUERY_TASK_TYPE = "RETRIEVAL_QUERY"
-
-
 @lru_cache(maxsize=256)
 def embed_query(text: str) -> tuple[float, ...] | None:
     """Embed a question in the same space as the book.  Cached on the text.
@@ -231,8 +225,7 @@ def embed_query(text: str) -> tuple[float, ...] | None:
     settings = get_settings().embedding
     if settings.missing_key():
         return None
-    asked = settings.model_copy(update={"task_type": QUERY_TASK_TYPE})
-    return tuple(embeddings.embed([text], asked)[0])
+    return tuple(embeddings.embed([text], settings, query=True)[0])
 
 
 _VECTOR = f"""

@@ -209,6 +209,10 @@ EMBED_DIMENSIONS=768
 uv run rules-lawyer embed && uv run rules-lawyer load
 ```
 
+`nomic-embed-text` is sent the `search_document: ` and `search_query: `
+prefixes its model card asks for; an `.idx` made without them is
+re-embedded.
+
 Without the embedding provider's key, search is lexical only.
 
 ## Project structure

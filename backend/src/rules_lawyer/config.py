@@ -137,8 +137,9 @@ class ChatSettings(Credentials):
 class EmbeddingSettings(Credentials):
     """Settings for ``rules-lawyer embed``.
 
-    Provider, model, dimensions and task type are written into the ``.idx``
-    header; a file made under different values is discarded whole on load.
+    Provider, model and dimensions, and the provider's task, are written into
+    the ``.idx`` header; a file made under different values is discarded
+    whole on load.
     Keys are optional: a complete ``.idx`` needs none.
     """
 
@@ -150,8 +151,6 @@ class EmbeddingSettings(Credentials):
     # at full width, so ``embeddings.embed`` normalises itself.  Other models
     # must return exactly this width.
     dimensions: int = 1536
-    # Gemini only.
-    task_type: str = "RETRIEVAL_DOCUMENT"
     batch: int = 32
     # ~1500 tokens, under the model's input cap.  One SRD section exceeds it.
     max_chars: int = 6000
