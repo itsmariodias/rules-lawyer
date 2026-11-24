@@ -15,5 +15,10 @@
     "@testcontainers/neo4j": "^12.1.0",
     "@types/node": "^26.4.1",
     "typescript": "^7.0.2"
+  },
+  "overrides": {
+    "glob": {
+      "minimatch": "^11.0.1"
+    }
   }
 }
