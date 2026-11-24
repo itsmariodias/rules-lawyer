@@ -298,10 +298,12 @@ describe('the path', () => {
     // When the app loads there
     const { result } = renderHook(() => useChat())
 
-    // Then a new chat is shown at the root
-    await waitFor(() => expect(window.location.pathname).toBe('/'))
+    // Then a new chat is shown at the root.  The path is replaced at once,
+    // before React renders the state set beside it, so the wait is on that
+    // state.
+    await waitFor(() => expect(result.current.arriving).toBe(false))
+    expect(window.location.pathname).toBe('/')
     expect(result.current.threadId).toBeNull()
-    expect(result.current.arriving).toBe(false)
   })
 
   it('given a first question, when its thread starts, then the new chat becomes its path', async () => {

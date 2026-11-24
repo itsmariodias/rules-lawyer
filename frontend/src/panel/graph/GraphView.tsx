@@ -132,7 +132,7 @@ export function GraphView({ sectionId, depth, onOpenPage }: Props) {
                              framed, reserved)
 
   const drag = useDrag(bodies.current, camera, box, claim, wake)
-  const pan = usePan(setView, camera, box, claim)
+  const pan = usePan(setView, box, claim)
 
   // Null until the simulation has published positions.
   const seeded = graph && Object.keys(places).length > 0 ? graph : null
@@ -515,7 +515,6 @@ function useDrag(bodies: Map<string, Body>,
 
 /** Wheel to zoom about the pointer, drag the background to pan. */
 function usePan(setView: React.Dispatch<React.SetStateAction<View>>,
-                camera: React.RefObject<View>,
                 box: React.RefObject<HTMLDivElement | null>,
                 claim: () => void) {
   const onWheel = useCallback((event: React.WheelEvent) => {
@@ -537,16 +536,18 @@ function usePan(setView: React.Dispatch<React.SetStateAction<View>>,
 
   const onPointerDown = useCallback((event: React.PointerEvent) => {
     claim()
-    const startX = event.clientX
-    const startY = event.clientY
-    const origin = { x: camera.current.x, y: camera.current.y }
+    let last = { x: event.clientX, y: event.clientY }
 
+    // Each move is added to the view as it then is, not to the view at the
+    // press: a fit queued by the settling layout may not have rendered yet,
+    // and starting from it made the picture jump as the drag began.
     followPointer((moved) => {
-      setView((current) => ({ ...current,
-                              x: origin.x + (moved.clientX - startX),
-                              y: origin.y + (moved.clientY - startY) }))
+      const dx = moved.clientX - last.x
+      const dy = moved.clientY - last.y
+      last = { x: moved.clientX, y: moved.clientY }
+      setView((current) => ({ ...current, x: current.x + dx, y: current.y + dy }))
     })
-  }, [setView, camera, claim])
+  }, [setView, claim])
 
   return { onWheel, onPointerDown }
 }

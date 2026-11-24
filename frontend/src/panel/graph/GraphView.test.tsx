@@ -221,6 +221,9 @@ describe('GraphView', () => {
       <GraphView sectionId="11.2.114" depth={1} onOpenPage={vi.fn()} />)
     await screen.findByText('Grappled')
     const canvas = container.querySelector('.graph-canvas')!
+    // The layout's last frame may have fitted the view without a render
+    // yet; the first turn renders it.
+    fireEvent.wheel(canvas, { deltaY: -100, clientX: 100, clientY: 100 })
     const before = camera(container).k
 
     // When the wheel turns towards the reader
@@ -237,10 +240,13 @@ describe('GraphView', () => {
     await screen.findByText('Grappled')
     const canvas = container.querySelector('.graph-canvas')!
     fireEvent.pointerDown(canvas, { clientX: 100, clientY: 100 })
+    // The layout's last frame may have fitted the view without a render
+    // yet, and the press renders nothing; the first move renders it.
+    fireEvent.pointerMove(window, { clientX: 110, clientY: 110 })
     const before = camera(container)
 
     // When the pointer moves
-    fireEvent.pointerMove(window, { clientX: 150, clientY: 130 })
+    fireEvent.pointerMove(window, { clientX: 160, clientY: 140 })
     fireEvent.pointerUp(window)
 
     // Then the picture moved with it, at the same zoom

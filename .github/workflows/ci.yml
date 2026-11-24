@@ -9,6 +9,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Every job only reads the checkout; Codecov uploads with its own token.
+permissions:
+  contents: read
+
 jobs:
   backend:
     runs-on: ubuntu-latest

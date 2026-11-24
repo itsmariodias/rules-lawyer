@@ -29,6 +29,9 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./src/test-setup.ts'],
     include: ['src/**/*.test.{ts,tsx}'],
+    // A test mounting the book's 364 pages takes 0.2s on an idle machine and
+    // over 5s, the default, on a loaded one.
+    testTimeout: 15_000,
     coverage: { provider: 'v8', include: ['src/**/*.{ts,tsx}'] },
   },
 })

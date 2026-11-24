@@ -7,7 +7,7 @@
  */
 
 import '@testing-library/jest-dom/vitest'
-import { cleanup } from '@testing-library/react'
+import { cleanup, configure } from '@testing-library/react'
 import { afterEach, beforeEach, vi } from 'vitest'
 
 class NoopObserver {
@@ -50,6 +50,11 @@ globalThis.requestAnimationFrame ??= ((callback: FrameRequestCallback) =>
   setTimeout(() => callback(performance.now()), 16) as unknown as number) as never
 globalThis.cancelAnimationFrame ??= ((handle: number) =>
   clearTimeout(handle)) as never
+
+// How long `findBy*` and `waitFor` wait.  A test mounting the book's 364
+// pages takes up to 1.7s on a CI runner (under 0.3s locally), past the
+// default 1s; a passing wait still returns as soon as it holds.
+configure({ asyncUtilTimeout: 3000 })
 
 beforeEach(() => {
   // Nothing under test may reach the network by accident: a test that wants
