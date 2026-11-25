@@ -1,6 +1,6 @@
 # Bench
 
-Twelve SRD rules questions answered four ways, scored on correctness,
+Twenty-two SRD rules questions answered four ways, scored on correctness,
 citations, tokens, cost and time.
 
 | Arm | Model | Gets |

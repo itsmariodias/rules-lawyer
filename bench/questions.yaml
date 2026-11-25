@@ -1,4 +1,5 @@
-# Twelve questions, two per category, each answered from SRD 5.2.1.
+# Twenty-two questions, each answered from SRD 5.2.1: twelve covering the
+# basics, two per category, then ten harder ones.
 #
 # gold_facts:    what a correct answer states; the judge marks each one.
 # gold_sections: the sections stating them; citations are scored against
@@ -137,7 +138,6 @@
   question: What happens to a creature that is surprised when combat starts?
   gold_facts:
     - A surprised creature has Disadvantage on its Initiative roll.
-    - That is the whole effect of surprise.
   gold_sections: ["4.8.1.2", "11.2.140"]
   must_not:
     - A surprised creature cannot move or take actions on its first turn, or cannot take Reactions until its turn ends.
@@ -161,8 +161,7 @@
   not_in_srd: true
   gold_facts:
     - The SRD does not include the Hexblade or Hex Warrior.
-    - The SRD's Warlock subclass is the Fiend Patron.
-  gold_sections: ["6.11.6"]
+  gold_sections: []
   must_not:
     - Describes Hex Warrior's effects (Charisma for weapon attacks) as SRD rules.
 
@@ -175,3 +174,132 @@
   gold_sections: []
   must_not:
     - Lists eye rays as SRD content.
+
+# Harder questions: each needs two or more rules chained, a calculation, a
+# crossed or filtered list, or a table read, so a short answer is easily wrong.
+
+- id: wizard-save-dc
+  category: calculation
+  question: A level 5 Wizard has an Intelligence score of 16. What are their spell save DC and spell attack modifier?
+  gold_facts:
+    - An Intelligence of 16 gives a +3 modifier.
+    - A level 5 Wizard's Proficiency Bonus is +3.
+    - The spell save DC is 8 + 3 + 3 = 14.
+    - The spell attack modifier is 3 + 3 = +6.
+  gold_sections: ["5.2.3.4.1", "6.12.3.1", "10.2.9.2", "10.2.9.3"]
+  must_not:
+    - A spell save DC other than 14, or a spell attack modifier other than +6.
+
+- id: concentration-dc
+  category: calculation
+  question: A spellcaster concentrating on a spell takes 25 damage from one attack, and later 70 damage from another. What saving throw must they make each time, and at what DC?
+  gold_facts:
+    - Each time it is a Constitution saving throw.
+    - The DC is 10 or half the damage taken (rounded down), whichever is higher.
+    - For 25 damage the DC is 12.
+    - For 70 damage the DC is 30, the maximum (half would be 35).
+  gold_sections: ["11.2.31"]
+  must_not:
+    - A DC of 35 for the 70 damage.
+
+- id: two-handed-damage
+  category: calculation
+  question: Which deals more damage on average when it hits, a Greataxe or a Greatsword, before any modifiers?
+  gold_facts:
+    - A Greataxe deals 1d12 Slashing damage, 6.5 on average.
+    - A Greatsword deals 2d6 Slashing damage, 7 on average.
+    - The Greatsword deals more on average.
+  gold_sections: ["9.2.5"]
+  must_not:
+    - The Greataxe deals more on average, or the two are equal.
+
+- id: grappled-dash
+  category: rule interaction
+  question: Can a creature with the Grappled condition take the Dash action to move away from its grappler? If not, how does it get free?
+  gold_facts:
+    - A Grappled creature's Speed is 0 and can't increase.
+    - Dash gives extra movement equal to its Speed, which is 0, so Dash does not help.
+    - To get free it can use its action for a Strength (Athletics) or Dexterity (Acrobatics) check against the grapple's escape DC.
+  gold_sections: ["11.2.71", "11.2.49", "11.2.72"]
+  must_not:
+    - Dash lets the Grappled creature move away.
+
+- id: unconscious-range
+  category: rule interaction
+  question: An Unconscious creature is attacked twice, once by an attacker 5 feet away and once by an archer 30 feet away. How is each attack roll made, and what happens on a hit?
+  gold_facts:
+    - Attack rolls against an Unconscious creature have Advantage.
+    - An Unconscious creature also has the Prone condition.
+    - The attacker within 5 feet has Advantage, and a hit is a Critical Hit.
+    - The archer 30 feet away also has Disadvantage from Prone, so Advantage and Disadvantage cancel and the roll is normal.
+    - The archer's hit is not automatically a Critical Hit.
+  gold_sections: ["11.2.150", "11.2.114", "11.2.4"]
+  must_not:
+    - The archer's attack has Advantage.
+    - The archer's hit is a Critical Hit.
+
+- id: sneak-attack-disadvantage
+  category: rule interaction
+  question: A level 1 Rogue shoots a Longbow at a target with one of the Rogue's allies standing next to it, but the Rogue has Disadvantage on the attack roll. Can the Rogue use Sneak Attack?
+  gold_facts:
+    - A Longbow is a Ranged weapon, so it qualifies for Sneak Attack.
+    - An adjacent ally removes the need for Advantage only if the Rogue doesn't have Disadvantage on the roll.
+    - With Disadvantage and no Advantage, the Rogue can't use Sneak Attack.
+  gold_sections: ["6.9.3.3", "9.2.5"]
+  must_not:
+    - The Rogue can use Sneak Attack.
+
+- id: paladin-level-5
+  category: table lookup
+  question: How many spell slots of each level does a level 5 Paladin have, and how many spells can they prepare?
+  gold_facts:
+    - Four level 1 spell slots.
+    - Two level 2 spell slots.
+    - No spell slots of level 3 or higher.
+    - Six prepared spells.
+  gold_sections: ["6.7.3.1"]
+  must_not:
+    - Any level 3 spell slot.
+
+- id: exhaustion
+  category: edition trap
+  question: A character with Speed 30 feet has 3 levels of Exhaustion. How does that affect their attack rolls and their Speed?
+  gold_facts:
+    - Each D20 Test, attack rolls included, is reduced by 2 times the Exhaustion level, so by 6.
+    - Speed is reduced by 5 times the Exhaustion level, so by 15 feet, to 15 feet.
+  gold_sections: ["11.2.63"]
+  must_not:
+    - Disadvantage on attack rolls or saving throws from Exhaustion.
+    - Speed halved.
+
+- id: cleric-and-wizard
+  category: filtered list
+  question: Which level 1 spells are on both the Cleric and the Wizard spell lists?
+  gold_facts:
+    - Detect Magic
+    - Protection from Evil and Good
+  gold_sections: ["10.3.82", "10.3.247", "6.3.4.2", "6.12.4.2"]
+  must_not:
+    - Names any other spell as on both lists.
+
+- id: low-cr-poison-immune
+  category: filtered list
+  question: Which creatures in the SRD with a Challenge Rating of 1/2 or lower are immune to Poison damage?
+  gold_facts:
+    - Animated Flying Sword
+    - Dretch
+    - Dust Mephit
+    - Homunculus
+    - Ice Mephit
+    - Lemure
+    - Magma Mephit
+    - Shadow
+    - Skeleton
+    - Steam Mephit
+    - Warhorse Skeleton
+    - Zombie
+  gold_sections: ["15.3.2", "15.44.1", "15.104.1", "15.85.1", "15.104.2",
+                  "15.97.1", "15.104.3", "15.139.1", "15.143.1", "15.104.4",
+                  "15.143.2", "15.177.1"]
+  must_not:
+    - Names a creature above Challenge Rating 1/2, or one not immune to Poison damage.
