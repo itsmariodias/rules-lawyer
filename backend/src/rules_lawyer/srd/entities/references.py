@@ -38,6 +38,7 @@ from rules_lawyer.srd.vocabulary import (
     EntityType,
     StatPart,
     Target,
+    TermType,
     alternatives,
 )
 
@@ -113,8 +114,8 @@ def references(sections: list[Section]) -> list[dict]:
     Returns:
         ``{"source", "target", "relation"}`` per edge, each target once per
         source. A creature entry's source names its ``part`` ("actions/Bite").
-        A condition the source imposes is ``imposes_condition``; any other
-        target ``Target.relation``. A table never references itself.
+        A condition the source's own text inflicts is ``imposes_condition``;
+        any other target ``Target.relation``. A table never references itself.
     """
     tables = table_phrase(list(captioned_tables(sections)))
     spells = Names([s.heading for s in walk(sections) if s.entity_type == EntityType.SPELL])
@@ -134,7 +135,11 @@ def references(sections: list[Section]) -> list[dict]:
     found: list[dict] = []
     for section in walk(sections):
         texts = [runs for block in section.blocks for runs in run_lists(block)]
-        imposed = (section.spell or {}).get("conditions_imposed", [])
+        # A stat block's conditions are imposed by its entries, below. A
+        # condition's glossary entry lists the conditions it includes
+        # (Unconscious includes Incapacitated), which inflicts nothing.
+        inflicts = section.entity_type != EntityType.CREATURE and section.term_type != TermType.CONDITION
+        imposed = conditions_imposed(" ".join(plain(runs) for runs in texts)) if inflicts else []
         found += edges({"type": section.entity_type, "id": section.id, "name": section.heading}, texts, imposed)
     for block in stat_blocks:
         for part in block.sections:
