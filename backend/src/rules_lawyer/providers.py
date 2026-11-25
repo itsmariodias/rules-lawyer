@@ -207,6 +207,14 @@ class Google(ModelProvider):
     rejected_key = ("API_KEY_INVALID", "API key not valid")
     rate_limited = ("RESOURCE_EXHAUSTED", "429")
 
+    def chat_options(self, settings: ChatSettings) -> dict[str, Any]:
+        """Also, for the pinned model, its thinking level; any other model
+        thinks at its own default, since older Gemini models take no level."""
+        options = super().chat_options(settings)
+        if settings.model == self.chat_model:
+            options["thinking_level"] = "low"
+        return options
+
     def embedding_tasks(self, model: str) -> EmbeddingTasks:
         """Gemini's retrieval pair, the ``task_type`` of every request."""
         return EmbeddingTasks(document="RETRIEVAL_DOCUMENT", query="RETRIEVAL_QUERY")

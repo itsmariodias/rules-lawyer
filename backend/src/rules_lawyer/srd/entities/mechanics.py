@@ -87,8 +87,25 @@ def clean(text: str) -> str:
     return " ".join(text.split()).strip(" .,;")
 
 
+def mean(dice: str) -> float | None:
+    """The exact average of a dice expression ("1d12" is 6.5) or a flat number ("1").
+
+    Args:
+        dice: The expression as printed.
+
+    Returns:
+        The average, or None if it is neither.
+    """
+    expression = dice.replace("−", "-").replace(" ", "")
+    if not re.fullmatch(r"(\d+d\d+|\d+)([+-]\d+)*", expression):
+        return None
+    total = sum(int(n) * (int(sides) + 1) / 2 for n, sides in re.findall(r"(\d+)d(\d+)", expression))
+    flat = sum(int(constant) for constant in re.findall(r"(?:^|[+-])\d+", re.sub(r"\d+d\d+", "", expression)))
+    return float(total + flat)
+
+
 def average(dice: str) -> int | None:
-    """The floored average of a dice expression ("20d10 + 40").
+    """The floored average of a dice expression ("20d10 + 40"), as stat blocks print it.
 
     Args:
         dice: The expression as printed.
@@ -96,12 +113,10 @@ def average(dice: str) -> int | None:
     Returns:
         The average, or None if it is not dice.
     """
-    expression = dice.replace("−", "-").replace(" ", "")
-    if not re.fullmatch(r"(\d+d\d+)([+-]\d+)*", expression):
+    if "d" not in dice:
         return None
-    total = sum(int(n) * (int(sides) + 1) / 2 for n, sides in re.findall(r"(\d+)d(\d+)", expression))
-    total += sum(int(constant) for constant in re.findall(r"[+-]\d+", re.sub(r"\d+d\d+", "", expression)))
-    return math.floor(total)
+    found = mean(dice)
+    return None if found is None else math.floor(found)
 
 
 def uses(name: str) -> dict | None:

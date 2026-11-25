@@ -88,6 +88,16 @@ class TestChatOptions:
         # Then the setting wins over the provider's default
         assert PROVIDERS[Provider.GOOGLE].chat_options(settings)["temperature"] == 0.5
 
+    def test_given_gemini_when_built_then_only_the_pinned_model_thinks_low(self):
+        # Given the pinned Gemini model, and another Gemini model
+        pinned = chat(Provider.GOOGLE, model=PROVIDERS[Provider.GOOGLE].chat_model)
+        other = chat(Provider.GOOGLE, model="gemini-2.5-flash")
+
+        # When their options are read
+        # Then the pinned model thinks at "low", and the other at its own default
+        assert PROVIDERS[Provider.GOOGLE].chat_options(pinned)["thinking_level"] == "low"
+        assert "thinking_level" not in PROVIDERS[Provider.GOOGLE].chat_options(other)
+
     def test_given_openai_when_built_then_usage_is_streamed_from_the_given_server(
             self):
         # Given OpenAI pointed at a compatible server

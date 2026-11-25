@@ -338,7 +338,8 @@ search.
 ### `:GlossaryTerm:Condition`
 
 A condition something can impose or be immune to. The target of
-`IMPOSES_CONDITION`, `REFERENCES_CONDITION` and `IMMUNE_TO_CONDITION`.
+`IMPOSES_CONDITION`, `REFERENCES_CONDITION` and `IMMUNE_TO_CONDITION`, and
+both ends of `INCLUDES_CONDITION`.
 
 - **Example** — "Prone"
 
@@ -410,16 +411,23 @@ plus `cost_gp` and `weight_lb` where the book prints them.
 
 ### `:Equipment:Weapon`
 
-- **Adds** — `damage_dice`, `damage_type`, `mastery`, `properties`
+- **Adds** — `damage_dice`, `damage_type`, `damage_average`, `mastery`,
+  `properties`, and for a Versatile weapon `versatile_dice` and
+  `versatile_average`
 - **Example**
 
 ```cypher
 (:Equipment:Weapon {
   name: "Longsword", kind: "weapon", category: "Martial Melee",
-  damage_dice: "1d8", damage_type: "Slashing", mastery: "Sap",
+  damage_dice: "1d8", damage_type: "Slashing", damage_average: 4.5,
+  versatile_dice: "1d10", versatile_average: 5.5, mastery: "Sap",
   properties: ["Versatile (1d10)"], cost: "15 GP", cost_gp: 15.0,
   weight_lb: 3.0, page_start: 91 })
 ```
+
+The averages are exact (a Greataxe's 1d12 is 6.5), not floored as stat
+blocks print them: the book prints no weapon averages, and comparing weapons
+needs the half.
 
 ### `:Equipment:Gear`
 
@@ -695,6 +703,21 @@ Incapacitated condition"* and *"until you have the Incapacitated condition"*
 do not.
 
 - **Example** — `(Otherworldly Steed|bonus_actions/Fell Glare)-->(Frightened)`, `(Wand of Paralysis)-->(Paralyzed)`
+
+### `INCLUDES_CONDITION`
+
+```cypher
+(:GlossaryTerm:Condition)-[:INCLUDES_CONDITION]->(:GlossaryTerm:Condition)
+```
+
+Having the source condition means having the target too, as the source's own
+entry says ("You have the Incapacitated and Prone conditions"). So a rule
+about the target applies to anyone with the source: an Unconscious creature
+is Prone, and a ranged attack against it has Disadvantage as well as the
+Advantage Unconscious gives. Five edges: Paralyzed, Petrified, Stunned and
+Unconscious include Incapacitated, and Unconscious includes Prone.
+
+- **Example** — `(Unconscious)-->(Prone)`
 
 ## Derived
 

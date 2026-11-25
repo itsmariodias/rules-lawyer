@@ -666,6 +666,7 @@ def add_equipment(mapper: Mapper) -> None:
             mapper.warn(f"unknown equipment kind {kind!r}")
             label = "Gear"
         damage = item.get("damage") or {}
+        versatile = item.get("versatile") or {}
         properties = {
             "name": item["name"],
             "category": item.get("category"),
@@ -676,6 +677,9 @@ def add_equipment(mapper: Mapper) -> None:
             "mastery": item.get("mastery"),
             "damage_dice": damage.get("dice"),
             "damage_type": damage.get("type"),
+            "damage_average": damage.get("average"),
+            "versatile_dice": versatile.get("dice"),
+            "versatile_average": versatile.get("average"),
             "armor_class": item.get("armor_class"),
             "strength_requirement": item.get("strength_requirement"),
             "stealth_disadvantage": item.get("stealth_disadvantage"),

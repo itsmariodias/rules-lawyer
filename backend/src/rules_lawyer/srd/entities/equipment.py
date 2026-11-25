@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 
+from rules_lawyer.srd.entities.mechanics import mean
 from rules_lawyer.srd.entities.records import source
 from rules_lawyer.srd.model import Paragraph, Section, Table, plain
 from rules_lawyer.srd.output.render import section_text
@@ -24,6 +25,8 @@ WEIGHT = re.compile(r"([\d,]*)\s*([¼½¾])?\s*lb", re.IGNORECASE)
 WEAPON_DAMAGE = re.compile(r"^(\d+d\d+|\d+)\s+(\w+)$")
 # A property may hold commas in its parentheses ("Ammunition (Range 80/320; Bolt)").
 PROPERTY = re.compile(r"[^,(]+(?:\([^)]*\))?")
+# The Versatile property names the two-handed damage die: "Versatile (1d10)".
+VERSATILE = re.compile(r"Versatile \((\d+d\d+)\)")
 PRICED = re.compile(r"^(.*?)\s*\(([^)]*)\)\s*$")
 
 
@@ -62,10 +65,13 @@ def weapons(section: Section, pdf: str) -> list[dict]:
     for row, category in rows_by_category(table):
         name, damage_cell, properties, mastery, weight, cost = (plain(cell).strip() for cell in row)
         damage = WEAPON_DAMAGE.match(damage_cell)
+        listed = [] if properties in ("", "\u2014") else [p.strip() for p in PROPERTY.findall(properties) if p.strip()]
+        versatile = next((found.group(1) for p in listed if (found := VERSATILE.fullmatch(p))), None)
         records.append({"name": name, "kind": ItemKind.WEAPON, "category": re.sub(r"\s*Weapons$", "", category),
-                        "damage": {"dice": damage.group(1), "type": damage.group(2)} if damage else None,
-                        "properties": [] if properties in ("", "\u2014") else
-                        [p.strip() for p in PROPERTY.findall(properties) if p.strip()],
+                        "damage": {"dice": damage.group(1), "type": damage.group(2),
+                                   "average": mean(damage.group(1))} if damage else None,
+                        "properties": listed,
+                        **({"versatile": {"dice": versatile, "average": mean(versatile)}} if versatile else {}),
                         "mastery": mastery or None, "weight_lb": weight_lb(weight), **price(cost),
                         "table_id": section.id, "source": source(section, pdf)})
     return records

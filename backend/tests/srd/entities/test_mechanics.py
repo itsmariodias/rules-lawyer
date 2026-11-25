@@ -6,6 +6,7 @@ from rules_lawyer.srd.entities.mechanics import (
     damage,
     entry_mechanics,
     labelled_parts,
+    mean,
     spell_mechanics,
     uses,
 )
@@ -24,6 +25,15 @@ class TestAverage:
         assert average("20d10 + 40") == 150
         assert average("2d6 − 1") == 6
         assert average("Medium or smaller") is None
+
+
+class TestMean:
+    def test_given_dice_and_a_flat_number_when_averaged_then_the_mean_is_exact(self):
+        # Given a d12, two d6, dice with a constant, the Blowgun's flat 1, and no dice
+        # When averaged
+        # Then each mean is exact, halves kept
+        assert [mean(dice) for dice in ("1d12", "2d6", "2d6 − 1", "1", "Medium or smaller")] == [
+            6.5, 7.0, 6.0, 1.0, None]
 
 
 class TestUses:
