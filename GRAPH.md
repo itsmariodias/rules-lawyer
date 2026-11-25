@@ -667,16 +667,34 @@ A bolded creature name.
 
 ```cypher
 (:CreatureAbility)-[:IMPOSES_CONDITION]->(:GlossaryTerm:Condition)
-(:Section:Spell)-[:IMPOSES_CONDITION]->(:GlossaryTerm:Condition)
+(:Section)-[:IMPOSES_CONDITION]->(:GlossaryTerm:Condition)
 ```
 
-The condition is actually **inflicted**, not merely mentioned. Typography
-alone cannot separate the two, so direction comes from `mechanics.py`, which
-scopes negation to the clause after the last comma, semicolon or full stop:
-*"While Charmed, the target has the Incapacitated condition"* imposes it;
-*"while the vampire has the Incapacitated condition"* does not.
+Using the source, as its own text describes, can leave a creature with the
+condition: on a failed save, on a hit, or unconditionally. The creature may
+be the source's own user: *Hide* makes you Invisible, and a Vampire staked in
+its resting place is Paralyzed. The condition is
+actually **inflicted**, not merely mentioned. The source is a creature's
+ability (234), a spell (69), or any other section whose text inflicts it
+(85): a magic item, poison, piece of gear, class feature, trap, contagion, or
+a rule such as falling Prone or dropping to 0 Hit Points. A stat block's own
+section never imposes (its abilities do), nor does a condition's entry
+(Unconscious *includes* Incapacitated; it inflicts nothing).
 
-- **Example** — `(Otherworldly Steed|bonus_actions/Fell Glare)-->(Frightened)`
+The edge is direct: it comes only from the section whose own text inflicts
+the condition. An ability that casts a spell reaches the spell's conditions
+through the spell:
+`(:CreatureAbility)-[:REFERENCES_SPELL]->(:Spell)-[:IMPOSES_CONDITION]->(:Condition)`
+(the Lich's Frightening Gaze casts *Fear*, and *Fear* imposes Frightened).
+
+Typography alone cannot separate inflicting from mentioning, so direction
+comes from `mechanics.py`, which scopes negation to the clause after the last
+comma, semicolon or full stop: *"While Charmed, the target has the
+Incapacitated condition"* imposes it; *"while the vampire has the
+Incapacitated condition"* and *"until you have the Incapacitated condition"*
+do not.
+
+- **Example** — `(Otherworldly Steed|bonus_actions/Fell Glare)-->(Frightened)`, `(Wand of Paralysis)-->(Paralyzed)`
 
 ## Derived
 

@@ -59,6 +59,26 @@ class TestConditionsImposed:
         # Then both inflicted conditions count, the prerequisite does not
         assert conditions_imposed(text) == ["Deafened", "Frightened"]
 
+    def test_given_an_effect_ending_on_a_condition_when_read_then_nothing_is_imposed(self):
+        # Given the ways the book ends an effect, or describes a state that continues
+        texts = ["It lasts for 1 minute or until you have the Incapacitated condition.",
+                 "The whip disappears after 1 hour, or when you die or have the Incapacitated condition.",
+                 "You stay in that form until you use Wild Shape again, have the Incapacitated condition, or die.",
+                 "A Stable creature doesn't make Death Saving Throws, but it still has the Unconscious condition."]
+
+        # When read
+        # Then none of them inflicts a condition
+        assert [conditions_imposed(text) for text in texts] == [[], [], [], []]
+
+    def test_given_a_save_cast_when_read_then_when_does_not_negate(self):
+        # Given Entangle's "when you cast the spell" before what it inflicts
+        text = ("Each creature in the area when you cast the spell must succeed on a Strength saving throw "
+                "or have the Restrained condition until the spell ends.")
+
+        # When read
+        # Then the condition is inflicted
+        assert conditions_imposed(text) == ["Restrained"]
+
 
 class TestLabelledParts:
     def test_given_a_colon_set_roman_when_split_then_the_label_still_counts(self):

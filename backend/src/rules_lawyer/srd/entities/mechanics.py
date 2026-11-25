@@ -34,12 +34,18 @@ SPELL_DAMAGE = re.compile(rf"(\d+d\d+(?:\s*[+\-]\s*\d+)?)\s+({alternatives(Damag
 CONDITION = re.compile(r"\bha(?:s|ve) the ([A-Z]\w+(?:,\s+[A-Z]\w+)*(?:,?\s+and\s+[A-Z]\w+)?) conditions?\b")
 CONDITION_LIST = re.compile(r",\s+and\s+|,\s+|\s+and\s+")
 # Words that turn "has the X condition" from something inflicted into a
-# prerequisite, a duration, or a state described or removed, in the clause
-# before it (after the last "." "," or ";"): "While Charmed, the target has the
-# Incapacitated condition" inflicts; "one creature that has the Prone condition"
-# does not.
-NEGATION = re.compile(r"\b(if|unless|while|whether|that|already|immune|no longer|isn’t|isn't|aren’t|aren't"
-                      r"|doesn’t|doesn't|don’t|don't|not)\b", re.IGNORECASE)
+# prerequisite, a duration, the end of an effect, or a state described or
+# removed, in the clause before it (after the last "." "," or ";"): "While
+# Charmed, the target has the Incapacitated condition" inflicts; "one creature
+# that has the Prone condition", "until you have the Incapacitated condition"
+# and "it still has the Unconscious condition" do not. The book ends an effect
+# on its user's Incapacitation beside dying: "when you die or have the
+# Incapacitated condition" (Feather Token), so "die" negates too.
+NEGATION = re.compile(r"\b(if|unless|while|until|whether|that|already|still|die|immune|no longer|isn’t|isn't"
+                      r"|aren’t|aren't|doesn’t|doesn't|don’t|don't|not)\b", re.IGNORECASE)
+# The same ending with dying after it: "until you use Wild Shape again, have the
+# Incapacitated condition, or die", where a comma has cut "until" off.
+OR_DIE = re.compile(r",?\s+or\s+die\b")
 CLAUSE_BOUNDARY = re.compile(r"[.;,]")
 ATTACK_LABEL = re.compile(r"^(Melee or Ranged|Melee|Ranged) Attack Roll$")
 SAVE_LABEL = re.compile(rf"^({alternatives(Ability)}) Saving Throw$")
@@ -144,7 +150,8 @@ def conditions_imposed(text: str) -> list[str]:
     """The conditions the text inflicts, as opposed to mentions, in order of first appearance.
 
     Args:
-        text: An entry's or spell's text.
+        text: Any text that may inflict a condition: a stat block entry, a
+            spell, an item, a feature, a rule.
 
     Returns:
         Each condition's name once.
@@ -152,7 +159,7 @@ def conditions_imposed(text: str) -> list[str]:
     found: list[str] = []
     for match in CONDITION.finditer(text):
         clause = CLAUSE_BOUNDARY.split(text[:match.start()])[-1]
-        if NEGATION.search(clause):
+        if NEGATION.search(clause) or OR_DIE.match(text, match.end()):
             continue
         for name in CONDITION_LIST.split(match.group(1)):
             if name and name not in found:
