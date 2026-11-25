@@ -1,0 +1,6 @@
+# USD per million tokens, by model id: input, cached_input, output.
+# Fill these from the providers' current price pages before reading costs;
+# a model left blank reports its cost as n/a.
+gemini-3.8-flash: {input: 0.75, cached_input: 0.075, output: 3.75}
+gemini-3.5-flash-lite: {input: 0.3, cached_input: 0.03, output: 2.5}
+gemini-3.1-pro-preview: {input: 2.0, cached_input: 0.2, output: 12.0}

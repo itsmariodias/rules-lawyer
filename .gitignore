@@ -12,6 +12,9 @@ data/output/
 # Conversation state (LangGraph checkpoints)
 data/chat/
 
+# Benchmark runs (bench/)
+data/bench/
+
 frontend/node_modules/
 frontend/dist/
 
