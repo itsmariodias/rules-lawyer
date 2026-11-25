@@ -114,7 +114,7 @@
                   "15.146.3", "15.155.1", "15.16.3", "15.16.4", "15.169.3",
                   "15.169.4", "15.98.1"]
   must_not:
-    - Names a creature the SRD does not include, such as a Beholder or a Mummy Lord.
+    - Names a creature the SRD does not include, such as a Beholder or an Androsphinx.
     - Says dragons of other colours (Red, Blue, Green, metallic) can frighten; only the Black and White dragons can.
 
 - id: finesse-weapons
