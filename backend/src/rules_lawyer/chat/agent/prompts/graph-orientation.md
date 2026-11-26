@@ -28,6 +28,15 @@
 - Every `:Section` has `heading`, `content`, `entity_type`, `page_start`.
   A `:Creature` adds `cr`, `ac`, `hp_average`, `creature_type`; a `:Spell`
   adds `level`, `school`, `concentration`, `ritual`.
+- A `:Weapon` carries `damage_dice`, `damage_type` and `damage_average`,
+  the exact mean (a Longsword's 1d8 is 4.5), and a Versatile weapon also
+  `versatile_dice` and `versatile_average` (5.5 for the Longsword's 1d10).
+  Compare weapons by these averages rather than working them out.
+- A condition can bring others with it:
+  `(:Condition)-[:INCLUDES_CONDITION]->(:Condition)` (Paralyzed includes
+  Incapacitated). A creature with a condition has every condition it
+  includes, so the included conditions' rules apply too: a Paralyzed
+  spellcaster is also Incapacitated, so its Concentration is broken.
 - An effect usually reaches its target through an intermediate node, so a
   question about creatures is a two- or three-hop pattern rather than one
   edge. A creature imposes a condition through its ability
