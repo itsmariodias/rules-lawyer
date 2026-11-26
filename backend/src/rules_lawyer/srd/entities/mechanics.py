@@ -34,12 +34,18 @@ SPELL_DAMAGE = re.compile(rf"(\d+d\d+(?:\s*[+\-]\s*\d+)?)\s+({alternatives(Damag
 CONDITION = re.compile(r"\bha(?:s|ve) the ([A-Z]\w+(?:,\s+[A-Z]\w+)*(?:,?\s+and\s+[A-Z]\w+)?) conditions?\b")
 CONDITION_LIST = re.compile(r",\s+and\s+|,\s+|\s+and\s+")
 # Words that turn "has the X condition" from something inflicted into a
-# prerequisite, a duration, or a state described or removed, in the clause
-# before it (after the last "." "," or ";"): "While Charmed, the target has the
-# Incapacitated condition" inflicts; "one creature that has the Prone condition"
-# does not.
-NEGATION = re.compile(r"\b(if|unless|while|whether|that|already|immune|no longer|isn’t|isn't|aren’t|aren't"
-                      r"|doesn’t|doesn't|don’t|don't|not)\b", re.IGNORECASE)
+# prerequisite, a duration, the end of an effect, or a state described or
+# removed, in the clause before it (after the last "." "," or ";"): "While
+# Charmed, the target has the Incapacitated condition" inflicts; "one creature
+# that has the Prone condition", "until you have the Incapacitated condition"
+# and "it still has the Unconscious condition" do not. The book ends an effect
+# on its user's Incapacitation beside dying: "when you die or have the
+# Incapacitated condition" (Feather Token), so "die" negates too.
+NEGATION = re.compile(r"\b(if|unless|while|until|whether|that|already|still|die|immune|no longer|isn’t|isn't"
+                      r"|aren’t|aren't|doesn’t|doesn't|don’t|don't|not)\b", re.IGNORECASE)
+# The same ending with dying after it: "until you use Wild Shape again, have the
+# Incapacitated condition, or die", where a comma has cut "until" off.
+OR_DIE = re.compile(r",?\s+or\s+die\b")
 CLAUSE_BOUNDARY = re.compile(r"[.;,]")
 ATTACK_LABEL = re.compile(r"^(Melee or Ranged|Melee|Ranged) Attack Roll$")
 SAVE_LABEL = re.compile(rf"^({alternatives(Ability)}) Saving Throw$")
@@ -81,8 +87,25 @@ def clean(text: str) -> str:
     return " ".join(text.split()).strip(" .,;")
 
 
+def mean(dice: str) -> float | None:
+    """The exact average of a dice expression ("1d12" is 6.5) or a flat number ("1").
+
+    Args:
+        dice: The expression as printed.
+
+    Returns:
+        The average, or None if it is neither.
+    """
+    expression = dice.replace("−", "-").replace(" ", "")
+    if not re.fullmatch(r"(\d+d\d+|\d+)([+-]\d+)*", expression):
+        return None
+    total = sum(int(n) * (int(sides) + 1) / 2 for n, sides in re.findall(r"(\d+)d(\d+)", expression))
+    flat = sum(int(constant) for constant in re.findall(r"(?:^|[+-])\d+", re.sub(r"\d+d\d+", "", expression)))
+    return float(total + flat)
+
+
 def average(dice: str) -> int | None:
-    """The floored average of a dice expression ("20d10 + 40").
+    """The floored average of a dice expression ("20d10 + 40"), as stat blocks print it.
 
     Args:
         dice: The expression as printed.
@@ -90,12 +113,10 @@ def average(dice: str) -> int | None:
     Returns:
         The average, or None if it is not dice.
     """
-    expression = dice.replace("−", "-").replace(" ", "")
-    if not re.fullmatch(r"(\d+d\d+)([+-]\d+)*", expression):
+    if "d" not in dice:
         return None
-    total = sum(int(n) * (int(sides) + 1) / 2 for n, sides in re.findall(r"(\d+)d(\d+)", expression))
-    total += sum(int(constant) for constant in re.findall(r"[+-]\d+", re.sub(r"\d+d\d+", "", expression)))
-    return math.floor(total)
+    found = mean(dice)
+    return None if found is None else math.floor(found)
 
 
 def uses(name: str) -> dict | None:
@@ -144,7 +165,8 @@ def conditions_imposed(text: str) -> list[str]:
     """The conditions the text inflicts, as opposed to mentions, in order of first appearance.
 
     Args:
-        text: An entry's or spell's text.
+        text: Any text that may inflict a condition: a stat block entry, a
+            spell, an item, a feature, a rule.
 
     Returns:
         Each condition's name once.
@@ -152,7 +174,7 @@ def conditions_imposed(text: str) -> list[str]:
     found: list[str] = []
     for match in CONDITION.finditer(text):
         clause = CLAUSE_BOUNDARY.split(text[:match.start()])[-1]
-        if NEGATION.search(clause):
+        if NEGATION.search(clause) or OR_DIE.match(text, match.end()):
             continue
         for name in CONDITION_LIST.split(match.group(1)):
             if name and name not in found:

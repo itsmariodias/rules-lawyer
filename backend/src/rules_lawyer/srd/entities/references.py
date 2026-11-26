@@ -38,6 +38,7 @@ from rules_lawyer.srd.vocabulary import (
     EntityType,
     StatPart,
     Target,
+    TermType,
     alternatives,
 )
 
@@ -46,6 +47,7 @@ from rules_lawyer.srd.vocabulary import (
 NAME_LIST = re.compile(r",\s+(?:and|or)\s+|,\s+|\s+and\s+|\s+or\s+")
 AREA = re.compile(rf"\d+-foot[\w-]*\s+({alternatives(AreaOfEffect)})\b")
 IMPOSES_CONDITION = "imposes_condition"
+INCLUDES_CONDITION = "includes_condition"
 
 
 def phrase(vocabulary: type[Condition | Action | DamageType], noun: str) -> re.Pattern:
@@ -113,8 +115,10 @@ def references(sections: list[Section]) -> list[dict]:
     Returns:
         ``{"source", "target", "relation"}`` per edge, each target once per
         source. A creature entry's source names its ``part`` ("actions/Bite").
-        A condition the source imposes is ``imposes_condition``; any other
-        target ``Target.relation``. A table never references itself.
+        A condition the source's own text inflicts is ``imposes_condition``,
+        and one a condition's own text says it brings is ``includes_condition``
+        (Unconscious includes Prone); any other target ``Target.relation``. A
+        table never references itself.
     """
     tables = table_phrase(list(captioned_tables(sections)))
     spells = Names([s.heading for s in walk(sections) if s.entity_type == EntityType.SPELL])
@@ -122,25 +126,32 @@ def references(sections: list[Section]) -> list[dict]:
     stat_blocks = [s.blocks[0] for s in walk(sections) if s.entity_type == EntityType.CREATURE]
     creature_names = Names([block.name for block in stat_blocks])
 
-    def edges(source: dict, texts: list[list[Run]], imposed: list[str]) -> list[dict]:
+    def edges(source: dict, texts: list[list[Run]], stated: list[str], relation: str) -> list[dict]:
         found: list[tuple[Target, str]] = []
         for runs in texts:
             found += mentions(runs, spells, items, creature_names, tables)
         return [{"source": source, "target": {"type": target, "name": name},
-                 "relation": IMPOSES_CONDITION if target == Target.CONDITION and name in imposed else target.relation}
+                 "relation": relation if target == Target.CONDITION and name in stated else target.relation}
                 for target, name in dict.fromkeys(found)
                 if not (target == Target.TABLE and name == source["name"])]
 
     found: list[dict] = []
     for section in walk(sections):
         texts = [runs for block in section.blocks for runs in run_lists(block)]
-        imposed = (section.spell or {}).get("conditions_imposed", [])
-        found += edges({"type": section.entity_type, "id": section.id, "name": section.heading}, texts, imposed)
+        # A stat block's conditions are imposed by its entries, below. A
+        # condition's glossary entry says what else its creature has
+        # (Unconscious: "You have the Incapacitated and Prone conditions"),
+        # which is part of the condition, not something inflicted.
+        stated = ([] if section.entity_type == EntityType.CREATURE
+                  else conditions_imposed(" ".join(plain(runs) for runs in texts)))
+        relation = INCLUDES_CONDITION if section.term_type == TermType.CONDITION else IMPOSES_CONDITION
+        found += edges({"type": section.entity_type, "id": section.id, "name": section.heading},
+                       texts, stated, relation)
     for block in stat_blocks:
         for part in block.sections:
             for name, runs in named_entries(part.entries):
                 found += edges({"type": "creature", "name": block.name, "part": f"{StatPart(part.title).field}/{name}"},
-                               [runs], conditions_imposed(plain(runs)))
+                               [runs], conditions_imposed(plain(runs)), IMPOSES_CONDITION)
     return found
 
 

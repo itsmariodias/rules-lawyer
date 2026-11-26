@@ -105,6 +105,30 @@ class TestReferences:
         # Then the imposed condition is imposes_condition, the other a reference
         assert found == {("Frightened", "imposes_condition"), ("Prone", "references_condition")}
 
+    def test_given_a_magic_item_inflicting_a_condition_when_referenced_then_it_imposes(self):
+        # Given a wand whose text paralyzes
+        text = Paragraph([Run("The target must succeed on a DC 15 Constitution saving throw "
+                              "or have the Paralyzed condition for 1 minute.")], [210])
+        wand = section("13.9.247", "Wand of Paralysis", "magic_item", text)
+
+        # When referenced
+        found = {(e["target"]["name"], e["relation"]) for e in references([wand])}
+
+        # Then the item imposes the condition
+        assert found == {("Paralyzed", "imposes_condition")}
+
+    def test_given_a_condition_including_another_when_referenced_then_it_includes_it(self):
+        # Given Unconscious, whose glossary entry says it includes Incapacitated
+        text = Paragraph([Run("Inert. You have the Incapacitated and Prone conditions.")], [187])
+        unconscious = Section("11.2.148", "Unconscious [Condition]", 4, [text], [], Source(1, 1),
+                              "glossary_term", term="Unconscious", term_type="condition")
+
+        # When referenced
+        found = {(e["target"]["name"], e["relation"]) for e in references([unconscious])}
+
+        # Then both are included, not imposed: being Unconscious inflicts nothing on anyone
+        assert found == {("Incapacitated", "includes_condition"), ("Prone", "includes_condition")}
+
     def test_given_a_creature_entry_when_referenced_then_its_source_names_the_part(self):
         # Given a ghoul whose Claw paralyzes
         claw = Paragraph([Run("Claw.", bold=True, italic=True),

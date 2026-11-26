@@ -204,7 +204,10 @@ GRAPH.md             reference for every label and relationship type
   current models deprecate temperature, and 0.2 for Ollama. LangChain also
   drops its own 0.7 for Gemini 3 when none is passed. A temperature set for
   a provider whose default is none is still sent, with a warning at startup
-  (`lifespan`).
+  (`lifespan`). Google's pinned chat model thinks at `low`
+  (`Google.chat_options`): on 22 rules questions it scored 0.99 there, and
+  took about twice as long at its default. Any other Gemini model keeps its
+  own default, since older ones take no level.
 - `RULES_LAWYER_SERVE_FRONTEND` moves the routes under `/api` and serves
   `<root>/frontend/dist` at `/` (see Docker). A blank
   `RULES_LAWYER_EMBEDDINGS` counts as unset, as a blank key does.
@@ -364,9 +367,10 @@ offsets), plus optional typed fields (`spell`, `item`, `term`/`term_type`,
 | `environmental_effect` / `trap` / `contagion` | 9 / 8 / 3 |
 
 References by relation: `references_spell` 2172, `references_damage_type`
-1655, `references_condition` 538, `references_area_of_effect` 354,
-`references_action` 306, `imposes_condition` 303, `references_table` 162,
-`references_creature` 101, `references_magic_item` 68.
+1655, `references_condition` 448, `imposes_condition` 388,
+`references_area_of_effect` 354, `references_action` 306, `references_table`
+162, `references_creature` 101, `references_magic_item` 68,
+`includes_condition` 5.
 
 ### How the book is read
 
@@ -457,7 +461,17 @@ the block, never by post-processing text.
   `mechanics.conditions_imposed` decides "imposes": "has the X condition" (X
   may be an *and* list), skipped when a negating word appears in the same
   clause. *Or* lists are not imposed: "the Grappled, Incapacitated, or
-  Restrained condition" is usually target eligibility.
+  Restrained condition" is usually target eligibility. Neither is the end of
+  an effect ("until you have the Incapacitated condition", "or die"), nor a
+  state that continues ("still has"); "when" does not negate, since
+  "each creature in the area when you cast the spell" inflicts. It is read
+  from every section's own text and every creature entry, so items, poisons,
+  features, traps and rules impose (85 edges besides creatures' 234 and
+  spells' 69), but not a stat block's section (its entries do). A
+  condition's glossary entry inflicts nothing: what it states is
+  `includes_condition` (Unconscious includes Incapacitated and Prone). The creature affected may be the user (Hide makes you
+  Invisible; a staked Vampire is Paralyzed). Direct only: an ability that
+  casts *Fear* references the spell, and the spell imposes Frightened.
 - **Page anchors:** one box per line from baseline and size
   (`baseline - 0.80*size` to `baseline + 0.24*size`), since PyMuPDF reports
   most lines on a page as 56pt tall; horizontal extent is reliable. 8145

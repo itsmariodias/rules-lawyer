@@ -6,6 +6,7 @@ from rules_lawyer.srd.entities.mechanics import (
     damage,
     entry_mechanics,
     labelled_parts,
+    mean,
     spell_mechanics,
     uses,
 )
@@ -24,6 +25,21 @@ class TestAverage:
         assert average("20d10 + 40") == 150
         assert average("2d6 − 1") == 6
         assert average("Medium or smaller") is None
+
+    def test_given_a_flat_number_when_averaged_then_there_is_no_average(self):
+        # Given the Blowgun's flat 1, which rolls no dice
+        # When averaged
+        # Then it has no average to print, though its mean is 1
+        assert (average("1"), mean("1")) == (None, 1.0)
+
+
+class TestMean:
+    def test_given_dice_and_a_flat_number_when_averaged_then_the_mean_is_exact(self):
+        # Given a d12, two d6, dice with a constant, the Blowgun's flat 1, and no dice
+        # When averaged
+        # Then each mean is exact, halves kept
+        assert [mean(dice) for dice in ("1d12", "2d6", "2d6 − 1", "1", "Medium or smaller")] == [
+            6.5, 7.0, 6.0, 1.0, None]
 
 
 class TestUses:
@@ -58,6 +74,26 @@ class TestConditionsImposed:
         # When read
         # Then both inflicted conditions count, the prerequisite does not
         assert conditions_imposed(text) == ["Deafened", "Frightened"]
+
+    def test_given_an_effect_ending_on_a_condition_when_read_then_nothing_is_imposed(self):
+        # Given the ways the book ends an effect, or describes a state that continues
+        texts = ["It lasts for 1 minute or until you have the Incapacitated condition.",
+                 "The whip disappears after 1 hour, or when you die or have the Incapacitated condition.",
+                 "You stay in that form until you use Wild Shape again, have the Incapacitated condition, or die.",
+                 "A Stable creature doesn't make Death Saving Throws, but it still has the Unconscious condition."]
+
+        # When read
+        # Then none of them inflicts a condition
+        assert [conditions_imposed(text) for text in texts] == [[], [], [], []]
+
+    def test_given_a_save_cast_when_read_then_when_does_not_negate(self):
+        # Given Entangle's "when you cast the spell" before what it inflicts
+        text = ("Each creature in the area when you cast the spell must succeed on a Strength saving throw "
+                "or have the Restrained condition until the spell ends.")
+
+        # When read
+        # Then the condition is inflicted
+        assert conditions_imposed(text) == ["Restrained"]
 
 
 class TestLabelledParts:
