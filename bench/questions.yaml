@@ -1,0 +1,305 @@
+# Twenty-two questions, each answered from SRD 5.2.1: twelve covering the
+# basics, two per category, then ten harder ones.
+#
+# gold_facts:    what a correct answer states; the judge marks each one.
+# gold_sections: the sections stating them; citations are scored against
+#                these (a cited ancestor or descendant counts too).
+# must_not:      a wrong answer worth catching, usually the 2014 rule.
+# not_in_srd:    the right answer is that the SRD does not cover it.
+
+- id: prone
+  category: direct lookup
+  question: What happens to a creature that has the Prone condition?
+  gold_facts:
+    - It can only crawl, or spend half its Speed (rounded down) to stand up and end the condition.
+    - It cannot stand up if its Speed is 0.
+    - It has Disadvantage on its attack rolls.
+    - Attack rolls against it have Advantage if the attacker is within 5 feet, and Disadvantage otherwise.
+  gold_sections: ["11.2.114"]
+  must_not:
+    - Attacks against it have Advantage regardless of distance.
+
+- id: short-rest
+  category: direct lookup
+  question: How long is a Short Rest, and what interrupts one?
+  gold_facts:
+    - A Short Rest lasts 1 hour.
+    - It needs at least 1 Hit Point to start.
+    - Rolling Initiative interrupts it.
+    - Casting a spell other than a cantrip interrupts it.
+    - Taking any damage interrupts it.
+    - An interrupted Short Rest gives no benefits.
+  gold_sections: ["11.2.126"]
+  must_not:
+    - A Short Rest lasts less than 1 hour (for example 10 minutes).
+
+- id: fireball
+  category: precise numbers
+  question: What are Fireball's level, range, area, saving throw and damage, and how does it scale?
+  gold_facts:
+    - It is a level 3 spell.
+    - Its range is 150 feet.
+    - It fills a 20-foot-radius Sphere.
+    - Each creature in it makes a Dexterity saving throw.
+    - It deals 8d6 Fire damage on a failed save, half on a success.
+    - The damage increases by 1d6 for each spell slot level above 3.
+  gold_sections: ["10.3.123"]
+  must_not: []
+
+- id: red-dragon-breath
+  category: precise numbers
+  question: What does an Adult Red Dragon's Fire Breath do?
+  gold_facts:
+    - It recharges on a 5 or 6.
+    - It is a DC 21 Dexterity saving throw.
+    - It covers a 60-foot Cone.
+    - It deals 59 (17d6) Fire damage on a failure.
+    - It deals half damage on a success.
+  gold_sections: ["15.129.3"]
+  must_not:
+    - The DC is other than 21, or the damage other than 17d6 (59).
+
+- id: champion-crit
+  category: multi-hop
+  question: On what d20 rolls does a level 15 Champion Fighter score a Critical Hit, and does that apply to Unarmed Strikes?
+  gold_facts:
+    - At level 15, Superior Critical makes it a Critical Hit on 18 to 20.
+    - It applies to attack rolls with weapons and with Unarmed Strikes.
+  gold_sections: ["6.5.4.5"]
+  must_not:
+    - It applies only to weapon attacks, not Unarmed Strikes.
+
+- id: dark-ones-blessing
+  category: multi-hop
+  question: A level 5 Fiend Patron Warlock with Charisma 18 reduces an enemy to 0 Hit Points. How many Temporary Hit Points do they gain, and could they gain them when an ally drops the enemy instead?
+  gold_facts:
+    - Dark One's Blessing grants Temporary Hit Points equal to Charisma modifier plus Warlock level.
+    - That is 4 + 5 = 9 Temporary Hit Points.
+    - It also works when someone else reduces an enemy within 10 feet of the Warlock to 0 Hit Points.
+  gold_sections: ["6.11.6.1"]
+  must_not:
+    - Any total other than 9.
+
+- id: frightened-creatures
+  category: exhaustive list
+  question: Which creatures in the SRD can give a target the Frightened condition?
+  # Fifteen impose it through an ability; five cast Fear, which imposes it
+  # (the Black and White dragons' Frightful Presence, the Lich's Frightening
+  # Gaze). The Fey Spirit of Conjure Fey and the Goat of Terror of the
+  # Figurines of Wondrous Power also frighten, but print no stat block of
+  # their own, so naming them is neither required nor wrong.
+  gold_facts:
+    - Chain Devil
+    - Cloaker
+    - Doppelganger
+    - Ghost
+    - Lion
+    - Mummy
+    - Nalfeshnee
+    - Oni
+    - Otherworldly Steed
+    - Pit Fiend
+    - Quasit
+    - Rakshasa
+    - Sea Hag
+    - Sphinx of Valor
+    - Tarrasque
+    - Adult Black Dragon (casts Fear)
+    - Ancient Black Dragon (casts Fear)
+    - Adult White Dragon (casts Fear)
+    - Ancient White Dragon (casts Fear)
+    - Lich (casts Fear)
+  gold_sections: ["15.26.1", "15.30.1", "15.42.1", "15.61.1", "16.60",
+                  "15.109.1", "15.110.1", "15.116.1", "10.3.119.1",
+                  "15.122.1", "15.127.1", "15.128.1", "15.138.1",
+                  "15.146.3", "15.155.1", "15.16.3", "15.16.4", "15.169.3",
+                  "15.169.4", "15.98.1"]
+  must_not:
+    - Names a creature the SRD does not include, such as a Beholder or an Androsphinx.
+    - Says dragons of other colours (Red, Blue, Green, metallic) can frighten; only the Black and White dragons can.
+
+- id: finesse-weapons
+  category: exhaustive list
+  question: Which weapons have the Finesse property, and what does Finesse let you do?
+  gold_facts:
+    - Dagger
+    - Dart
+    - Rapier
+    - Scimitar
+    - Shortsword
+    - Whip
+    - Finesse lets you use Strength or Dexterity for the attack and damage rolls, the same modifier for both.
+  gold_sections: ["9.2.5", "9.2.3.2"]
+  must_not:
+    - Any other weapon has Finesse.
+
+- id: surprise
+  category: edition trap
+  question: What happens to a creature that is surprised when combat starts?
+  gold_facts:
+    - A surprised creature has Disadvantage on its Initiative roll.
+  gold_sections: ["4.8.1.2", "11.2.140"]
+  must_not:
+    - A surprised creature cannot move or take actions on its first turn, or cannot take Reactions until its turn ends.
+
+- id: grapple
+  category: edition trap
+  question: How do I grapple a creature, and how does it escape?
+  gold_facts:
+    - Grappling is an option of an Unarmed Strike.
+    - The target makes a Strength or Dexterity saving throw, its choice, or has the Grappled condition.
+    - The DC is 8 + the grappler's Strength modifier + Proficiency Bonus.
+    - The target can be no more than one size larger than the grappler.
+    - To escape, the target uses its action for a Strength (Athletics) or Dexterity (Acrobatics) check against the grapple's escape DC.
+  gold_sections: ["11.2.149", "11.2.72"]
+  must_not:
+    - Grappling is a contested Strength (Athletics) check against the target's Athletics or Acrobatics.
+
+- id: hexblade
+  category: not in SRD
+  question: What does the Hexblade Warlock's Hex Warrior feature do?
+  not_in_srd: true
+  gold_facts:
+    - The SRD does not include the Hexblade or Hex Warrior.
+  gold_sections: []
+  must_not:
+    - Describes Hex Warrior's effects (Charisma for weapon attacks) as SRD rules.
+
+- id: beholder
+  category: not in SRD
+  question: What are a Beholder's eye rays?
+  not_in_srd: true
+  gold_facts:
+    - The SRD does not include the Beholder.
+  gold_sections: []
+  must_not:
+    - Lists eye rays as SRD content.
+
+# Harder questions: each needs two or more rules chained, a calculation, a
+# crossed or filtered list, or a table read, so a short answer is easily wrong.
+
+- id: wizard-save-dc
+  category: calculation
+  question: A level 5 Wizard has an Intelligence score of 16. What are their spell save DC and spell attack modifier?
+  gold_facts:
+    - An Intelligence of 16 gives a +3 modifier.
+    - A level 5 Wizard's Proficiency Bonus is +3.
+    - The spell save DC is 8 + 3 + 3 = 14.
+    - The spell attack modifier is 3 + 3 = +6.
+  gold_sections: ["5.2.3.4.1", "6.12.3.1", "10.2.9.2", "10.2.9.3"]
+  must_not:
+    - A spell save DC other than 14, or a spell attack modifier other than +6.
+
+- id: concentration-dc
+  category: calculation
+  question: A spellcaster concentrating on a spell takes 25 damage from one attack, and later 70 damage from another. What saving throw must they make each time, and at what DC?
+  gold_facts:
+    - Each time it is a Constitution saving throw.
+    - The DC is 10 or half the damage taken (rounded down), whichever is higher.
+    - For 25 damage the DC is 12.
+    - For 70 damage the DC is 30, the maximum (half would be 35).
+  gold_sections: ["11.2.31"]
+  must_not:
+    - A DC of 35 for the 70 damage.
+
+- id: two-handed-damage
+  category: calculation
+  question: Which deals more damage on average when it hits, a Greataxe or a Greatsword, before any modifiers?
+  gold_facts:
+    - A Greataxe deals 1d12 Slashing damage, 6.5 on average.
+    - A Greatsword deals 2d6 Slashing damage, 7 on average.
+    - The Greatsword deals more on average.
+  gold_sections: ["9.2.5"]
+  must_not:
+    - The Greataxe deals more on average, or the two are equal.
+
+- id: grappled-dash
+  category: rule interaction
+  question: Can a creature with the Grappled condition take the Dash action to move away from its grappler? If not, how does it get free?
+  gold_facts:
+    - A Grappled creature's Speed is 0 and can't increase.
+    - Dash gives extra movement equal to its Speed, which is 0, so Dash does not help.
+    - To get free it can use its action for a Strength (Athletics) or Dexterity (Acrobatics) check against the grapple's escape DC.
+  gold_sections: ["11.2.71", "11.2.49", "11.2.72"]
+  must_not:
+    - Dash lets the Grappled creature move away.
+
+- id: unconscious-range
+  category: rule interaction
+  question: An Unconscious creature is attacked twice, once by an attacker 5 feet away and once by an archer 30 feet away. How is each attack roll made, and what happens on a hit?
+  gold_facts:
+    - Attack rolls against an Unconscious creature have Advantage.
+    - An Unconscious creature also has the Prone condition.
+    - The attacker within 5 feet has Advantage, and a hit is a Critical Hit.
+    - The archer 30 feet away also has Disadvantage from Prone, so Advantage and Disadvantage cancel and the roll is normal.
+    - The archer's hit is not automatically a Critical Hit.
+  gold_sections: ["11.2.150", "11.2.114", "11.2.4"]
+  must_not:
+    - The archer's attack has Advantage.
+    - The archer's hit is a Critical Hit.
+
+- id: sneak-attack-disadvantage
+  category: rule interaction
+  question: A level 1 Rogue shoots a Longbow at a target with one of the Rogue's allies standing next to it, but the Rogue has Disadvantage on the attack roll. Can the Rogue use Sneak Attack?
+  gold_facts:
+    - A Longbow is a Ranged weapon, so it qualifies for Sneak Attack.
+    - An adjacent ally removes the need for Advantage only if the Rogue doesn't have Disadvantage on the roll.
+    - With Disadvantage and no Advantage, the Rogue can't use Sneak Attack.
+  gold_sections: ["6.9.3.3", "9.2.5"]
+  must_not:
+    - The Rogue can use Sneak Attack.
+
+- id: paladin-level-5
+  category: table lookup
+  question: How many spell slots of each level does a level 5 Paladin have, and how many spells can they prepare?
+  gold_facts:
+    - Four level 1 spell slots.
+    - Two level 2 spell slots.
+    - No spell slots of level 3 or higher.
+    - Six prepared spells.
+  gold_sections: ["6.7.3.1"]
+  must_not:
+    - Any level 3 spell slot.
+
+- id: exhaustion
+  category: edition trap
+  question: A character with Speed 30 feet has 3 levels of Exhaustion. How does that affect their attack rolls and their Speed?
+  gold_facts:
+    - Each D20 Test, attack rolls included, is reduced by 2 times the Exhaustion level, so by 6.
+    - Speed is reduced by 5 times the Exhaustion level, so by 15 feet, to 15 feet.
+  gold_sections: ["11.2.63"]
+  must_not:
+    - Disadvantage on attack rolls or saving throws from Exhaustion.
+    - Speed halved.
+
+- id: cleric-and-wizard
+  category: filtered list
+  question: Which level 1 spells are on both the Cleric and the Wizard spell lists?
+  gold_facts:
+    - Detect Magic
+    - Protection from Evil and Good
+  gold_sections: ["10.3.82", "10.3.247", "6.3.4.2", "6.12.4.2"]
+  must_not:
+    - Names any other spell as on both lists.
+
+- id: low-cr-poison-immune
+  category: filtered list
+  question: Which creatures in the SRD with a Challenge Rating of 1/2 or lower are immune to Poison damage?
+  gold_facts:
+    - Animated Flying Sword
+    - Dretch
+    - Dust Mephit
+    - Homunculus
+    - Ice Mephit
+    - Lemure
+    - Magma Mephit
+    - Shadow
+    - Skeleton
+    - Steam Mephit
+    - Warhorse Skeleton
+    - Zombie
+  gold_sections: ["15.3.2", "15.44.1", "15.104.1", "15.85.1", "15.104.2",
+                  "15.97.1", "15.104.3", "15.139.1", "15.143.1", "15.104.4",
+                  "15.143.2", "15.177.1"]
+  must_not:
+    - Names a creature above Challenge Rating 1/2, or one not immune to Poison damage.

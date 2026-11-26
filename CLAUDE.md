@@ -18,11 +18,11 @@ and nothing in `chat/` writes to either.
 ## Layout
 
 A monorepo. `backend/` is the Python service, `frontend/` the React UI, `e2e/`
-the Playwright suite; `data/`, `docker-compose.yml`, the `Dockerfile` and
+the Playwright suite, `bench/` the benchmark; `data/`, `docker-compose.yml`, the `Dockerfile` and
 `.env` (from `.env.example`) are shared at the root. Every `uv` command runs from
 `backend/`; `config.py` resolves `data/` and `.env` from the repository root
-regardless of the working directory. Each of `backend/`, `frontend/` and
-`e2e/` has a README for people; this file is for agents.
+regardless of the working directory. Each of `backend/`, `frontend/`, `e2e/`
+and `bench/` has a README for people; this file is for agents.
 
 ```text
 data/
@@ -32,6 +32,8 @@ data/
                      so also shared as a file (RULES_LAWYER_EMBEDDINGS)
   chat/              chat.sqlite (checkpoints), chat-store.sqlite (pins,
                      titles): not reproducible
+  bench/             one folder per bench run: answers, grades, report;
+                     not reproducible without model calls, not committed
 
 backend/src/rules_lawyer/
   cli.py             rules-lawyer parse | embed | load
@@ -108,6 +110,10 @@ frontend/src/
   index.css          all styles; colour tokens at the top
 
 e2e/                 Playwright over the whole stack (see Testing)
+bench/               the graph agent against the whole SRD in the prompt, a
+                     smaller model and no book: questions.yaml (the answer
+                     key), arms, grading by a judge model, report; run from
+                     backend/ as `uv run python ../bench/bench.py`
 GRAPH.md             reference for every label and relationship type
 .claude/skills/srd-extract/
                      the skill for work on srd/: block schema, audit and

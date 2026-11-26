@@ -239,6 +239,7 @@ data/
   source/          the SRD PDF
   output/          generated: srd_hierarchy.{json,md,anchors.json}, srd_embeddings.idx
   chat/            saved conversations (SQLite)
+  bench/           benchmark runs: answers, grades and reports
 
 backend/src/rules_lawyer/
   cli.py           rules-lawyer parse | embed | load
@@ -249,11 +250,13 @@ backend/src/rules_lawyer/
 
 frontend/          React + Vite chat UI, proxying /api to :8000
 e2e/               Playwright tests over the whole stack
+bench/             the graph agent compared with the whole SRD in the prompt,
+                   a smaller model and no book: accuracy, citations, cost, time
 ```
 
-[`backend/`](backend/README.md), [`frontend/`](frontend/README.md) and
-[`e2e/`](e2e/README.md) each have a README covering their layout and commands,
-tests included.
+[`backend/`](backend/README.md), [`frontend/`](frontend/README.md),
+[`e2e/`](e2e/README.md) and [`bench/`](bench/README.md) each have a README
+covering their layout and commands.
 
 ## Licence
 
