@@ -26,6 +26,12 @@ class TestAverage:
         assert average("2d6 − 1") == 6
         assert average("Medium or smaller") is None
 
+    def test_given_a_flat_number_when_averaged_then_there_is_no_average(self):
+        # Given the Blowgun's flat 1, which rolls no dice
+        # When averaged
+        # Then it has no average to print, though its mean is 1
+        assert (average("1"), mean("1")) == (None, 1.0)
+
 
 class TestMean:
     def test_given_dice_and_a_flat_number_when_averaged_then_the_mean_is_exact(self):
