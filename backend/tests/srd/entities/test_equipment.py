@@ -46,9 +46,24 @@ class TestWeapons:
 
         # Then the category comes from the row each is under, and commas in parentheses stay
         assert (club["category"], club["damage"], club["cost_gp"]) == (
-            "Simple Melee", {"dice": "1d4", "type": "Bludgeoning"}, 0.1)
-        assert blowgun["damage"] == {"dice": "1", "type": "Piercing"}
+            "Simple Melee", {"dice": "1d4", "type": "Bludgeoning", "average": 2.5}, 0.1)
+        assert blowgun["damage"] == {"dice": "1", "type": "Piercing", "average": 1.0}
         assert blowgun["properties"] == ["Ammunition (Range 25/100; Needle)", "Loading"]
+
+
+    def test_given_a_versatile_weapon_when_read_then_its_two_handed_die_is_averaged(self):
+        # Given the Longsword's row, Versatile (1d10)
+        table = Table([Run("Weapons", bold=True)], [], [
+            cells("Martial Melee Weapons", "", "", "", "", ""),
+            cells("Longsword", "1d8 Slashing", "Versatile (1d10)", "Sap", "3 lb.", "15 GP")],
+            [91], [None, 0])
+
+        # When read
+        [longsword] = weapons(float_section("9.2.5", table), "SRD.pdf")
+
+        # Then both its dice are averaged exactly
+        assert (longsword["damage"]["average"], longsword["versatile"]) == (
+            4.5, {"dice": "1d10", "average": 5.5})
 
 
 class TestGear:

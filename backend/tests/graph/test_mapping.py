@@ -311,6 +311,20 @@ class TestBuildEquipment:
         # Then it has nothing to fold into and stays a node of its own
         assert one(data, "Equipment", "Weapon", name="Dagger")
 
+    def test_given_a_weapon_with_averages_when_built_then_its_node_carries_them(
+            self, tiny_document):
+        # Given a weapon whose damage, and Versatile damage, are averaged
+        dagger = tiny_document["equipment"][1]
+        dagger["damage"]["average"] = 2.5
+        dagger["versatile"] = {"dice": "1d6", "average": 3.5}
+
+        # When the document is built
+        node = one(mapping.build(tiny_document), "Equipment", "Weapon", name="Dagger")
+
+        # Then both averages are properties to compare weapons by
+        assert (node["damage_average"], node["versatile_dice"], node["versatile_average"]) == (
+            2.5, "1d6", 3.5)
+
     def test_given_a_table_row_naming_its_table_when_built_then_it_is_defined_in_it(
             self, tiny_document):
         # Given a weapon that names the table printing it
